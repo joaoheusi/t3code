@@ -1,3 +1,6 @@
+import { PreparedTaskBanner } from "../../quickActions/PreparedTaskBanner";
+import { QuickActionsPalette } from "../../quickActions/QuickActionsPalette";
+import { registerActionEditor } from "~/quickActions/dispatcher";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -6117,6 +6120,38 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [expandMobileComposer, insertComposerText, isComposerCollapsedMobile],
   );
 
+  useEffect(
+    () =>
+      registerActionEditor(composerDraftTarget, {
+        available: () =>
+          environmentUnavailable === null &&
+          !isRevertingCheckpoint &&
+          !isConnecting &&
+          !isComposerApprovalState &&
+          pendingUserInputs.length === 0 &&
+          !projectSelectionRequired,
+        read: () => ({
+          text: promptRef.current,
+          selection: composerEditorRef.current?.readSelectionRange() ?? {
+            start: promptRef.current.length,
+            end: promptRef.current.length,
+          },
+        }),
+        replace: (start, end, text) => applyPromptReplacement(start, end, text),
+      }),
+    [
+      composerDraftTarget,
+      environmentUnavailable,
+      isRevertingCheckpoint,
+      isConnecting,
+      isComposerApprovalState,
+      pendingUserInputs.length,
+      projectSelectionRequired,
+      promptRef,
+      applyPromptReplacement,
+    ],
+  );
+
   // Context produced by other panels (diff comments, preview picks) asks the store to place
   // its chip; while this composer is mounted for the draft, that means the caret.
   const insertContextReferencesAtCaret = useCallback(
@@ -6611,6 +6646,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             restingControlsHost,
           )
         : null}
+      <PreparedTaskBanner target={composerDraftTarget} />
+      <QuickActionsPalette
+        environmentId={environmentId}
+        target={composerDraftTarget}
+        projectId={pullRequestProjectId}
+        keybindings={keybindings}
+        terminalOpen={terminalOpen}
+      />
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack

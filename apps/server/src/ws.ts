@@ -1,3 +1,4 @@
+import * as QuickActions from "./quickActions/QuickActions.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1297,6 +1298,7 @@ const layerWsRpc = (
           Effect.ignore,
         ),
       );
+      const quickActions = yield* QuickActions.QuickActions;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
@@ -2564,6 +2566,10 @@ const layerWsRpc = (
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
+        [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
+        [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),
+        [WS_METHODS.quickActionsDelete]: (input) => quickActions.remove(input),
         [WS_METHODS.serverGetSettings]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetSettings,
@@ -3810,6 +3816,7 @@ export const layer = Layer.unwrap(
             { status: 426 },
           );
         }
+        const quickActions = yield* QuickActions.QuickActions;
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
         const analytics = yield* AnalyticsService.AnalyticsService;
@@ -3846,6 +3853,7 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.provide(Layer.succeed(QuickActions.QuickActions, quickActions)),
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),

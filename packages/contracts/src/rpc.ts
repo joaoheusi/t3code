@@ -1,3 +1,11 @@
+import {
+  QuickActionImportInput,
+  QuickAction,
+  QuickActionError,
+  QuickActionSaveInput,
+  QuickActionDeleteInput,
+  QuickActionsListInput,
+} from "./quickActions.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
   ChatGptReconnectProfileInput,
@@ -340,6 +348,10 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
+  quickActionsList: "fork.quickActions.list",
+  quickActionsSave: "fork.quickActions.save",
+  quickActionsDelete: "fork.quickActions.delete",
+  quickActionsImport: "fork.quickActions.import",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1732,6 +1744,26 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 ) {}
 
 export const WsRpcGroup = RpcGroup.make(
+  Rpc.make(WS_METHODS.quickActionsList, {
+    payload: QuickActionsListInput,
+    success: Schema.Array(QuickAction),
+    error: Schema.Union([QuickActionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.quickActionsSave, {
+    payload: QuickActionSaveInput,
+    success: QuickAction,
+    error: Schema.Union([QuickActionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.quickActionsImport, {
+    payload: QuickActionImportInput,
+    success: Schema.Array(QuickAction),
+    error: Schema.Union([QuickActionError, EnvironmentAuthorizationError]),
+  }),
+  Rpc.make(WS_METHODS.quickActionsDelete, {
+    payload: QuickActionDeleteInput,
+    success: Schema.Void,
+    error: Schema.Union([QuickActionError, EnvironmentAuthorizationError]),
+  }),
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,

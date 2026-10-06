@@ -386,6 +386,14 @@
     "./device/duo-control": {
       "types": "./src/device/duoControl.ts",
       "default": "./src/device/duoControl.ts"
+    },
+    "./actions/dispatcher": {
+      "types": "./src/actions/dispatcher.ts",
+      "default": "./src/actions/dispatcher.ts"
+    },
+    "./state/quickActions": {
+      "types": "./src/state/quickActions.ts",
+      "default": "./src/state/quickActions.ts"
     }
   },
   "scripts": {

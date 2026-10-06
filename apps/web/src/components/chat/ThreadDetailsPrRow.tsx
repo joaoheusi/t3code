@@ -16,7 +16,7 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
  * from the linked snapshot or branch summary, or just the link when status is unavailable.
  */
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId, PullRequestRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, PullRequestRef, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import {
   ArrowUpRightIcon,
@@ -80,6 +80,7 @@ import {
 
 export function ThreadDetailsPrRow({
   environmentId,
+  threadRef,
   pr,
   number,
   reference: linkedReference,
@@ -92,6 +93,7 @@ export function ThreadDetailsPrRow({
   onStopWatching,
 }: {
   environmentId: EnvironmentId;
+  threadRef?: ScopedThreadRef;
   pr: ThreadPr;
   number: number;
   reference?: Pick<PullRequestRef, "host" | "repository" | "number"> | null;
@@ -162,7 +164,11 @@ export function ThreadDetailsPrRow({
       onActed?.();
     },
   });
-  const { handoff, startHandoff } = usePullRequestHandoffs({ environmentId, detail });
+  const { handoff, startHandoff } = usePullRequestHandoffs({
+    environmentId,
+    detail,
+    target: threadRef ?? null,
+  });
   const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   const rowAction = resolveThreadPanelPullRequestAction(detail);

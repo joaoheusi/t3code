@@ -79,6 +79,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "preview.zoomOut",
   "preview.resetZoom",
   "commandPalette.toggle",
+  "quickActions.toggle",
   "filePicker.toggle",
   "projectSearch.toggle",
   "usage.open",
@@ -123,6 +124,11 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
   SCRIPT_RUN_COMMAND_PATTERN,
+  Schema.TemplateLiteral([
+    Schema.Literal("quickAction."),
+    Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/)),
+    Schema.Literal(".insert"),
+  ]),
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;
 

@@ -1,3 +1,6 @@
+import type { ComposerThreadTarget } from "../../composerDraftStore";
+import { insertContextualTask } from "../../quickActions/dispatcher";
+import { prepareTask } from "../../quickActions/preparedTasks";
 /**
  * The actions a pull request offers, extracted from the detail panel so smaller surfaces — the
  * thread details panel's pull request row — perform them through the very same code. Two callers
@@ -259,8 +262,10 @@ const lastHandoffPromptByDraft = new Map<DraftId, string>();
 export function usePullRequestHandoffs({
   environmentId,
   detail,
+  target = null,
 }: {
   environmentId: EnvironmentId;
+  target?: ComposerThreadTarget | null;
   detail: PullRequestHandoffDetail | null;
 }) {
   const newThread = useNewThreadHandler();
@@ -318,30 +323,10 @@ export function usePullRequestHandoffs({
   };
 
   /** A question about the change, which needs a thread and nothing else. */
-  const startAsk = async (kind: string, task: PullRequestThreadTask) => {
-    if (!detail || handoff !== null) return;
-    setHandoff(kind);
-    const projectRef = scopeProjectRef(environmentId, detail.projectId);
-    const opened = await openThreadWithTask(projectRef, task);
-    setHandoff(null);
-    if (opened === null) {
-      toastManager.add({
-        type: "error",
-        title: "Could not open a thread",
-        description: "Try again from the project, or open a thread first.",
-      });
-      return;
+  const startAsk = async (_kind: string, task: PullRequestThreadTask) => {
+    if (detail && handoff === null && target !== null) {
+      if (!insertContextualTask(target, task)) prepareTask(target, task);
     }
-    toastManager.add({
-      type: "success",
-      title: "Asked in a thread",
-      // "Ask" leaves the composer empty on purpose, so saying the question is in it would send
-      // the reader looking for something that is not there. The chips are what landed.
-      description:
-        task.prompt.length > 0
-          ? "The question is in the composer — read it over, then send."
-          : "The pull request is in the composer — type your question, then send.",
-    });
   };
 
   // Every handoff works the same way: check the pull request out into its own worktree, open a
@@ -356,6 +341,13 @@ export function usePullRequestHandoffs({
     mode: "worktree" | "local" = "worktree",
   ) => {
     if (!detail || handoff !== null) return;
+    if (task !== null) {
+      if (target !== null) {
+        if (!insertContextualTask(target, task)) prepareTask(target, task);
+      }
+      return;
+    }
+
     setHandoff(kind);
     // The menu closes on the press and takes its "Preparing..." label with it, so this is the
     // only thing answering for the checkout. It carries no timeout of its own: a loading toast

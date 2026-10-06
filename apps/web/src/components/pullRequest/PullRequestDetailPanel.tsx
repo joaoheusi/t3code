@@ -1,3 +1,5 @@
+import { useTaskDestination } from "../../quickActions/useTaskDestination";
+import { insertContextualTask } from "../../quickActions/dispatcher";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
@@ -132,8 +134,6 @@ import {
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
   buildResolveConflictsPrompt,
-  handoffPrompt,
-  handoffReviewComments,
   latestPullRequestReviewOutcomes,
   loadingPullRequestCheckoutCommand,
   isPullRequestNotFound,
@@ -154,7 +154,6 @@ import {
   resolvePullRequestMergeMethod,
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
-  stripPullRequestHandoffReferences,
   writePullRequestDetailSnapshot,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
@@ -251,16 +250,6 @@ const TABS: ReadonlyArray<{ value: DetailTab; label: string }> = [
 // Start the download on tab hover or focus, before the click, without loading it for every PR.
 const loadCodeTab = () => import("./PullRequestCodeTab");
 const PullRequestCodeTab = lazy(loadCodeTab);
-
-/**
- * What the last hand-off wrote into each draft, kept outside React because the panel that wrote it
- * is closed by the time the next one opens. It is how a prompt the reader has since edited is told
- * apart from the one they were handed: only the sentence still exactly as written may be replaced.
- */
-const lastHandoffPromptByDraft = new Map<string, string>();
-
-const composerTargetKey = (target: ScopedThreadRef | DraftId): string =>
-  typeof target === "string" ? target : scopedThreadKey(target);
 
 /**
  * Which server the checkout and the hand-offs land on, where more than one of them holds this
@@ -1029,45 +1018,16 @@ export function PullRequestDetailPanel({
     reviewComments?: ReadonlyArray<ReviewCommentContext>;
   };
 
-  const attachTarget = composerDraftTarget ?? null;
+  const attachTarget = composerDraftTarget ?? threadRef;
+  const taskDestination = useTaskDestination(
+    actingEnvironmentId,
+    acting?.projectId ?? requestedReference.projectId,
+    attachTarget,
+  );
   const handoffLabels = pullRequestHandoffLabels(attachTarget !== null);
 
-  const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) => {
-    const store = useComposerDraftStore.getState();
-    const draft = store.getComposerDraft(target);
-    const key = composerTargetKey(target);
-    const previousCommentIds = new Set((draft?.reviewComments ?? []).map((comment) => comment.id));
-    const repeatedCommentIds = new Set(
-      (task.reviewComments ?? [])
-        .filter((comment) => previousCommentIds.has(comment.id))
-        .map((comment) => comment.id),
-    );
-    const promptWithoutPreviousHandoff = stripPullRequestHandoffReferences(
-      draft?.prompt ?? "",
-      draft?.reviewComments ?? [],
-      repeatedCommentIds,
-    );
-    const prompt = handoffPrompt(
-      {
-        prompt: promptWithoutPreviousHandoff,
-        lastHandoffPrompt: lastHandoffPromptByDraft.get(key),
-      },
-      task.prompt,
-    );
-    lastHandoffPromptByDraft.set(key, task.prompt);
-    store.setPrompt(target, prompt);
-    store.setReviewComments(
-      target,
-      handoffReviewComments(draft?.reviewComments ?? [], task.reviewComments ?? []),
-    );
-    for (const comment of task.reviewComments ?? []) {
-      if (!repeatedCommentIds.has(comment.id)) continue;
-      store.addReviewComment(target, comment, {
-        allowDuplicateReference: true,
-        insertAtCaret: false,
-      });
-    }
-  };
+  const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) =>
+    insertContextualTask(target, task);
 
   /**
    * Opens a thread on this project and leaves the task in its composer for the reader to send.
@@ -1098,42 +1058,8 @@ export function PullRequestDetailPanel({
   };
 
   /** A question about the change, which needs a thread and nothing else. */
-  const startAsk = async (kind: string, task: ThreadTask) => {
-    if (!detail || handoff !== null) return;
-    if (attachTarget !== null) {
-      writeTaskToComposer(attachTarget, task);
-      toastManager.add({
-        type: "success",
-        title: "Added to the composer",
-        description:
-          task.prompt.length > 0
-            ? "The question is in the composer — read it over, then send."
-            : "The pull request is in the composer — type your question, then send.",
-      });
-      return;
-    }
-    setHandoff(kind);
-    const projectRef = scopeProjectRef(actingEnvironmentId, acting?.projectId ?? detail.projectId);
-    const opened = await openThreadWithTask(projectRef, task);
-    setHandoff(null);
-    if (opened === null) {
-      toastManager.add({
-        type: "error",
-        title: "Could not open a thread",
-        description: "Try again from the project, or open a thread first.",
-      });
-      return;
-    }
-    toastManager.add({
-      type: "success",
-      title: "Asked in a thread",
-      // "Ask" leaves the composer empty on purpose, so saying the question is in it would send
-      // the reader looking for something that is not there. The chips are what landed.
-      description:
-        task.prompt.length > 0
-          ? "The question is in the composer — read it over, then send."
-          : "The pull request is in the composer — type your question, then send.",
-    });
+  const startAsk = async (_kind: string, task: ThreadTask) => {
+    if (detail && handoff === null) taskDestination.request(task);
   };
 
   // Every handoff works the same way: check the pull request out into its own worktree, open a
@@ -1148,13 +1074,8 @@ export function PullRequestDetailPanel({
     mode: "worktree" | "local" = "worktree",
   ) => {
     if (!handoffSummary || handoff !== null) return;
-    if (attachTarget !== null && task !== null) {
-      writeTaskToComposer(attachTarget, task);
-      toastManager.add({
-        type: "success",
-        title: "Added to the composer",
-        description: "The task is in the composer — read it over, then send.",
-      });
+    if (task !== null) {
+      taskDestination.request(task);
       return;
     }
     if (checkoutRoot === null) return;
@@ -1614,6 +1535,7 @@ export function PullRequestDetailPanel({
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+      {taskDestination.chooser}
       {threadPickerOpen && detail ? (
         <PullRequestThreadLinks
           key={`${environmentId}:${detail.url}`}
@@ -2003,7 +1925,7 @@ export function PullRequestDetailPanel({
                       <span className="text-xs text-muted-foreground">
                         {attachTarget !== null
                           ? "Adds the pull request to this thread's composer."
-                          : "Opens a thread that knows which pull request you mean."}
+                          : "Choose an existing thread or open a new one."}
                       </span>
                     </span>
                   </MenuItem>

@@ -402,6 +402,10 @@
     "./forkIdentity": {
       "types": "./src/forkIdentity.ts",
       "import": "./src/forkIdentity.ts"
+    },
+    "./quickActions": {
+      "types": "./src/quickActions.ts",
+      "import": "./src/quickActions.ts"
     }
   },
   "scripts": {
