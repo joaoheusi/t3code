@@ -36,11 +36,11 @@ import {
   type ServiceState,
 } from "./serviceProtocol.ts";
 
-const BOOT_SERVICE_NAME = "t3code";
+const BOOT_SERVICE_NAME = "j4code";
 const BOOT_SERVICE_UNIT_FILE = `${BOOT_SERVICE_NAME}.service`;
 // `.service` suffix keeps the label distinct from the desktop app's bundle id
 // (com.t3tools.t3code), so launchd and TCC records never collide.
-const BOOT_SERVICE_LAUNCHD_LABEL = "com.t3tools.t3code.service";
+const BOOT_SERVICE_LAUNCHD_LABEL = "dev.joaoheusi.j4code.service";
 const BOOT_SERVICE_PLIST_FILE = `${BOOT_SERVICE_LAUNCHD_LABEL}.plist`;
 const BOOT_SERVICE_UNIT_ENV = "T3_BOOT_SERVICE_UNIT";
 /** File in the logs dir that receives the service's stdout and stderr. `t3 triage` points agents at it. */
@@ -98,7 +98,7 @@ export function renderBootServiceUnit(plan: BootServicePlan): string {
   // The user manager has no reliable network-online target; server networking retries itself.
   return [
     "[Unit]",
-    "Description=T3 Code server",
+    "Description=J4 Code unofficial server",
     "StartLimitIntervalSec=300",
     "StartLimitBurst=5",
     "",
@@ -463,7 +463,7 @@ export function formatBootServiceProblem(problem: BootServiceProblem): string {
     case "service-disabled":
       return "The service is not enabled to start automatically. Run `t3 service install` to repair it.";
     case "service-stopped":
-      return "The service is not running. Check the service log and `systemctl --user status t3code.service`, then run `t3 service install`.";
+      return "The service is not running. Check the service log and `systemctl --user status j4code.service`, then run `t3 service install`.";
     case "restart-pending":
       return "A newer version is installed but the service is still running the previous one. Run `t3 service restart` to switch.";
   }

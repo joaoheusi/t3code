@@ -1,3 +1,4 @@
+import { forkUpdatesEnabled } from "@t3tools/shared/forkIdentity";
 import {
   HostProcessArchitecture,
   HostProcessEnvironment,
@@ -255,6 +256,12 @@ export const updateCommand = Command.make("update", {
   ),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
+      if (!forkUpdatesEnabled())
+        return yield* Effect.fail(
+          new CliUpdateError({
+            reason: "J4 Code uses manual fork updates. Build and install from joaoheusi/t3code.",
+          }),
+        );
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
       return yield* runUpdate({
@@ -304,7 +311,7 @@ const belongsToBootService = Effect.fn("cli.update.belongs_to_boot_service")(fun
   const runner = yield* ProcessRunner.ProcessRunner;
   if (platform === "linux") {
     const cgroup = yield* fs.readFileString(`/proc/${pid}/cgroup`).pipe(Effect.option);
-    return Option.isSome(cgroup) && cgroup.value.includes("/t3code.service");
+    return Option.isSome(cgroup) && cgroup.value.includes("/j4code.service");
   }
   if (platform === "darwin") {
     // The service server's parent is the launcher process.

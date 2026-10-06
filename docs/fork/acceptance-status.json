@@ -1,0 +1,516 @@
+{
+  "schemaVersion": 1,
+  "buildStatus": "development; not a replacement for the official installation",
+  "upstreamCommit": "f4f148eb670622a049ae6561d7795011e383fc43",
+  "host": {
+    "os": "macOS 26.4.1",
+    "architecture": "arm64",
+    "installedOfficialVersion": "0.0.46-nightly.20261005.2689"
+  },
+  "cases": [
+    {
+      "id": "QA-01",
+      "case": "Open, search, select, cancel",
+      "passCondition": "Keyboard-only use works; cancel leaves draft/context unchanged.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-02",
+      "case": "Conflicting shortcut",
+      "passCondition": "Existing binding is identified; no silent reassignment.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-03",
+      "case": "Terminal focus",
+      "passCondition": "Unrelated shortcuts and terminal input retain existing behavior.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-04",
+      "case": "Text/selection insertion",
+      "passCondition": "One insertion at the captured editor selection; surrounding text and attachments survive.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-05",
+      "case": "Edit draft during context preparation",
+      "passCondition": "Stale insertion is rejected or offers explicit append; new typing is not overwritten.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-06",
+      "case": "Change thread/environment during preparation",
+      "passCondition": "No insertion into the newly focused destination and no automatic navigation.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-07",
+      "case": "Double key event/retry",
+      "passCondition": "Only one insertion and one usage increment.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-08",
+      "case": "Busy provider",
+      "passCondition": "Action prepares a draft only; no queue, steer, or agent turn starts.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-09",
+      "case": "Missing/unknown template variable",
+      "passCondition": "Clear validation/availability message; no guessed or silently empty context.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-10",
+      "case": "CRUD, revisions, disabled action",
+      "passCondition": "Changes persist; stale edits fail safely; deleted/disabled direct actions do not run.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-11",
+      "case": "Portable import/export",
+      "passCondition": "Valid standalone text format round-trips; fork-only data is not silently exported as portable.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "QA-12",
+      "case": "Malicious import/read-only client",
+      "passCondition": "Imported code/unknown builders are rejected; read-only authorization cannot edit server actions or send tasks.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-01",
+      "case": "Existing single-repo thread",
+      "passCondition": "Same checkout, branch, model, transcript, and supported operations after migration.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-02",
+      "case": "Explicit API/Web selection",
+      "passCondition": "Both bindings survive reload; one conversation owns the task.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-03",
+      "case": "Parent-folder discovery",
+      "passCondition": "Returns selectable repositories, not an automatically authorized workspace.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-04",
+      "case": "Repeated subfolders within one repository",
+      "passCondition": "Correct canonical identity; no duplicate checkout binding.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-05",
+      "case": "Same remote, separate local clones",
+      "passCondition": "Distinct checkout identity; no accidental collapse based on URL.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-06",
+      "case": "Worktree `.git` file",
+      "passCondition": "Identified as a Git checkout without requiring a `.git` directory.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-07",
+      "case": "Symlink escape or traversal",
+      "passCondition": "Rejected or requires explicit authorized selection; no silent broadened access.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-08",
+      "case": "Submodule/nested repository",
+      "passCondition": "Ownership and excluded paths are explicit; no parent operation silently mutates a child.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-09",
+      "case": "Non-Git parent and large tree",
+      "passCondition": "Bounded/cancellable discovery; truncation and skipped areas are reported.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-10",
+      "case": "Current checkout with dirty files",
+      "passCondition": "No switch, reset, stash, or discard; unrelated work remains.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-11",
+      "case": "New worktree",
+      "passCondition": "Uses the approved base commit, not an assumed copy of uncommitted source changes.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-12",
+      "case": "Existing branch already checked out",
+      "passCondition": "Reuses only an explicitly selected eligible worktree or stops with an explanation.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-13",
+      "case": "Mixed current/new/existing modes",
+      "passCondition": "Correct working directories reach the agent and every file/Git UI.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-14",
+      "case": "One preparation step fails",
+      "passCondition": "Other results remain visible; retry does not duplicate successful worktrees.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-15",
+      "case": "Crash after creating a worktree",
+      "passCondition": "Durable reconciliation discovers the result and safely resumes or reports repair.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-16",
+      "case": "Cancel preparation",
+      "passCondition": "Stops further work; created resources are reported and cleaned only under ownership/safety rules.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-17",
+      "case": "Setup scripts/config/secrets",
+      "passCondition": "No script execution or secret copying without the defined approval.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-18",
+      "case": "Supported provider multi-root turn",
+      "passCondition": "Agent edits both approved paths; permission prompts retain the correct host/path scope.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-19",
+      "case": "Unsupported provider",
+      "passCondition": "Multi-repo launch is blocked; existing single-repo support remains.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-20",
+      "case": "Resume after restart",
+      "passCondition": "Same valid manifest and native provider context; no silent new session or substituted path.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-21",
+      "case": "Checkout removed or changed externally",
+      "passCondition": "Affected binding is unavailable/stale; mutation stops rather than targeting another checkout.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-22",
+      "case": "Add/remove repo while running",
+      "passCondition": "Membership change is refused; no mid-turn permission expansion.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-23",
+      "case": "Idle membership reconfiguration",
+      "passCondition": "Supported adapter updates explicitly; unsupported adapter leaves the existing thread unchanged.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-24",
+      "case": "Same relative file in two repos",
+      "passCondition": "Diff tabs, editor links, and caches remain repository-qualified.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-25",
+      "case": "Per-repo status/diff error",
+      "passCondition": "Other results stay usable; aggregate UI shows incomplete data, not \u201cclean.\u201d",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-26",
+      "case": "Git operation and PR creation",
+      "passCondition": "Correct repo/branch/remote; link belongs to the matching binding and existing thread.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-27",
+      "case": "Partial push/PR result",
+      "passCondition": "Successes and failures are recorded individually; uncertain writes are not blindly retried.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-28",
+      "case": "PRs with identical numbers on different hosts/repos",
+      "passCondition": "Correct identity, status, context, and linked-thread behavior.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-29",
+      "case": "PR watch and settlement",
+      "passCondition": "Existing watches work; one open/unresolved linked PR prevents false all-done settlement.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-30",
+      "case": "Multi-repo restore",
+      "passCondition": "Unsupported aggregate file restore is disabled with a clear reason; eligible single-repo restore still works.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-31",
+      "case": "Cleanup shared/dirty/unpushed worktree",
+      "passCondition": "No deletion while another thread/terminal owns it or safety checks fail.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "MR-32",
+      "case": "Remote environment and load balancing",
+      "passCondition": "All bindings execute on the selected host; no local-path substitution or cross-host rebalance mid-task.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-01",
+      "case": "Resolve from thread-details row",
+      "passCondition": "Current scoped draft gets context; thread/worktree count stays unchanged.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-02",
+      "case": "Resolve from full PR panel",
+      "passCondition": "Same dispatcher and destination behavior as the compact row.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-03",
+      "case": "Quick-action palette/direct shortcut",
+      "passCondition": "Same context builder and insertion behavior as buttons.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-04",
+      "case": "Explicit \u201cOpen in new thread\u201d",
+      "passCondition": "Separate choice retains the intended upstream handoff and preparation behavior.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-05",
+      "case": "Global PR page without a destination",
+      "passCondition": "Asks to select a thread; does not guess the most recent one.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-06",
+      "case": "Wrong branch/repo/host",
+      "passCondition": "Explains mismatch; does not switch checkout or silently change destination.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-07",
+      "case": "Missing, denied, stale, or truncated CI logs",
+      "passCondition": "Names the limitation; no fabricated log context or claim of complete failure analysis.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-08",
+      "case": "PR head changes during preparation",
+      "passCondition": "Prepared failure/commit association is invalidated or clearly refreshed.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-09",
+      "case": "Untrusted CI output/review body",
+      "passCondition": "No execution, arbitrary fetch, privilege change, or unsafe HTML rendering.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-10",
+      "case": "Remote conflict versus local unmerged state",
+      "passCondition": "Context correctly distinguishes both; preparation starts no merge/rebase.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-11",
+      "case": "Existing text/chips/attachments",
+      "passCondition": "User content remains; only identical application-owned context is deduplicated.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "ST-12",
+      "case": "Read-only/archived/disconnected target",
+      "passCondition": "No unauthorized insertion/send or silent thread revival; actionable state shown.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-01",
+      "case": "Separate official/fork installation",
+      "passCondition": "Profiles, homes, locks, services, and URL handlers do not collide.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-02",
+      "case": "Backup and migration",
+      "passCondition": "Old transcripts decode; original backup remains usable; external assets are accounted for.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-03",
+      "case": "Failed/newer-schema migration",
+      "passCondition": "Stops safely; does not reset data or open it through an unsupported binary.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-04",
+      "case": "Provider/Git account setup",
+      "passCondition": "Correct accounts and homes on the execution host; managed login, CLI login, reauthorization, and account switching tested separately. No silent API-billing fallback.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-05",
+      "case": "Direct Tailscale pairing with Connect disabled",
+      "passCondition": "Second device authenticates and uses the fork without a cloud route.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-06",
+      "case": "Tailscale full workflow",
+      "passCondition": "Chat, approvals, both repos, diffs, terminal, and PR operations use the intended host.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-07",
+      "case": "Restart, sleep/wake, network change",
+      "passCondition": "Resume/reconnect retains environment identity and does not duplicate agent work.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-08",
+      "case": "Revocation/invalid credential/wrong server",
+      "passCondition": "Access is rejected; credentials are not sent to a mismatched learned endpoint.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-09",
+      "case": "Serve mapping ownership",
+      "passCondition": "Coexisting installations cannot remove each other's route; no public exposure is enabled.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-10",
+      "case": "Fork bundled web UI",
+      "passCondition": "Changed controls and assets load over the paired HTTPS endpoint on desktop and phone browsers.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-11",
+      "case": "Official desktop/web/mobile client matrix",
+      "passCondition": "Exact tested versions recorded; unsupported multi-repo mutation fails safely; incompatibility is disclosed.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-12",
+      "case": "T3 Connect and native callbacks",
+      "passCondition": "Separately marked passed/failed/not tested; public config is not treated as proof of native sign-in.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-13",
+      "case": "Mobile push/Live Activities",
+      "passCondition": "Tested through the configured cloud path or explicitly unavailable; Tailscale is not advertised as their replacement.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-14",
+      "case": "Every update entry point",
+      "passCondition": "Uses the owned fork artifacts or says manual update; no upstream fallback replacement.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-15",
+      "case": "SSH and WSL bootstrap",
+      "passCondition": "Matching fork runtime, correct platform, verified checksum, isolated ownership.",
+      "status": "not tested",
+      "evidence": []
+    },
+    {
+      "id": "CP-16",
+      "case": "Inherited feature regression",
+      "passCondition": "Existing single-repo browser/tools, skills, approvals, PR links, queue/steer, and supported restore remain functional. Record native-helper, clipboard, notification, and OS-permission results under the fork identity.",
+      "status": "not tested",
+      "evidence": []
+    }
+  ]
+}

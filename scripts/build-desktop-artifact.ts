@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { forkUpdatesEnabled } from "@t3tools/shared/forkIdentity";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -54,7 +55,7 @@ import { Command, Flag } from "effect/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const LINUX_ICON_SIZES = [16, 22, 24, 32, 48, 64, 128, 256, 512] as const;
-const DESKTOP_APP_ID = "com.t3tools.t3code";
+const DESKTOP_APP_ID = "dev.joaoheusi.j4code";
 const APPLE_TEAM_ID_PATTERN = /^[A-Z0-9]{10}$/u;
 
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
@@ -2577,7 +2578,9 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     Option.getOrUndefined(env.githubRepository)?.trim() ||
     ""
   ).trim();
-  if (!rawRepo) return undefined;
+  if (rawRepo !== "joaoheusi/t3code") return undefined;
+  // Manual updates until owned fork artifacts pass the distribution gates.
+  if (!forkUpdatesEnabled()) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
   if (!owner || !repo || rest.length > 0) return undefined;
@@ -2645,7 +2648,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Code (Nightly)"
+    ? "J4 Code (Unofficial Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
@@ -2726,8 +2729,8 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       },
       protocols: [
         {
-          name: "T3 Code",
-          schemes: ["t3code", "t3code-dev"],
+          name: "J4 Code (Unofficial)",
+          schemes: ["j4code", "j4code-dev"],
         },
       ],
       ...(signed ? { sign: path.join(repoRoot, "scripts/sign-macos.ts") } : {}),
@@ -2775,7 +2778,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // resources/package-type into the .deb only, so electron-updater updates
       // each install in its own format.
       target: target === "AppImage" ? [target, "deb"] : [target],
-      executableName: "t3code",
+      executableName: "j4code",
       icon: "icons",
       category: "Development",
       synopsis: "Desktop GUI for coding agents",
@@ -2786,13 +2789,13 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       // t3code:// OAuth callbacks to the app.
       protocols: [
         {
-          name: "T3 Code",
-          schemes: ["t3code", "t3code-dev"],
+          name: "J4 Code (Unofficial)",
+          schemes: ["j4code", "j4code-dev"],
         },
       ],
       desktop: {
         entry: {
-          StartupWMClass: "t3code",
+          StartupWMClass: "j4code",
         },
       },
     };
