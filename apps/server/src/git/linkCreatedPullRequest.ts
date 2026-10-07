@@ -53,12 +53,14 @@ export function createdPullRequestKey(
 
 /**
  * Links the pull request a `create_pr`-shaped action produced to the thread it
- * ran beside. Never fails: the git action already succeeded and its result is
- * on its way to the client, so a link that cannot be made is logged and
- * dropped. A duplicate link is the decider saying the thread already knew.
+ * ran beside, under the thread repository whose checkout the action ran in.
+ * Never fails: the git action already succeeded and its result is on its way
+ * to the client, so a link that cannot be made is logged and dropped. A
+ * duplicate link is the decider saying the thread already knew.
  */
 export const linkCreatedPullRequest = <E>(input: {
   readonly threadId: ThreadId;
+  readonly cwd: string;
   readonly result: Pick<GitRunStackedActionResult, "pr">;
   readonly commandId: Effect.Effect<CommandId, E>;
 }): Effect.Effect<void, never, Orchestrator.OrchestratorV2 | ProjectService.ProjectService> =>
@@ -72,6 +74,9 @@ export const linkCreatedPullRequest = <E>(input: {
     const project = Option.getOrUndefined(yield* projects.getShell(thread.value.projectId));
     const key = createdPullRequestKey(input.result, project);
     if (key === null) return;
+    const bindingId = thread.value.workspace?.bindings.find(
+      (binding) => binding.checkoutPath === input.cwd,
+    )?.id;
     const commandId = yield* input.commandId;
     yield* engine
       .dispatch({
@@ -80,6 +85,7 @@ export const linkCreatedPullRequest = <E>(input: {
         threadId: input.threadId,
         ...key,
         source: "created",
+        ...(bindingId === undefined ? {} : { bindingId }),
       })
       .pipe(Effect.asVoid);
   }).pipe(

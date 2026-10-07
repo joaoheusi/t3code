@@ -3188,16 +3188,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   link.repository.toLowerCase() === key.repository &&
                   link.stack?.layers.some((layer) => layer.number === key.number),
               );
-            pullRequests = belongsToStack
-              ? links.map((link) =>
-                  link === existing
-                    ? {
-                        ...withPullRequestWatch(link, undefined),
-                        source: "stack-dismissed" as const,
-                      }
-                    : link,
-                )
-              : links.filter((link) => link !== existing);
+            // A repository's branch pull request is rediscovered after every run, so it
+            // keeps a tombstone too.
+            pullRequests =
+              belongsToStack || existing.bindingId !== undefined
+                ? links.map((link) =>
+                    link === existing
+                      ? {
+                          ...withPullRequestWatch(link, undefined),
+                          source: "stack-dismissed" as const,
+                        }
+                      : link,
+                  )
+                : links.filter((link) => link !== existing);
           } else {
             if (!existing) return thread;
             pullRequests = links.map((link) =>

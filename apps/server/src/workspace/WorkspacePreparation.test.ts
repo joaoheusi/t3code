@@ -166,3 +166,46 @@ it.effect("cancellation stops later bindings without deleting the completed chec
     assert.equal((yield* projections.getThread(threadId)).workspace?.state, "cancelled");
   }).pipe(Effect.provide(base)),
 );
+it.effect("unlinking a repository's pull request leaves a tombstone a manual link restores", () =>
+  Effect.gen(function* () {
+    yield* seed;
+    const engine = yield* Orchestrator.OrchestratorV2;
+    const key = { host: "github.com", repository: "acme/web" };
+    const link = (number: number, source: "created" | "manual", bindingId?: string) =>
+      engine.dispatch({
+        type: "thread.pull-request.link",
+        commandId: CommandId.make(`link-${number}-${source}`),
+        threadId,
+        ...key,
+        number,
+        url: `https://github.com/acme/web/pull/${number}`,
+        source,
+        ...(bindingId === undefined ? {} : { bindingId }),
+      });
+    const unlink = (number: number) =>
+      engine.dispatch({
+        type: "thread.pull-request.unlink",
+        commandId: CommandId.make(`unlink-${number}`),
+        threadId,
+        ...key,
+        number,
+      });
+    const links = () =>
+      engine.getThreadShell(threadId).pipe(
+        Effect.map((thread) =>
+          (thread?.pullRequests ?? []).map(({ number, source, bindingId }) => ({
+            number,
+            source,
+            bindingId,
+          })),
+        ),
+      );
+    yield* link(1, "created", "web");
+    yield* link(2, "manual");
+    yield* unlink(1);
+    yield* unlink(2);
+    assert.deepEqual(yield* links(), [{ number: 1, source: "stack-dismissed", bindingId: "web" }]);
+    yield* link(1, "manual");
+    assert.deepEqual(yield* links(), [{ number: 1, source: "manual", bindingId: "web" }]);
+  }).pipe(Effect.provide(base)),
+);

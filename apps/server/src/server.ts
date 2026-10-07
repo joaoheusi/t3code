@@ -1,6 +1,7 @@
 import * as ForkThreadCommandExecutor from "./orchestration-v2/ThreadCommandExecutor.ts";
 import * as ForkWorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
 import * as ForkWorkspaceApi from "./workspace/WorkspaceApi.ts";
+import * as ForkWorkspaceRepositorySync from "./workspace/WorkspaceRepositorySync.ts";
 import * as QuickActions from "./quickActions/QuickActions.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -495,6 +496,10 @@ const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService));
 
+const layerForkRepositorySyncWorker = Layer.effectDiscard(
+  ForkWorkspaceRepositorySync.make.pipe(Effect.flatMap((service) => service.start())),
+);
+
 const layerProviderInstallationRefresh = Layer.effectDiscard(
   Effect.gen(function* () {
     const antigravity = yield* AntigravityInstallation.AntigravityInstallation;
@@ -536,6 +541,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ProjectionStoreV2.layer),
   ),
   layerThreadPullRequestWorker,
+  layerForkRepositorySyncWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;

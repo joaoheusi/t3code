@@ -1,5 +1,4 @@
 import {
-  isThreadCheckoutBinding,
   type EditorId,
   type EnvironmentId,
   type ProjectScript,
@@ -30,9 +29,9 @@ import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { useThreadShell } from "../../state/entities";
 import {
   RepositoryBranchRow,
+  RepositoryPullRequestRows,
   ThreadRepositoriesSection,
   useActiveRepository,
 } from "../../workspace/ThreadRepositoriesSection";
@@ -89,7 +88,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   // A multi-repository thread lists its repositories, and Git acts on the one picked there.
   const activeRepository = useActiveRepository(props.draftId ? null : threadRef);
-  const workspace = useThreadShell(props.draftId ? null : threadRef)?.workspace;
   const gitCwd = activeRepository?.checkoutPath ?? props.gitCwd;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -223,13 +221,20 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               separated={density === "full"}
             >
               <div className="flex flex-col">
-                {activeRepository &&
-                workspace &&
-                !isThreadCheckoutBinding(workspace, activeRepository.id) ? (
-                  <RepositoryBranchRow
-                    environmentId={props.environmentId}
-                    binding={activeRepository}
-                  />
+                {/* Each repository shows its own branch and pull requests. The server refuses
+                    branch moves on a repository set, so none of them offers the branch picker. */}
+                {activeRepository ? (
+                  <>
+                    <RepositoryBranchRow
+                      environmentId={props.environmentId}
+                      binding={activeRepository}
+                    />
+                    <RepositoryPullRequestRows
+                      environmentId={props.environmentId}
+                      threadRef={threadRef}
+                      binding={activeRepository}
+                    />
+                  </>
                 ) : props.isGitRepo ? (
                   <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
                 ) : null}

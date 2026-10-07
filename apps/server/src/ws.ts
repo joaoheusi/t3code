@@ -3352,6 +3352,7 @@ const layerWsRpc = (
                         ? Effect.void
                         : linkCreatedPullRequest({
                             threadId: input.threadId,
+                            cwd: input.cwd,
                             result,
                             commandId: serverCommandId("pr-created-link"),
                           }).pipe(

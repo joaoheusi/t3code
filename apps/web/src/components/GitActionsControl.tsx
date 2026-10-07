@@ -1,6 +1,6 @@
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { useAtomValue } from "@effect/atom-react";
-import { type ScopedThreadRef } from "@t3tools/contracts";
+import { hasRepositorySet, type ScopedThreadRef } from "@t3tools/contracts";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -1120,7 +1120,12 @@ export default function GitActionsControl({
       }
 
       if (activeServerThread) {
-        if (activeServerThread.branch === branch) {
+        // A repository set's checkouts were fixed with its repositories, and Git actions may
+        // run in any of them, so their branches never become the thread's.
+        if (
+          activeServerThread.branch === branch ||
+          hasRepositorySet(activeServerThread.workspace)
+        ) {
           return;
         }
 
