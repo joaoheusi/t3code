@@ -548,6 +548,12 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   ...KEYBINDING_SEARCH_ITEMS,
   {
+    id: "quick-actions",
+    title: "Quick actions",
+    to: "/settings/quick-actions",
+    searchTerms: ["saved prompts templates snippets instructions slash resolve ci import export"],
+  },
+  {
     id: "snap-shot-enabled",
     title: "SnapShots",
     searchTerms: ["window capture screenshot"],

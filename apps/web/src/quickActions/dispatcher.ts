@@ -1,6 +1,7 @@
 import {
-  type ActionInvocation,
   ActionDispatcher,
+  type ActionEditor,
+  type ActionInvocation,
 } from "@t3tools/client-runtime/actions/dispatcher";
 import {
   composerTargetKey,
@@ -8,11 +9,11 @@ import {
   useComposerDraftStore,
   type ComposerThreadTarget,
 } from "../composerDraftStore";
-import type { ActionEditor } from "@t3tools/client-runtime/actions/dispatcher";
-import { toastManager } from "../components/ui/toast";
-import type { ReviewCommentContext } from "../reviewCommentContext";
-
 import { randomUUID } from "../lib/utils";
+
+export type { ActionInvocation };
+
+/** Composers register here so actions started elsewhere insert into the composer they captured. */
 export const actionDispatcher = new ActionDispatcher(Date.now, randomUUID);
 export const actionTargetKey = (target: ComposerThreadTarget) => composerTargetKey(target);
 
@@ -44,33 +45,4 @@ export function registerActionEditor(
         ) ?? 0,
     }),
   });
-}
-
-/** Application-owned PR tasks append text; user text and existing context records are retained. */
-export function insertContextualTask(
-  target: ComposerThreadTarget,
-  task: { prompt: string; reviewComments?: readonly ReviewCommentContext[] },
-  captured?: ActionInvocation | null,
-): boolean {
-  const invocation =
-    captured === undefined
-      ? actionDispatcher.capture(actionTargetKey(target), "pull-request-task", 1)
-      : captured;
-  if (!invocation || actionDispatcher.insert(invocation, task.prompt, "append") !== "inserted") {
-    toastManager.add({
-      type: "error",
-      title: "Open the target thread to insert this task",
-      description: "The original composer is unavailable. No thread or checkout was created.",
-    });
-    return false;
-  }
-  const store = useComposerDraftStore.getState();
-  for (const comment of task.reviewComments ?? []) {
-    if (
-      store.getComposerDraft(target)?.reviewComments.some((existing) => existing.id === comment.id)
-    )
-      continue;
-    store.addReviewComment(target, comment, { appendReference: false });
-  }
-  return true;
 }

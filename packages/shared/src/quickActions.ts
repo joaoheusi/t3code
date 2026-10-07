@@ -1,4 +1,5 @@
 import type { QuickActionFields } from "@t3tools/contracts";
+import { scoreQueryMatch } from "./searchRanking.ts";
 
 export const QUICK_ACTION_VARIABLES = [
   "date",
@@ -11,6 +12,7 @@ export const QUICK_ACTION_VARIABLES = [
   "repo.branch",
   "pr.url",
   "ci.failures",
+  "pr.conflicts",
 ] as const;
 export type QuickActionVariable = (typeof QUICK_ACTION_VARIABLES)[number];
 const variableNames = new Set<string>(QUICK_ACTION_VARIABLES);
@@ -30,6 +32,43 @@ export function validateQuickActionTemplate(template: string): string[] {
   if (byteLength(template) > 65536) errors.push("Templates are limited to 64 KiB.");
   return [...new Set(errors)];
 }
+
+/**
+ * What a template needs before it can render. Client values come from this
+ * device; everything else is read from the thread's environment.
+ */
+export interface QuickActionRequirements {
+  readonly clipboard: boolean;
+  readonly host: boolean;
+  readonly thread: boolean;
+  readonly pullRequest: boolean;
+  readonly repository: boolean;
+  /** CI or conflict evidence; inserted as a separate block after the draft. */
+  readonly evidence: boolean;
+}
+export function quickActionRequirements(template: string): QuickActionRequirements {
+  const used = new Set(templateVariables(template));
+  const any = (...names: QuickActionVariable[]) => names.some((name) => used.has(name));
+  return {
+    clipboard: used.has("clipboard"),
+    host: any(
+      "thread.title",
+      "workspace.repositories",
+      "repo.name",
+      "repo.path",
+      "repo.branch",
+      "pr.url",
+      "ci.failures",
+      "pr.conflicts",
+    ),
+    thread: used.has("thread.title"),
+    pullRequest: any("pr.url", "ci.failures", "pr.conflicts"),
+    // Local conflict state belongs to one checkout, so conflicts need a repository too.
+    repository: any("repo.name", "repo.path", "repo.branch", "pr.conflicts"),
+    evidence: any("ci.failures", "pr.conflicts"),
+  };
+}
+
 export function renderQuickAction(
   template: string,
   values: Partial<Record<QuickActionVariable, string>>,
@@ -51,36 +90,65 @@ export function renderQuickAction(
   return rendered;
 }
 
+function scoreQuickActionToken<T extends QuickActionFields>(action: T, token: string) {
+  const fields = [
+    [action.name, 0],
+    ...action.aliases.map((alias) => [alias, 200] as const),
+    ...action.tags.map((tag) => [tag, 400] as const),
+    [action.category ?? "", 600],
+  ] as const;
+  const scores = fields.flatMap(([value, offset]) => {
+    const score = scoreQueryMatch({
+      value: value.toLocaleLowerCase(),
+      query: token,
+      exactBase: offset,
+      prefixBase: offset + 10,
+      boundaryBase: offset + 30,
+      includesBase: offset + 60,
+      fuzzyBase: offset + 120,
+    });
+    return score === null ? [] : [score];
+  });
+  return scores.length ? Math.min(...scores) : null;
+}
+
+/**
+ * Every query word must match a name, alias, tag, or category. Names rank
+ * above aliases, aliases above tags. Favorites and recent use only break ties.
+ */
 export function rankQuickActions<T extends QuickActionFields>(
   actions: readonly T[],
   search: string,
   recent: readonly string[] = [],
 ): T[] {
-  const query = search.trim().toLocaleLowerCase();
-  const score = (action: T) => {
-    const name = action.name.toLocaleLowerCase();
-    if (!query) return 1;
-    if (name === query) return 5;
-    if (name.startsWith(query)) return 4;
-    if (name.includes(query)) return 3;
-    if (
-      [...action.aliases, ...action.tags, action.category ?? ""].some((value) =>
-        value.toLocaleLowerCase().includes(query),
-      )
-    )
-      return 2;
-    return 0;
+  const tokens = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const recency = (action: T) => {
+    const index = recent.indexOf(action.id);
+    return index < 0 ? Number.POSITIVE_INFINITY : index;
   };
-  return actions
-    .filter((action) => action.enabled && score(action) > 0)
-    .toSorted(
-      (a, b) =>
-        score(b) - score(a) ||
-        Number(b.favorite) - Number(a.favorite) ||
-        (recent.indexOf(a.id) < 0 ? Infinity : recent.indexOf(a.id)) -
-          (recent.indexOf(b.id) < 0 ? Infinity : recent.indexOf(b.id)) ||
-        a.name.localeCompare(b.name),
-    );
+  return (
+    actions
+      .flatMap((action) => {
+        if (!action.enabled) return [];
+        let score = 0;
+        for (const token of tokens) {
+          const tokenScore = scoreQuickActionToken(action, token);
+          if (tokenScore === null) return [];
+          score += tokenScore;
+        }
+        return [{ action, score }];
+      })
+      // flatMap already returned a fresh array, so sorting it in place is safe.
+      .sort(
+        (a, b) =>
+          a.score - b.score ||
+          Number(b.action.favorite) - Number(a.action.favorite) ||
+          recency(a.action) - recency(b.action) ||
+          a.action.name.localeCompare(b.action.name) ||
+          a.action.id.localeCompare(b.action.id),
+      )
+      .map((entry) => entry.action)
+  );
 }
 
 const portableKeys = [
@@ -174,12 +242,12 @@ export function importPortableActions(json: string): QuickActionFields[] {
 }
 export function exportPortableActions(
   actions: readonly QuickActionFields[],
-  instant = new Date(),
+  exportedAt: string,
 ): string {
   return JSON.stringify(
     {
       schemaVersion: 1,
-      exportedAt: instant.toISOString(),
+      exportedAt,
       actions: actions.map((action) => {
         if (
           templateVariables(action.template).some(
@@ -212,36 +280,66 @@ export function exportPortableActions(
   );
 }
 
-export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
-  [
-    "99aa6720-f388-4bbd-aacc-000000000000",
-    "Resolve CI",
-    "Inspect the available CI failures. Explain the cause, make the smallest appropriate fix, and report the checks you ran. State what you could not verify. Do not commit, push, change branches, or open another thread unless I ask.",
-  ],
-  [
-    "99aa6720-f388-4bbd-aacc-000000000001",
-    "Resolve merge conflicts",
-    "Inspect the selected repository and available conflict information. Preserve both changes and unrelated local work. Do not start a merge/rebase, switch branches, commit, push, or open another thread without approval.",
-  ],
-  [
-    "99aa6720-f388-4bbd-aacc-000000000002",
-    "PR walkthrough",
-    "Walk me through this pull request. Explain the behavior changes, important decisions, and risks. State any missing context.",
-  ],
-  [
-    "99aa6720-f388-4bbd-aacc-000000000003",
-    "Review changes",
-    "Review the current changes for correctness and reliability. Report concrete defects with file locations and user-visible effects. Do not modify files.",
-  ],
-].map(([id, name, template]) => ({
-  id: id!,
-  name: name!,
-  template: template!,
-  description: "Editable starter instruction",
+/** Starter IDs are stable so the PR buttons can find the user's edited instruction. */
+export const QUICK_ACTION_STARTER_IDS = {
+  resolveCi: "99aa6720-f388-4bbd-aacc-000000000000",
+  resolveConflicts: "99aa6720-f388-4bbd-aacc-000000000001",
+  pullRequestWalkthrough: "99aa6720-f388-4bbd-aacc-000000000002",
+  reviewChanges: "99aa6720-f388-4bbd-aacc-000000000003",
+} as const;
+
+const starter = (
+  fields: Pick<QuickActionFields, "id" | "name" | "description" | "template"> &
+    Partial<Pick<QuickActionFields, "aliases" | "tags" | "category">>,
+): QuickActionFields => ({
   aliases: [],
   tags: [],
   category: null,
   projectId: null,
   favorite: false,
   enabled: true,
-}));
+  ...fields,
+});
+
+export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.resolveCi,
+    name: "Resolve CI",
+    description: "Fix the failing checks on this thread's pull request",
+    aliases: ["fix ci", "fix checks"],
+    tags: ["ci"],
+    category: "Pull requests",
+    template:
+      "Inspect the CI failures below for the selected repository and commit. Explain the cause, make the smallest appropriate fix, and report the checks you ran. State what you could not verify. Do not commit, push, change branches, or open another thread unless I ask.\n\n{{ci.failures}}",
+  }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.resolveConflicts,
+    name: "Resolve merge conflicts",
+    description: "Resolve conflicts while keeping the intent of both sides",
+    aliases: ["fix conflicts"],
+    tags: ["git"],
+    category: "Pull requests",
+    template:
+      "Inspect the selected repository and the conflict information below. Preserve the intent of both changes and unrelated local work. Explain any decision that needs my input. Do not start a merge or rebase, switch branches, commit, push, or open another thread without my approval.\n\n{{pr.conflicts}}",
+  }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+    name: "PR walkthrough",
+    description: "Explain the pull request's behavior changes and risks",
+    aliases: ["explain pr"],
+    tags: ["review"],
+    category: "Pull requests",
+    template:
+      "Walk me through this pull request. Explain the behavior before and after the change, important decisions, and risks. State any missing context.",
+  }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.reviewChanges,
+    name: "Review changes",
+    description: "Find defects in the current changes without editing files",
+    aliases: ["code review"],
+    tags: ["review"],
+    category: "Review",
+    template:
+      "Review the current changes for correctness and reliability. Report concrete defects with file locations and user-visible effects. Do not modify files.",
+  }),
+];

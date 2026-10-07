@@ -73,6 +73,7 @@ import Migration0055 from "./Migrations/055_OrchestrationV2.ts";
 import Migration0056 from "./Migrations/056_RemoveRedundantProjectionIndexes.ts";
 import Migration0057 from "./Migrations/057_ScheduledTaskWebhooks.ts";
 import Migration0059 from "./Migrations/059_ForkQuickActions.ts";
+import Migration0061 from "./Migrations/061_ForkQuickActionStarters.ts";
 import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
 
 /**
@@ -148,6 +149,7 @@ export const migrationEntries = [
   [58, "WebhookRelayDeliveries", Migration0058],
   [59, "ForkQuickActions", Migration0059],
   [60, "ForkWorkspaceOperations", Migration0060],
+  [61, "ForkQuickActionStarters", Migration0061],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

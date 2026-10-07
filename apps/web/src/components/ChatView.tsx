@@ -367,6 +367,7 @@ import {
   type DraftThreadEnvMode,
   useComposerDraftStore,
   DraftId,
+  composerTargetKey,
 } from "../composerDraftStore";
 import {
   formatTerminalContextLabel,
@@ -542,6 +543,21 @@ import {
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
+import { useRunQuickAction } from "../quickActions/useQuickActions";
+import { usePreparedTaskBannerItem } from "../quickActions/usePreparedTaskBannerItem";
+import {
+  useSendWhenWorkspaceReady,
+  useStartWorkspaceThread,
+  useWorkspaceBannerItem,
+} from "../workspace/useWorkspaceSend";
+import {
+  isMultiRepository,
+  primaryBindingRequest,
+  repositoriesSummary,
+  workspaceConfiguration,
+} from "../workspace/workspaceModel";
+import { readDraftRepositories } from "../workspace/workspaceStores";
+import { quickActionIdFromCommand } from "../quickActions/useQuickActionPalette";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1787,6 +1803,9 @@ export default function ChatView(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const { runShortcut: runQuickActionShortcut } = useRunQuickAction();
+  const preparedTaskBannerItem = usePreparedTaskBannerItem(composerDraftTarget);
+  const startWorkspaceThread = useStartWorkspaceThread();
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -2966,7 +2985,13 @@ export default function ChatView(props: ChatViewProps) {
     advertisedFileAttachmentBytes === null
       ? null
       : clampFileAttachmentUploadBytes(advertisedFileAttachmentBytes);
-  const envLocked = Boolean(activeThread && (activeMessageCount > 0 || activeRuntime !== null));
+  // A multi-repository thread's checkouts were chosen with its repositories.
+  const envLocked = Boolean(
+    activeThread &&
+    (activeMessageCount > 0 ||
+      activeRuntime !== null ||
+      isMultiRepository(serverThread?.workspace)),
+  );
 
   const loadBalancingSettings = useClientSettings();
   const automaticEnvironment = Boolean(
@@ -7593,7 +7618,13 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const workspaceBannerItem = useWorkspaceBannerItem({
+    environmentId,
+    threadId: serverThread?.id ?? null,
+    workspace: serverThread?.workspace,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const forkItems = [workspaceBannerItem, preparedTaskBannerItem].filter((item) => item !== null);
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [goalBannerItem, backgroundWorkBannerItem].filter(
       (item) => item !== null,
@@ -7608,6 +7639,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
+        ...forkItems,
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -7620,6 +7652,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return [
       ...feedbackBannerItems,
+      ...forkItems,
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,
@@ -7679,7 +7712,9 @@ export default function ChatView(props: ChatViewProps) {
     goalBannerItem,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
+    preparedTaskBannerItem,
     projectCloneBannerItem,
+    workspaceBannerItem,
     resumeCompactionBannerItem,
     showBranchMismatchBanner,
     systemComposerBannerItems,
@@ -8038,6 +8073,19 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      const quickActionId = quickActionIdFromCommand(command);
+      if (quickActionId) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        void runQuickActionShortcut({
+          actionId: quickActionId,
+          scope: { environmentId, projectId: activeProject?.id ?? null, thread: serverThread },
+          target: composerDraftTarget,
+        });
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
@@ -8084,12 +8132,15 @@ export default function ChatView(props: ChatViewProps) {
     toggleThreadPanel,
     toggleTerminalVisibility,
     composerRef,
+    composerDraftTarget,
     draftId,
     environmentId,
     envLocked,
     hasMultipleEnvironments,
     logicalProjectEnvironments,
     onEnvironmentChange,
+    runQuickActionShortcut,
+    serverThread,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
@@ -8974,6 +9025,58 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
+    // Extra repositories are prepared before the first message; it sends once they're ready.
+    const composerKey = composerTargetKey(composerDraftTarget);
+    const pendingRepositories =
+      isFirstMessage && serverThread?.workspace === undefined
+        ? readDraftRepositories(composerKey, environmentId, activeProject.id)
+        : [];
+    if (pendingRepositories.length > 0) {
+      if (multipleModelSelections !== null) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "Pick one model for a multi-repository thread",
+            description: "Each model would need its own copy of every repository.",
+          }),
+        );
+        return;
+      }
+      sendInFlightRef.current = true;
+      void startWorkspaceThread({
+        environmentId,
+        threadId: threadIdForSend,
+        projectId: activeProject.id,
+        createThread: isLocalDraftThread
+          ? {
+              title: repositoriesSummary([
+                activeProject.title,
+                ...pendingRepositories.map((repository) => repository.label),
+              ]),
+              modelSelection: ctxSelectedModelSelection,
+              runtimeMode,
+              interactionMode: sendInteractionMode,
+            }
+          : null,
+        configuration: workspaceConfiguration(
+          primaryBindingRequest({
+            label: activeProject.title,
+            workspaceRoot: activeProject.workspaceRoot,
+            envMode: sendEnvMode,
+            worktreePath: activeThread.worktreePath,
+            branch: activeThreadBranch,
+          }),
+          pendingRepositories,
+          0,
+        ),
+        prompt: promptRef.current,
+        draftKey: composerKey,
+      }).finally(() => {
+        sendInFlightRef.current = false;
+      });
+      return;
+    }
+
     const composerImagesSnapshot = [...composerImages];
     const composerFilesSnapshot = [...composerFiles];
     const composerAttachmentsSnapshot = [...composerImagesSnapshot, ...composerFilesSnapshot];
@@ -9812,6 +9915,13 @@ export default function ChatView(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  useSendWhenWorkspaceReady({
+    threadKey: routeThreadKey,
+    workspace: serverThread?.workspace,
+    readPrompt: () => promptRef.current,
+    send: () => void onSend(),
+  });
 
   const onRespondToApproval = useCallback(
     async (requestId: RuntimeRequestId, decision: ProviderApprovalDecision) => {
@@ -11385,6 +11495,7 @@ export default function ChatView(props: ChatViewProps) {
                               pullRequestProjectId={
                                 supportsPullRequests ? (activeProject?.id ?? null) : null
                               }
+                              activeProjectId={activeProject?.id ?? null}
                               pullRequestRepository={
                                 supportsPullRequests ? activeProjectRepository : null
                               }

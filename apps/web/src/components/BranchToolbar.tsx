@@ -1,5 +1,10 @@
 import { ComposerContextLabel } from "./ComposerContextLabel";
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
+import { RepositoriesControl } from "../workspace/RepositoriesControl";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
@@ -722,6 +727,18 @@ export const BranchToolbar = memo(function BranchToolbar({
             />
           ) : null}
         </div>
+      ) : null}
+
+      {showGitControls && activeProject ? (
+        <RepositoriesControl
+          environmentId={environmentId}
+          threadId={threadId}
+          composerKey={draftId ?? scopedThreadKey(threadRef)}
+          project={activeProject}
+          envMode={effectiveEnvMode}
+          worktreePath={activeWorktreePath}
+          branch={activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null}
+        />
       ) : null}
 
       {composerControlsHostRef ? (

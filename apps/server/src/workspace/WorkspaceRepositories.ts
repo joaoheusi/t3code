@@ -1,4 +1,5 @@
 import * as Semaphore from "effect/Semaphore";
+import { expandHomePath } from "../pathExpansion.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Clock from "effect/Clock";
 import * as Path from "effect/Path";
@@ -84,8 +85,9 @@ const make = Effect.gen(function* () {
   const permits = yield* Semaphore.make(4);
   const runner = yield* ProcessRunner.ProcessRunner;
   const config = yield* ServerConfig.ServerConfig;
-  const canonical = (path: string) =>
+  const canonical = (input: string) =>
     Effect.gen(function* () {
+      const path = expandHomePath(input);
       if (!isAbsolute(path)) return yield* fail("Enter an absolute path on this execution host.");
       return yield* fs
         .realPath(path)
@@ -411,16 +413,13 @@ const make = Effect.gen(function* () {
       return yield* fail(
         "Workspace preparation is incomplete. Retry or reconfigure the failed repositories before sending.",
       );
+    // Only identity is enforced: the agent may switch branches or resolve a merge in place,
+    // but a checkout that vanished or became another repository must never be substituted.
     for (const binding of workspace.bindings) {
       const actual = yield* inspect(binding.checkoutPath);
-      if (
-        actual.path !== binding.checkoutPath ||
-        actual.commonDir !== binding.commonDir ||
-        actual.branch !== binding.branch ||
-        actual.operation !== null
-      )
+      if (actual.path !== binding.checkoutPath || actual.commonDir !== binding.commonDir)
         return yield* fail(
-          `Repository ${binding.label} moved, changed branches, or has an active Git operation. Repair the recorded checkout before resuming.`,
+          `Repository ${binding.label} is missing or is no longer the same repository at ${binding.checkoutPath}. Restore it before continuing.`,
         );
     }
   });

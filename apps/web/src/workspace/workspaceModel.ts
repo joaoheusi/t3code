@@ -1,0 +1,157 @@
+import type {
+  ThreadWorkspace,
+  WorkspaceBinding,
+  WorkspaceBindingRequest,
+  WorkspaceConfiguration,
+  WorkspaceRepository,
+} from "@t3tools/contracts";
+import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
+
+import { randomUUID } from "../lib/utils";
+
+export type CheckoutMode = WorkspaceBindingRequest["mode"];
+
+/** A repository picked for a draft, validated on its environment but not yet prepared. */
+export interface DraftRepository {
+  readonly id: string;
+  readonly label: string;
+  readonly path: string;
+  readonly commonDir: string;
+  readonly mode: CheckoutMode;
+  /** Branch observed when the repository was added; the base for a new worktree. */
+  readonly branch: string | null;
+  readonly head: string;
+}
+
+export const CHECKOUT_MODE_LABEL: Record<CheckoutMode, string> = {
+  current: "Current checkout",
+  "existing-worktree": "Existing worktree",
+  "new-worktree": "New worktree",
+};
+
+export const basename = (path: string) => path.split(/[\\/]/).findLast(Boolean) ?? path;
+
+/** A linked worktree keeps its own git dir under the repository's common dir. */
+export const isLinkedWorktree = (repository: Pick<WorkspaceRepository, "gitDir" | "commonDir">) =>
+  repository.gitDir !== repository.commonDir;
+
+export function draftRepositoryFrom(repository: WorkspaceRepository, id: string): DraftRepository {
+  return {
+    id,
+    label: basename(repository.path),
+    path: repository.path,
+    commonDir: repository.commonDir,
+    mode: isLinkedWorktree(repository) ? "existing-worktree" : "current",
+    branch: repository.branch,
+    head: repository.head,
+  };
+}
+
+const temporaryBranch = () =>
+  buildTemporaryWorktreeBranchName(() => randomUUID().replaceAll("-", ""));
+
+/** The thread's own project, configured by the toolbar's workspace and branch controls. */
+export function primaryBindingRequest(input: {
+  readonly label: string;
+  readonly workspaceRoot: string;
+  readonly envMode: "local" | "worktree";
+  readonly worktreePath: string | null;
+  readonly branch: string | null;
+}): WorkspaceBindingRequest {
+  if (input.worktreePath)
+    return {
+      id: "primary",
+      label: input.label,
+      sourcePath: input.worktreePath,
+      mode: "existing-worktree",
+    };
+  if (input.envMode === "worktree" && input.branch)
+    return {
+      id: "primary",
+      label: input.label,
+      sourcePath: input.workspaceRoot,
+      mode: "new-worktree",
+      baseRef: input.branch,
+      branch: temporaryBranch(),
+    };
+  return { id: "primary", label: input.label, sourcePath: input.workspaceRoot, mode: "current" };
+}
+
+export function draftBindingRequest(repository: DraftRepository): WorkspaceBindingRequest {
+  if (repository.mode !== "new-worktree")
+    return {
+      id: repository.id,
+      label: repository.label,
+      sourcePath: repository.path,
+      mode: repository.mode,
+    };
+  return {
+    id: repository.id,
+    label: repository.label,
+    sourcePath: repository.path,
+    mode: "new-worktree",
+    baseRef: repository.branch ?? repository.head,
+    branch: temporaryBranch(),
+  };
+}
+
+/**
+ * Binding IDs name each new worktree's folder, which the agent reads in every path,
+ * so they come from the repository labels: `web`, `api`, `api-2`.
+ */
+export function workspaceConfiguration(
+  primary: WorkspaceBindingRequest,
+  extras: readonly DraftRepository[],
+  expectedRevision: number,
+): WorkspaceConfiguration {
+  const taken = new Set<string>();
+  const readableId = (label: string) => {
+    const base =
+      label
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 80) || "repo";
+    let id = base;
+    for (let suffix = 2; taken.has(id); suffix += 1) id = `${base}-${suffix}`;
+    taken.add(id);
+    return id;
+  };
+  const bindings = [primary, ...extras.map(draftBindingRequest)].map((binding) => ({
+    ...binding,
+    id: readableId(binding.label),
+  }));
+  return { expectedRevision, primaryBindingId: bindings[0]!.id, bindings };
+}
+
+/** Thread workspaces keep their bindings; reconfiguring starts from what was recorded. */
+export function draftRepositoryFromBinding(binding: WorkspaceBinding): DraftRepository {
+  return {
+    id: binding.id,
+    label: binding.label,
+    path: binding.sourcePath,
+    commonDir: binding.commonDir,
+    mode: binding.mode,
+    branch: binding.mode === "new-worktree" ? (binding.baseRef ?? null) : binding.branch,
+    head: binding.baseCommit,
+  };
+}
+
+export const isMultiRepository = (workspace: ThreadWorkspace | undefined) =>
+  (workspace?.bindings.length ?? 0) > 1;
+
+export function workspaceProgress(workspace: ThreadWorkspace) {
+  return {
+    ready: workspace.bindings.filter((binding) => binding.state === "ready").length,
+    total: workspace.bindings.length,
+    failed: workspace.bindings.filter((binding) => binding.state === "failed"),
+  };
+}
+
+/** "web", "web + api", or "web + 2". */
+export function repositoriesSummary(labels: readonly string[]) {
+  const [first, second, ...rest] = labels;
+  if (!first) return "";
+  if (!second) return first;
+  return rest.length === 0 ? `${first} + ${second}` : `${first} + ${rest.length + 1}`;
+}

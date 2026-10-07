@@ -20,11 +20,12 @@ import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId, ProjectId, PullRequestRef, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import {
-  ArrowUpRightIcon,
   EyeIcon,
   EyeOffIcon,
   FileDiffIcon,
   GitBranchIcon,
+  MoreHorizontalIcon,
+  SquarePenIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
@@ -165,7 +166,7 @@ export function ThreadDetailsPrRow({
       onActed?.();
     },
   });
-  const { handoff, startHandoff, openNew, chooser } = usePullRequestHandoffs({
+  const { handoff, startHandoff, openNew } = usePullRequestHandoffs({
     environmentId,
     detail,
     target: threadRef ?? null,
@@ -328,8 +329,8 @@ export function ThreadDetailsPrRow({
           pendingLabel: "Preparing...",
           pending: handoff === "conflicts",
           destructive: true,
-          suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-          tooltip: "Insert a conflict task into this thread",
+          suffix: null,
+          tooltip: "Draft a conflict fix in this thread's composer",
           onClick: () => startResolveConflicts(),
         }
       : rowAction === "ready"
@@ -348,8 +349,8 @@ export function ThreadDetailsPrRow({
               pendingLabel: "Preparing...",
               pending: handoff === "findings",
               destructive: true,
-              suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-              tooltip: "Insert a CI task into this thread",
+              suffix: null,
+              tooltip: "Draft a CI fix in this thread's composer",
               onClick: () => startFixChecks(),
             }
           : rowAction === "merge"
@@ -407,112 +408,8 @@ export function ThreadDetailsPrRow({
 
   return (
     <>
-      {chooser}
-      <>
-        {detail ? (
-          <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <ThreadDetailsControl
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    part="link-primary"
-                    aria-label={openAriaLabel}
-                    onClick={onOpen}
-                  />
-                }
-              >
-                {rowContent}
-              </TooltipTrigger>
-              {rowTooltip}
-            </Tooltip>
-            {watchSegment}
-            {checksRollup !== null && !conflicting && !detail.isDraft ? (
-              <>
-                <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-                <PullRequestChecksPopover
-                  checksState={checksRollup}
-                  checks={detail.checks}
-                  variant="count"
-                  render={<ThreadDetailsControl part="checks" />}
-                />
-              </>
-            ) : null}
-            {rowAction === "resolve" || rowAction === "fix" ? (
-              <Menu>
-                <MenuTrigger
-                  render={
-                    <ThreadDetailsControl
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      part="action"
-                      aria-label="PR task options"
-                    />
-                  }
-                >
-                  ⋯
-                </MenuTrigger>
-                <MenuPopup>
-                  <MenuItem
-                    onClick={() =>
-                      rowAction === "resolve" ? startResolveConflicts(true) : startFixChecks(true)
-                    }
-                  >
-                    Open in new thread
-                  </MenuItem>
-                </MenuPopup>
-              </Menu>
-            ) : null}
-            {trailingAction ? (
-              <>
-                <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <ThreadDetailsControl
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        part="action"
-                        tone={trailingAction.destructive ? "destructive" : "default"}
-                        disabled={actionPending || handoff !== null}
-                        onClick={trailingAction.onClick}
-                      />
-                    }
-                  >
-                    {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
-                    {trailingAction.suffix}
-                  </TooltipTrigger>
-                  <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
-                </Tooltip>
-              </>
-            ) : null}
-          </div>
-        ) : watchSegment ? (
-          <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <ThreadDetailsControl
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    part="link-primary"
-                    aria-label={openAriaLabel}
-                    onClick={onOpen}
-                  />
-                }
-              >
-                {rowContent}
-              </TooltipTrigger>
-              {rowTooltip}
-            </Tooltip>
-            {watchSegment}
-          </div>
-        ) : (
+      {detail ? (
+        <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
           <Tooltip>
             <TooltipTrigger
               render={
@@ -520,7 +417,7 @@ export function ThreadDetailsPrRow({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  part="row"
+                  part="link-primary"
                   aria-label={openAriaLabel}
                   onClick={onOpen}
                 />
@@ -530,35 +427,142 @@ export function ThreadDetailsPrRow({
             </TooltipTrigger>
             {rowTooltip}
           </Tooltip>
-        )}
-        {rowAction === "merge" ? (
-          <AlertDialog open={confirmingMerge} onOpenChange={(open) => setConfirmingMerge(open)}>
-            <AlertDialogPopup>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Merge pull request?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This merges #{number} using {selectedMergeMethod}.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="outline" size="sm" />}>
-                  Cancel
-                </AlertDialogClose>
-                <Button
-                  size="sm"
-                  disabled={actionPending}
-                  onClick={() => {
-                    setConfirmingMerge(false);
-                    void perform("merge", selectedMergeMethod);
-                  }}
+          {watchSegment}
+          {checksRollup !== null && !conflicting && !detail.isDraft ? (
+            <>
+              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+              <PullRequestChecksPopover
+                checksState={checksRollup}
+                checks={detail.checks}
+                variant="count"
+                render={<ThreadDetailsControl part="checks" />}
+              />
+            </>
+          ) : null}
+          {trailingAction ? (
+            <>
+              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <ThreadDetailsControl
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      part="action"
+                      tone={trailingAction.destructive ? "destructive" : "default"}
+                      disabled={actionPending || handoff !== null}
+                      onClick={trailingAction.onClick}
+                    />
+                  }
                 >
-                  Merge
-                </Button>
-              </AlertDialogFooter>
-            </AlertDialogPopup>
-          </AlertDialog>
-        ) : null}
-      </>
+                  {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
+                  {trailingAction.suffix}
+                </TooltipTrigger>
+                <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
+              </Tooltip>
+            </>
+          ) : null}
+          {rowAction === "resolve" || rowAction === "fix" ? (
+            <>
+              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <ThreadDetailsControl
+                      size="icon-xs"
+                      variant="ghost"
+                      part="icon"
+                      aria-label="More pull request actions"
+                      disabled={handoff !== null}
+                    />
+                  }
+                >
+                  <MoreHorizontalIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuItem
+                    onClick={() =>
+                      rowAction === "resolve" ? startResolveConflicts(true) : startFixChecks(true)
+                    }
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                    {rowAction === "resolve"
+                      ? "Resolve conflicts in a new thread"
+                      : "Fix checks in a new thread"}
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            </>
+          ) : null}
+        </div>
+      ) : watchSegment ? (
+        <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ThreadDetailsControl
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  part="link-primary"
+                  aria-label={openAriaLabel}
+                  onClick={onOpen}
+                />
+              }
+            >
+              {rowContent}
+            </TooltipTrigger>
+            {rowTooltip}
+          </Tooltip>
+          {watchSegment}
+        </div>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <ThreadDetailsControl
+                type="button"
+                variant="ghost"
+                size="sm"
+                part="row"
+                aria-label={openAriaLabel}
+                onClick={onOpen}
+              />
+            }
+          >
+            {rowContent}
+          </TooltipTrigger>
+          {rowTooltip}
+        </Tooltip>
+      )}
+      {rowAction === "merge" ? (
+        <AlertDialog open={confirmingMerge} onOpenChange={(open) => setConfirmingMerge(open)}>
+          <AlertDialogPopup>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Merge pull request?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This merges #{number} using {selectedMergeMethod}.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+                Cancel
+              </AlertDialogClose>
+              <Button
+                size="sm"
+                disabled={actionPending}
+                onClick={() => {
+                  setConfirmingMerge(false);
+                  void perform("merge", selectedMergeMethod);
+                }}
+              >
+                Merge
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogPopup>
+        </AlertDialog>
+      ) : null}
     </>
   );
 }

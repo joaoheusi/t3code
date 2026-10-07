@@ -1,9 +1,15 @@
 import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAccess";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { WorkspaceManager } from "../../workspace/WorkspaceManager";
-import { PreparedTaskBanner } from "../../quickActions/PreparedTaskBanner";
-import { QuickActionsPalette } from "../../quickActions/QuickActionsPalette";
+import { quickActionRequirements, rankQuickActions } from "@t3tools/shared/quickActions";
 import { registerActionEditor } from "~/quickActions/dispatcher";
+import { prepareTask } from "~/quickActions/preparedTasks";
+import {
+  noteQuickActionUse,
+  quickActionTargets,
+  recentQuickActionIds,
+  renderQuickActionText,
+} from "~/quickActions/quickActionRunner";
+import { useQuickActionLibrary, useResolveActionContext } from "~/quickActions/useQuickActions";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -1603,6 +1609,8 @@ export interface ChatComposerProps {
   terminalOpen: boolean;
   gitCwd: string | null;
   pullRequestProjectId: ProjectId | null;
+  /** The composer's project on its environment; null for threads without one. */
+  activeProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
@@ -1747,6 +1755,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     terminalOpen,
     gitCwd,
     pullRequestProjectId,
+    activeProjectId,
     pullRequestRepository,
     restingControlsHost,
     restingControlsHaveLeadingContext,
@@ -2164,12 +2173,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModel,
   );
   const actionOperateAccess = useEnvironmentOperateAccess(environmentId);
-  const threadWorkspace = useThreadShell(
+  const actionThreadShell = useThreadShell(
     activeThreadId ? scopeThreadRef(environmentId, activeThreadId) : null,
-  )?.workspace;
+  );
+  const threadWorkspace = actionThreadShell?.workspace;
   const sendDisabledReason =
     (threadWorkspace && threadWorkspace.state !== "ready"
-      ? "Prepare every repository before sending."
+      ? threadWorkspace.state === "failed" || threadWorkspace.state === "cancelled"
+        ? "Prepare the repositories before sending."
+        : "Waiting for the repositories to be ready."
       : null) ??
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
@@ -2626,6 +2638,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
   );
 
+  const quickActionLibrary = useQuickActionLibrary(
+    environmentId,
+    activeProjectId,
+    composerTrigger?.kind === "slash-command",
+  );
+  const resolveActionContext = useResolveActionContext();
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2706,8 +2724,46 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const visibleProviderSlashCommandItems = providerSlashCommandItems.filter(
         (item) => item.command.name !== "compact" || compactSlashCommandAvailable,
       );
+      const quickActionItems = rankQuickActions(
+        quickActionLibrary.actions,
+        "",
+        recentQuickActionIds(),
+      ).flatMap((action): Array<Extract<ComposerCommandItem, { type: "quick-action" }>> => {
+        const targets = quickActionTargets(action, {
+          environmentId,
+          projectId: activeProjectId,
+          thread: actionThreadShell,
+        });
+        if (targets.kind === "unavailable") {
+          return [
+            {
+              id: `quick-action:${action.id}`,
+              type: "quick-action",
+              action,
+              variant: null,
+              label: action.name,
+              description: targets.reason,
+            },
+          ];
+        }
+        return targets.variants.map((variant) => ({
+          id: `quick-action:${action.id}:${variant.key}`,
+          type: "quick-action",
+          action,
+          variant,
+          label: action.name,
+          description: variant.label
+            ? `${variant.label}${action.description ? ` · ${action.description}` : ""}`
+            : action.description,
+        }));
+      });
       const slashCommandItems = slashCommandItemsForPromptPosition(
-        [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
+        [
+          ...builtInSlashCommandItems,
+          ...quickActionItems,
+          ...visibleProviderSlashCommandItems,
+          ...skillItems,
+        ],
         composerTrigger.rangeStart === 0,
       );
       return searchSlashCommandItems(slashCommandItems, query);
@@ -2778,10 +2834,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    actionThreadShell,
+    activeProjectId,
     activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
     environmentId,
+    quickActionLibrary.actions,
     environmentThreadShells,
     exactPullRequestLookup.data,
     planModeUiEnabled,
@@ -3921,6 +3980,60 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   }, [readComposerSnapshot, resolveComposerTrigger]);
 
+  // The `/query` token is already gone; the rendered text goes where it was, unless
+  // the draft moved on while context loaded. Then it waits in a composer banner.
+  const insertQuickActionAtCaret = useCallback(
+    async (item: Extract<ComposerCommandItem, { type: "quick-action" }>, insertAt: number) => {
+      const variant = item.variant;
+      if (!variant) return;
+      const targetKey = composerDraftTargetKeyRef.current;
+      const promptBefore = promptRef.current;
+      const scope = { environmentId, projectId: activeProjectId, thread: actionThreadShell };
+      const loading = quickActionRequirements(item.action.template).host
+        ? toastManager.add({ type: "loading", title: `Preparing ${item.action.name}…` })
+        : null;
+      try {
+        const rendered = await renderQuickActionText({
+          action: item.action,
+          scope,
+          choice: variant.choice,
+          resolveContext: resolveActionContext,
+        });
+        if (loading) toastManager.close(loading);
+        if (
+          composerDraftTargetKeyRef.current === targetKey &&
+          promptRef.current === promptBefore &&
+          applyPromptReplacement(insertAt, insertAt, rendered.text)
+        ) {
+          noteQuickActionUse(item.action.id);
+          return;
+        }
+        prepareTask(composerDraftTarget, {
+          title: item.action.name,
+          prompt: rendered.text,
+          ...(rendered.context ? { validation: { environmentId, context: rendered.context } } : {}),
+        });
+      } catch (error) {
+        const failure = {
+          type: "error" as const,
+          title: `Could not prepare ${item.action.name}`,
+          description: error instanceof Error ? error.message : "Try again.",
+        };
+        if (loading) toastManager.update(loading, failure);
+        else toastManager.add(failure);
+      }
+    },
+    [
+      actionThreadShell,
+      activeProjectId,
+      applyPromptReplacement,
+      composerDraftTarget,
+      environmentId,
+      promptRef,
+      resolveActionContext,
+    ],
+  );
+
   const { onUsageLimitsCommand } = props;
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
@@ -3931,6 +4044,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
+      if (item.type === "quick-action") {
+        if (!item.variant) {
+          toastManager.add({
+            type: "info",
+            title: item.action.name,
+            description: item.description,
+          });
+          return;
+        }
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+        });
+        if (applied) {
+          setComposerHighlightedItemId(null);
+          void insertQuickActionAtCaret(item, trigger.rangeStart);
+        }
+        return;
+      }
       if (item.type === "path") {
         const replacement = `${serializeComposerFileLink(item.path)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -4080,6 +4211,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       applyPromptReplacement,
       composerDraftTarget,
       handleInteractionModeChange,
+      insertQuickActionAtCaret,
       planModeUiEnabled,
       onUsageLimitsCommand,
       resolveActiveComposerTrigger,
@@ -6672,23 +6804,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             restingControlsHost,
           )
         : null}
-      <WorkspaceManager
-        environmentId={environmentId}
-        threadId={activeThreadId}
-        projectId={pullRequestProjectId}
-        modelSelection={selectedModelSelection}
-        runtimeMode={runtimeMode}
-        interactionMode={interactionMode}
-        primaryPath={gitCwd}
-      />
-      <PreparedTaskBanner target={composerDraftTarget} />
-      <QuickActionsPalette
-        environmentId={environmentId}
-        target={composerDraftTarget}
-        projectId={pullRequestProjectId}
-        keybindings={keybindings}
-        terminalOpen={terminalOpen}
-      />
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack

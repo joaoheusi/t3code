@@ -62,11 +62,24 @@ export type SearchOverlayMode = "command" | "files" | "content";
 
 export type CommandPaletteOpenIntent =
   | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
+  | { readonly kind: "quick-actions"; readonly actionId?: string }
+  | { readonly kind: "view"; readonly view: CommandPaletteView }
+  | { readonly kind: "pick-folder"; readonly request: CommandPaletteFolderPick }
   | {
       readonly kind: "search";
       readonly query: string;
       readonly linkedThreads?: CommandPaletteLinkedThreads;
     };
+
+/** Reuses the add-project folder browser to choose a folder for another purpose. */
+export interface CommandPaletteFolderPick {
+  readonly environmentId: EnvironmentId;
+  /** Where browsing starts, such as the folder next to the current project. */
+  readonly initialPath?: string;
+  /** Replaces "Add" on the submit button. */
+  readonly submitLabel: string;
+  readonly onPick: (path: string) => void;
+}
 
 export interface CommandPaletteUiState {
   readonly open: boolean;
@@ -85,6 +98,9 @@ export type CommandPaletteUiAction =
   | { readonly _tag: "OpenAddProject" }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "OpenChangeTheme" }
+  | { readonly _tag: "OpenQuickActions"; readonly actionId?: string }
+  | { readonly _tag: "OpenView"; readonly view: CommandPaletteView }
+  | { readonly _tag: "PickFolder"; readonly request: CommandPaletteFolderPick }
   | { readonly _tag: "ClearOpenIntent" };
 
 export function reduceCommandPaletteUiState(
@@ -116,6 +132,23 @@ export function reduceCommandPaletteUiState(
       return { open: true, mode: "command", openIntent: { kind: "new-thread-in" } };
     case "OpenChangeTheme":
       return { open: true, mode: "command", openIntent: { kind: "change-theme" } };
+    case "PickFolder":
+      return {
+        open: true,
+        mode: "command",
+        openIntent: { kind: "pick-folder", request: action.request },
+      };
+    case "OpenView":
+      return { open: true, mode: "command", openIntent: { kind: "view", view: action.view } };
+    case "OpenQuickActions":
+      return {
+        open: true,
+        mode: "command",
+        openIntent: {
+          kind: "quick-actions",
+          ...(action.actionId === undefined ? {} : { actionId: action.actionId }),
+        },
+      };
     case "ClearOpenIntent":
       return state.openIntent ? { ...state, openIntent: null } : state;
   }
@@ -444,6 +477,7 @@ export function filterCommandPaletteGroups(input: {
   isInSubmenu: boolean;
   projectSearchItems: ReadonlyArray<CommandPaletteActionItem>;
   settingsSearchItems?: ReadonlyArray<CommandPaletteActionItem>;
+  quickActionSearchItems?: ReadonlyArray<CommandPaletteActionItem | CommandPaletteSubmenuItem>;
   threadSearchItems: ReadonlyArray<CommandPaletteActionItem>;
 }): CommandPaletteGroup[] {
   const isActionsFilter = input.query.startsWith(">");
@@ -467,6 +501,13 @@ export function filterCommandPaletteGroups(input: {
 
   const searchableGroups = [...baseGroups];
   if (!input.isInSubmenu && !isActionsFilter) {
+    if (input.quickActionSearchItems && input.quickActionSearchItems.length > 0) {
+      searchableGroups.push({
+        value: "quick-actions-search",
+        label: "Quick actions",
+        items: input.quickActionSearchItems,
+      });
+    }
     if (input.projectSearchItems.length > 0) {
       searchableGroups.push({
         value: "projects-search",

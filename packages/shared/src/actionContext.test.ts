@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { buildPullRequestActionContext } from "./actionContext.ts";
 import type { WorkspaceRepository } from "@t3tools/contracts";
 const repo: WorkspaceRepository = {

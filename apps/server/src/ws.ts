@@ -3145,17 +3145,15 @@ const layerWsRpc = (
         [WS_METHODS.projectsWriteFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsWriteFile,
-            workspaceApi.assertLegacyMutation(input.cwd).pipe(
-              Effect.andThen(workspaceFileSystem.writeFile(input)),
-              Effect.mapError((cause) =>
-                Schema.is(WorkspaceError)(cause)
-                  ? cause
-                  : new ProjectWriteFileError({
-                      cwd: input.cwd,
-                      relativePath: input.relativePath,
-                      ...projectFileFailureContext(cause),
-                      cause,
-                    }),
+            workspaceFileSystem.writeFile(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProjectWriteFileError({
+                    cwd: input.cwd,
+                    relativePath: input.relativePath,
+                    ...projectFileFailureContext(cause),
+                    cause,
+                  }),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -3345,74 +3343,56 @@ const layerWsRpc = (
         [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsPull,
-            workspaceApi
-              .assertLegacyMutation(input.cwd)
-              .pipe(Effect.andThen(gitWorkflow.pullCurrentBranch(input.cwd)))
-              .pipe(
-                Effect.matchCauseEffect({
-                  onFailure: (cause) => Effect.failCause(cause),
-                  onSuccess: (result) =>
-                    refreshGitStatus(input.cwd).pipe(
-                      Effect.ignore({ log: true }),
-                      Effect.as(result),
-                    ),
-                }),
-              ),
+            gitWorkflow.pullCurrentBranch(input.cwd).pipe(
+              Effect.matchCauseEffect({
+                onFailure: (cause) => Effect.failCause(cause),
+                onSuccess: (result) =>
+                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
+              }),
+            ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
-            Stream.callback<GitActionProgressEvent, GitManagerServiceError | WorkspaceError>(
-              (queue) =>
-                workspaceApi
-                  .assertLegacyMutation(input.cwd)
-                  .pipe(
-                    Effect.andThen(
-                      gitWorkflow.runStackedAction(input, {
-                        actionId: input.actionId,
-                        progressReporter: {
-                          publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
-                        },
-                      }),
-                    ),
-                  )
-                  .pipe(
-                    Effect.matchCauseEffect({
-                      onFailure: (cause) => Queue.failCause(queue, cause),
-                      onSuccess: (result) =>
-                        (input.threadId === undefined
-                          ? Effect.void
-                          : linkCreatedPullRequest({
-                              threadId: input.threadId,
-                              result,
-                              commandId: serverCommandId("pr-created-link"),
-                            }).pipe(
-                              Effect.provideService(
-                                Orchestrator.OrchestratorV2,
-                                orchestrationEngine,
-                              ),
-                              Effect.provideService(ProjectService.ProjectService, projectService),
-                            )
-                        ).pipe(
-                          Effect.andThen(
-                            refreshPushedPullRequests(input, result).pipe(
-                              Effect.provideService(
-                                Orchestrator.OrchestratorV2,
-                                orchestrationEngine,
-                              ),
-                              Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
-                              Effect.provideService(
-                                PullRequestService.PullRequestService,
-                                pullRequests,
-                              ),
+            Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
+              gitWorkflow
+                .runStackedAction(input, {
+                  actionId: input.actionId,
+                  progressReporter: {
+                    publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+                  },
+                })
+                .pipe(
+                  Effect.matchCauseEffect({
+                    onFailure: (cause) => Queue.failCause(queue, cause),
+                    onSuccess: (result) =>
+                      (input.threadId === undefined
+                        ? Effect.void
+                        : linkCreatedPullRequest({
+                            threadId: input.threadId,
+                            result,
+                            commandId: serverCommandId("pr-created-link"),
+                          }).pipe(
+                            Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
+                            Effect.provideService(ProjectService.ProjectService, projectService),
+                          )
+                      ).pipe(
+                        Effect.andThen(
+                          refreshPushedPullRequests(input, result).pipe(
+                            Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
+                            Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
+                            Effect.provideService(
+                              PullRequestService.PullRequestService,
+                              pullRequests,
                             ),
                           ),
-                          Effect.andThen(refreshGitStatus(input.cwd)),
-                          Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                         ),
-                    }),
-                  ),
+                        Effect.andThen(refreshGitStatus(input.cwd)),
+                        Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
+                      ),
+                  }),
+                ),
             ),
             { "rpc.aggregate": "vcs" },
           ),
@@ -3440,10 +3420,7 @@ const layerWsRpc = (
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            workspaceApi
-              .assertLegacyMutation(input.cwd)
-              .pipe(Effect.andThen(gitWorkflow.createWorktree(input)))
-              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>

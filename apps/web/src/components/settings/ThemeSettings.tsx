@@ -9,6 +9,7 @@ import {
   Trash2Icon,
   UploadIcon,
 } from "lucide-react";
+import { downloadTextFile } from "../../lib/downloadTextFile";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
 import { readThemeHalvesRaw } from "../../hooks/useTheme";
@@ -75,17 +76,6 @@ function collectionVariantLabels(themes: ReadonlyArray<ThemeDefinition>): Readon
     const shortLabel = words[index]?.slice(Math.max(0, prefixLength)).join(" ").trim();
     return shortLabel || theme.label;
   });
-}
-
-function downloadThemeFile(filename: string, contents: string): void {
-  const url = URL.createObjectURL(new Blob([contents], { type: "application/json" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  // Revoking synchronously can abort the download in some browsers; give the
-  // browser time to open the stream first.
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 function ThemeVariantTooltip({ label, children }: { label: string; children: ReactElement }) {
@@ -850,7 +840,7 @@ export function ThemeLibrary({
             activeModesFor={pickedModesFor}
             key={collectionId}
             onDownload={(customTheme) =>
-              downloadThemeFile(`${customTheme.id}.json`, serializeThemeFile(customTheme))
+              downloadTextFile(`${customTheme.id}.json`, serializeThemeFile(customTheme))
             }
             onDuplicate={(customTheme) =>
               openThemeEditor({

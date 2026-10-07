@@ -189,7 +189,7 @@ describe("host workspace identity and preparation", () => {
       );
     }),
   );
-  it.effect("blocks continuation when preparation is incomplete or a recorded branch changed", () =>
+  it.effect("blocks continuation only when preparation is incomplete or a checkout is gone", () =>
     Effect.gen(function* () {
       yield* run((service) =>
         Effect.gen(function* () {
@@ -206,9 +206,9 @@ describe("host workspace identity and preparation", () => {
           const ready = { ...plan, state: "ready" as const, bindings: [binding] };
           yield* service.validate(ready);
           git(repo, "switch", "-c", "changed");
-          expect((yield* service.validate(ready).pipe(Effect.flip)).message).toContain(
-            "changed branches",
-          );
+          yield* service.validate(ready);
+          rmSync(repo, { recursive: true, force: true });
+          expect((yield* service.validate(ready).pipe(Effect.flip)).message).toContain("missing");
         }),
       );
     }),

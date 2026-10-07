@@ -397,6 +397,5 @@ export function usePullRequestHandoffs({
     startAsk,
     startHandoff,
     openNew: destination.openNew,
-    chooser: destination.chooser,
   };
 }

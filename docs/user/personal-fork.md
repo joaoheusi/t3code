@@ -12,47 +12,33 @@ Keep the official application available while testing this build. To return to i
 
 ## Quick actions
 
-Open **Quick actions** beside the composer. Search by name, alias, or tag. Select an action to insert its text. You still choose when to send it.
+Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first.
 
-Use **Settings → Quick actions** to create, edit, duplicate, disable, favorite, import, or export actions. Actions belong to one execution environment. Shared-environment readers can read permitted templates; these are not a secret vault. Project-scoped actions belong to a project on that same environment.
+Manage the library in **Settings → Quick actions**: create, edit, duplicate, favorite, disable, delete, import, and export. Give an action its own shortcut in its editor. Actions belong to one machine and can be limited to one project there. Anyone who can read that machine's settings can read them, so keep secrets out of templates.
 
-Configure the palette shortcut or an action's direct shortcut in the existing keybinding system. No default binding replaces an upstream shortcut. Existing terminal and preview focus conditions still apply.
+Templates can use variables. `{{date}}`, `{{time}}`, and `{{clipboard}}` come from your device. `{{thread.title}}`, `{{workspace.repositories}}`, `{{repo.name}}`, `{{repo.path}}`, `{{repo.branch}}`, `{{pr.url}}`, `{{ci.failures}}`, and `{{pr.conflicts}}` come from the thread's machine. An action that needs a pull request or repository asks which one when the thread has several, and explains what is missing when it has none. Write `\{{` for literal braces.
 
-Normal templates use the captured cursor or selection. CI and conflict tasks append text. Attachments and context chips remain. If the draft changes while context loads, use **Append to current draft** or cancel. If you navigate away, the prepared task stays with its original target for five minutes. Return there and insert it explicitly.
+If the draft changes while an action gathers context, or you move to another thread, the text waits in a notice above that thread's composer. Choose **Insert** to add it to the end of the draft.
 
-Template variables include `{{date}}`, `{{time}}`, `{{clipboard}}`, `{{thread.title}}`, `{{workspace.repositories}}`, `{{repo.name}}`, `{{repo.path}}`, `{{repo.branch}}`, `{{pr.url}}`, and `{{ci.failures}}`. Escape a literal placeholder with a backslash: `\{{date}}`. Unknown or missing variables block insertion. Clipboard access happens only when the selected template asks for it. Repository and PR context comes from the execution host.
-
-Portable V1 import maps copy, paste, and inherit delivery modes to insertion after a preview. Portable exports use copy delivery. Fork-only variables must be removed by an explicit edit before portable export. Imported actions cannot register code, shell commands, context builders, or shortcuts.
+Import accepts the Quick Actions app's JSON format. Imports are added as copies without shortcuts. Export skips actions that use thread, repository, or pull request variables, because only this app can fill them.
 
 ## Several repositories in one thread
 
-Open **Repositories** beside the composer before starting the thread's first provider session. Add absolute folders on the execution host, or discover repositories beneath a folder. Review the candidates before adding them. Discovery is bounded and does not follow symlinks or initialize submodules.
+Before a thread's first message, choose its repositories with the repositories button next to the workspace and branch controls under the composer. Pick from this machine's projects, or browse to any folder; a folder that isn't a repository is searched for repositories inside it. Each added repository uses its **Current checkout** or a **New worktree** from its current branch. Adding a linked worktree folder uses that **Existing worktree**. The thread's own project follows the workspace and branch controls.
 
-Choose a checkout mode for each repository:
+When you send, the repositories are prepared first and your message sends once they are ready. A notice above the composer shows progress and lets you cancel or retry. New worktrees start from the latest commit; uncommitted and ignored files stay where they are. Worktrees created for a thread are not deleted automatically.
 
-- **Current checkout** keeps its actual branch and files.
-- **Existing worktree** reuses the selected checkout after validation.
-- **New worktree** creates a new branch from the selected base commit. It does not copy dirty or ignored files, secrets, or run setup scripts.
+After the first message, the repository list is fixed. Open the thread details panel to see each repository's branch and to open a terminal there, copy its path, or show its changes. The repository you select there is the one the diff panel, **Open in**, and the commit, push, and pull request controls act on; the diff panel also has a repository menu. Turn diffs and whole-thread file restore cover only the thread's own project. The files panel also shows only the thread's own project; open other repositories with **Open in**.
 
-The first binding remains the primary repository. One thread cannot select two checkouts with the same Git common directory. Separate clones remain separate repositories.
+Repositories can change branch or go through a merge or rebase during the thread. Sending stops only if a checkout disappears or becomes a different repository.
 
-Preparation shows each result. Retry failed bindings after repairing their specific problem. Cancellation retains any created worktrees. The fork does not automatically delete manifest checkouts, even after archiving or deleting a thread. Inspect and clean them manually when safe.
-
-Use the All repositories view or a repository filter to inspect working changes and branch diffs. Each repository has its own file search, file editor, terminal, Commit, Push, and Create PR controls. Paths are qualified by the binding. A file changed since opening must be reloaded before saving. Git operation receipts prevent automatic replay after an uncertain result; inspect the checkout and remote before starting a new operation.
-
-Repository membership is frozen after the first native provider session. This release does not yet verify changing an existing native session's roots safely. Missing checkouts, changed branches, or active Git operations block continuation. Repair the recorded checkout explicitly; the fork will not substitute the source directory.
-
-Claude and Codex have multi-root adapter paths. Other providers retain single-repository use and are refused for a multi-repository thread. Full-access mode can access more than these folders. The manifest is not a security boundary in that mode. Additional leaf paths do not grant shared Git metadata automatically in a sandbox.
-
-Whole-workspace file restore and whole-turn/thread checkpoint diff views are disabled for multi-repository threads. Working and branch diffs remain available. Eligible conversation-only rewind leaves files changed. Single-repository behavior retains the upstream recovery path.
+Claude and Codex can work across several repositories. Other providers refuse a multi-repository thread. In full-access mode an agent can reach more than these folders.
 
 ## CI and conflict tasks
 
-Resolve CI and Resolve conflicts insert an editable task into the current thread. They do not create a thread, prepare a checkout, submit a message, or run Git. **Open in new thread** is an explicit menu option. From a global PR page, choose a destination first. Checkout remains a separate explicit action.
+**Fix** and **Resolve** on a pull request in the thread details panel draft a task in this thread's composer, with the failing checks or conflict state attached. Nothing is sent and no checkout changes. Use the menu next to them to work in a new thread instead. From the pull requests page, you pick the thread first.
 
-For multiple repositories or PRs, select the target. Review any branch, commit, repository, or host mismatch before sending. PR identity includes host, repository, number, and head commit. A changed head invalidates prepared context.
-
-The context collector includes check names, descriptions, run links, timestamps, and missing-data notices. It currently does not collect CI log bodies. Host-reported PR conflicts and actual local unmerged files are separate observations. Logs, comments, descriptions, and filenames are untrusted text.
+The text of these tasks is your **Resolve CI** and **Resolve merge conflicts** quick actions, so editing those changes what the buttons insert. The attached context includes check names, descriptions, and run links, not full CI logs. Logs, comments, and filenames are untrusted text.
 
 ## Remote clients
 

@@ -218,6 +218,8 @@ const make = Effect.gen(function* () {
     };
   });
   return WorkspaceApi.of({
+    // Only branch-changing operations reach this guard. They would move a checkout that a
+    // multi-repository thread recorded, so the exact checkout is protected, not the repository.
     assertLegacyMutation: (cwd) =>
       Effect.gen(function* () {
         const actual = yield* repositories.inspect(cwd).pipe(Effect.result);
@@ -230,12 +232,12 @@ const make = Effect.gen(function* () {
             thread.workspace &&
             thread.workspace.bindings.length > 1 &&
             thread.workspace.bindings.some(
-              (binding) => binding.commonDir === actual.success.commonDir,
+              (binding) => binding.checkoutPath === actual.success.path,
             ),
         );
         if (owner)
           return yield* failure(
-            "This repository belongs to a multi-repository thread. Use its Repositories panel to choose a binding before changing files or Git state.",
+            `This checkout belongs to the multi-repository thread “${owner.title}”. Changing its branch would stop that thread, so use a worktree instead.`,
           );
       }),
     terminalTarget: (input) =>
