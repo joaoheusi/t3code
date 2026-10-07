@@ -51,6 +51,7 @@ import {
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
+  FolderGitIcon,
   FolderIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
@@ -218,6 +219,7 @@ import { Kbd, KbdGroup } from "./ui/kbd";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
+import { useComposerWorkspaceControlStore } from "../composerWorkspaceControlStore";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -845,6 +847,7 @@ function OpenCommandPaletteDialog(props: {
       );
     }
   }, [activeThreadReferenceCopyTarget]);
+  const workspaceControl = useComposerWorkspaceControlStore((store) => store.control);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2061,6 +2064,35 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "thread.copyReference",
       run: copyActiveThreadReference,
     });
+  }
+
+  if (workspaceControl !== null) {
+    const { activeWorktreePath, selectEnvMode } = workspaceControl;
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:workspace-new-worktree",
+        searchTerms: ["workspace", "new worktree", "isolate", "branch"],
+        title: "Use new worktree",
+        icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "composer.newWorktree",
+        run: async () => selectEnvMode("worktree"),
+      },
+      {
+        kind: "action",
+        value: "action:workspace-current-checkout",
+        searchTerms: ["workspace", "current checkout", "local", "current worktree"],
+        // Matches the workspace menu, which keeps a draft's existing worktree here.
+        title: activeWorktreePath ? "Use current worktree" : "Use current checkout",
+        icon: activeWorktreePath ? (
+          <FolderGitIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <FolderIcon className={ITEM_ICON_CLASS} />
+        ),
+        shortcutCommand: "composer.currentCheckout",
+        run: async () => selectEnvMode("local"),
+      },
+    );
   }
 
   if (

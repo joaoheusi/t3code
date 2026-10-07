@@ -1367,6 +1367,38 @@ describe("composer and pull request shortcuts", () => {
     );
   }
 
+  for (const platform of ["MacIntel", "Win32", "Linux"]) {
+    it.each([
+      ["w", "∑", "composer.newWorktree"],
+      ["c", "ç", "composer.currentCheckout"],
+    ] as const)(
+      `resolves mod+alt+%s on ${platform} and leaves terminal input alone`,
+      (key, macOptionKey, command) => {
+        // macOS reports Option+letter as a symbol, so only the code names the key.
+        const input = event({
+          key: platform === "MacIntel" ? macOptionKey : key,
+          code: `Key${key.toUpperCase()}`,
+          altKey: true,
+          metaKey: platform === "MacIntel",
+          ctrlKey: platform !== "MacIntel",
+        });
+        assert.strictEqual(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { terminalFocus: false },
+          }),
+          command,
+        );
+        assert.isNull(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { terminalFocus: true },
+          }),
+        );
+      },
+    );
+  }
+
   it.each(["MacIntel", "Win32", "Linux"])(
     "edits the last queued message with Alt+ArrowUp from the composer on %s",
     (platform) => {

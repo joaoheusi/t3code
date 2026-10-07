@@ -26,6 +26,7 @@ import {
 } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { publishComposerWorkspaceControl } from "../composerWorkspaceControlStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "../state/entities";
 import {
@@ -604,6 +605,21 @@ export const BranchToolbar = memo(function BranchToolbar({
       showGitControls,
     ],
   );
+
+  const canSelectEnvMode =
+    layout === "composer" &&
+    showGitControls &&
+    hasActiveThread &&
+    activeProject !== null &&
+    !envModeLocked &&
+    !forceNewWorktree;
+  useEffect(() => {
+    if (!canSelectEnvMode) return;
+    return publishComposerWorkspaceControl({
+      activeWorktreePath,
+      selectEnvMode: onEnvModeChange,
+    });
+  }, [activeWorktreePath, canSelectEnvMode, onEnvModeChange]);
 
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
