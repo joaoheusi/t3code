@@ -1,5 +1,6 @@
+import { useUnsavedChangesGuard } from "../hooks/useUnsavedChangesGuard";
 import { randomUUID } from "../lib/utils";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EnvironmentId, ProjectId, QuickAction, QuickActionFields } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -34,7 +35,13 @@ const blankAction = (): QuickActionFields => ({
   enabled: true,
   favorite: false,
 });
-export function QuickActionLibrary({ environmentId }: { environmentId: EnvironmentId }) {
+export function QuickActionLibrary({
+  environmentId,
+  onDirtyChange,
+}: {
+  environmentId: EnvironmentId;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const config = useServerConfigs().get(environmentId);
   const supported = config?.environment.capabilities.forkQuickActionsVersion === 1;
   const canOperate = useEnvironmentOperateAccess(environmentId) === "granted";
@@ -60,12 +67,18 @@ export function QuickActionLibrary({ environmentId }: { environmentId: Environme
     setEditing((action) => (action ? { ...action, ...patch } : null));
   const dirty =
     editing !== null &&
-    (original === null ||
+    (shortcut.trim() !== "" ||
+      original === null ||
       Object.keys(editing).some(
         (key) =>
           JSON.stringify(editing[key as keyof QuickActionFields]) !==
           JSON.stringify(original[key as keyof QuickActionFields]),
       ));
+  useUnsavedChangesGuard(dirty);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   const openEditor = (action: QuickAction | null, duplicate = false) => {
     if (dirty && !window.confirm("Discard unsaved action changes?")) return;
     setError(null);

@@ -1,3 +1,4 @@
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import {
   latestExecutedRun,
   latestRootProviderFailure,
@@ -797,6 +798,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ),
     );
 
+  const workspaceRepositories = yield* Effect.serviceOption(
+    WorkspaceRepositories.WorkspaceRepositories,
+  );
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const providerAdapters = yield* ProviderAdapterRegistryV2;
@@ -2457,6 +2461,133 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} worktree changed before the metadata update could be applied.`,
       });
     }
+    if (
+      command.type === "thread.pull-request.link" &&
+      command.bindingId !== undefined &&
+      !thread.workspace?.bindings.some((binding) => binding.id === command.bindingId)
+    )
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "The PR binding is not in this workspace.",
+      });
+    const workspaceConfiguration =
+      command.type === "thread.metadata.update" ? command.workspaceConfiguration : undefined;
+    let plannedWorkspace = thread.workspace;
+    let originalWorkspacePath: string | null = null;
+    if (workspaceConfiguration !== undefined) {
+      if (
+        thread.workspace &&
+        ["planned", "validating", "preparing"].includes(thread.workspace.state)
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Cancel or finish the active preparation before reconfiguring repositories.",
+        });
+      if (workspaceConfiguration.expectedRevision !== (thread.workspace?.revision ?? 0))
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The workspace changed. Reload it before saving.",
+        });
+      const records = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs", "providerThreads"])
+        .pipe(mapDispatchError(command));
+      if (
+        records.runs.some((run) =>
+          ["preparing", "queued", "running", "blocked"].includes(run.status),
+        ) ||
+        records.providerThreads.length > 0 ||
+        thread.archivedAt !== null ||
+        thread.deletedAt !== null
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Change repository membership only on an idle thread before its first native provider session. Native-session root reconfiguration is not verified.",
+        });
+      const extension = workspaceRepositories;
+      if (Option.isNone(extension))
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Workspace preparation is unavailable on this server.",
+        });
+      plannedWorkspace = yield* extension.value
+        .plan(workspaceConfiguration, command.commandId)
+        .pipe(mapDispatchError(command));
+      const project = yield* projects.get(thread.projectId).pipe(mapDispatchError(command));
+      if (Option.isNone(project))
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The primary project is unavailable.",
+        });
+      const original = yield* extension.value
+        .inspect(thread.worktreePath ?? project.value.workspaceRoot)
+        .pipe(mapDispatchError(command));
+      originalWorkspacePath = original.path;
+      if (
+        plannedWorkspace.bindings.find(
+          (binding) => binding.id === plannedWorkspace!.primaryBindingId,
+        )?.commonDir !== original.commonDir
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The primary binding must belong to this thread's primary project.",
+        });
+    }
+    const workspaceControl =
+      command.type === "thread.metadata.update" ? command.workspaceControl : undefined;
+    if (workspaceControl) {
+      if (
+        workspaceConfiguration !== undefined ||
+        !thread.workspace ||
+        workspaceControl.expectedRevision !== thread.workspace.revision
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Reload the workspace before retrying or cancelling.",
+        });
+      if (
+        thread.archivedAt !== null ||
+        thread.deletedAt !== null ||
+        thread.workspace.state === "ready" ||
+        thread.workspace.state === "cancelled"
+      )
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Only an unfinished preparation can be retried or cancelled.",
+        });
+      if (workspaceControl.type === "retry" && thread.workspace.state !== "failed")
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Only a failed preparation can be retried.",
+        });
+      plannedWorkspace = {
+        ...thread.workspace,
+        revision: thread.workspace.revision + 1,
+        state: workspaceControl.type === "cancel" ? "cancelled" : "planned",
+      };
+    }
+    if (
+      thread.workspace?.bindings.length &&
+      thread.workspace.bindings.length > 1 &&
+      command.type === "thread.metadata.update" &&
+      workspaceConfiguration === undefined &&
+      (command.branch !== undefined || command.worktreePath !== undefined)
+    )
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Use the workspace configuration to change a multi-repository checkout.",
+      });
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -2894,6 +3025,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   };
           return {
             ...thread,
+            ...(workspaceConfiguration === undefined && workspaceControl === undefined
+              ? {}
+              : { workspace: plannedWorkspace }),
+            ...(workspaceConfiguration === undefined
+              ? {}
+              : {
+                  branch: plannedWorkspace!.bindings.find(
+                    (binding) => binding.id === plannedWorkspace!.primaryBindingId,
+                  )!.branch,
+                  worktreePath:
+                    plannedWorkspace!.bindings.find(
+                      (binding) => binding.id === plannedWorkspace!.primaryBindingId,
+                    )!.checkoutPath === originalWorkspacePath
+                      ? thread.worktreePath
+                      : plannedWorkspace!.bindings.find(
+                          (binding) => binding.id === plannedWorkspace!.primaryBindingId,
+                        )!.checkoutPath,
+                }),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&
@@ -2963,13 +3112,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               existing?.source === "stack-dismissed" &&
               command.source !== "stack" &&
               command.source !== "stack-dismissed";
-            if (existing && !undismisses) return thread;
+            const attachesBinding =
+              existing && existing.bindingId === undefined && command.bindingId !== undefined;
+            if (existing && !undismisses && !attachesBinding) return thread;
             const link = existing
-              ? { ...existing, source: command.source, url: command.url }
+              ? {
+                  ...existing,
+                  source: command.source,
+                  url: command.url,
+                  ...(command.bindingId === undefined ? {} : { bindingId: command.bindingId }),
+                }
               : {
                   ...key,
                   url: command.url,
                   source: command.source,
+                  ...(command.bindingId === undefined ? {} : { bindingId: command.bindingId }),
                   linkedAt: DateTime.formatIso(now),
                   snapshot: null,
                   stack: null,
@@ -3215,6 +3372,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       payload: updatedThread,
     });
 
+    if (workspaceConfiguration !== undefined || workspaceControl?.type === "retry") {
+      yield* Ref.update(effects, (existing) => [
+        ...existing,
+        {
+          id: `effect:${command.commandId}:workspace.prepare`,
+          commandId: command.commandId,
+          threadId: command.threadId,
+          request: { type: "workspace.prepare", operationId: plannedWorkspace!.operationId },
+        } satisfies PendingOrchestrationEffectV2,
+      ]);
+    }
     if (command.type === "thread.metadata.update" && command.regenerateTitle === true) {
       yield* Ref.update(effects, (existing) => [
         ...existing,
@@ -4442,6 +4610,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      if (projection.thread.workspace) {
+        if (Option.isNone(workspaceRepositories))
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Workspace validation is unavailable.",
+          });
+        yield* workspaceRepositories.value
+          .validate(projection.thread.workspace)
+          .pipe(mapDispatchError(command));
+      }
+
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
         const limited = latestRootProviderFailure(source ?? null, projection.turnItems);
@@ -9097,6 +9277,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ["providerThreads", "checkpoints", "checkpointScopes", "runs", "providerTurns", "attempts"],
         { turnItemTypes: [], messageRoles: ["user"] },
       );
+      if ((projection.thread.workspace?.bindings.length ?? 0) > 1 && command.restoreFiles !== false)
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause:
+            "Whole-workspace file restore is unavailable for multi-repository threads. Choose conversation-only rewind; files will remain changed.",
+        });
       const providerThread = projection.providerThreads.find(
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );

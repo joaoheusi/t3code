@@ -814,6 +814,8 @@ export function makeClaudeQueryOptions(input: {
    * state.sqlite stay ungranted.
    */
   readonly attachmentsDir?: string;
+  readonly additionalDirectories?: readonly string[];
+  readonly workspaceInstructions?: string;
   readonly settings?: ClaudeSettings;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
@@ -910,11 +912,13 @@ export function makeClaudeQueryOptions(input: {
       preset: "claude_code" as const,
       append:
         buildRuntimeInstructions({ harness: "Claude Code" }) +
+        (input.workspaceInstructions === undefined ? "" : "\n" + input.workspaceInstructions) +
         (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
     },
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
+    ...(input.additionalDirectories ?? []),
     ...(input.cwd === null ? [] : [input.cwd]),
     ...(input.attachmentsDir === undefined ? [] : [input.attachmentsDir]),
   ];
@@ -7126,6 +7130,12 @@ export function makeClaudeAdapterV2(
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
+            ...(turnInput.runtimePolicy.additionalDirectories === undefined
+              ? {}
+              : { additionalDirectories: turnInput.runtimePolicy.additionalDirectories }),
+            ...(turnInput.runtimePolicy.workspaceInstructions === undefined
+              ? {}
+              : { workspaceInstructions: turnInput.runtimePolicy.workspaceInstructions }),
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: adapterOptions.environment,

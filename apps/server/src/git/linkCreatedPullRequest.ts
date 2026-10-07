@@ -59,6 +59,7 @@ export function createdPullRequestKey(
  */
 export const linkCreatedPullRequest = <E>(input: {
   readonly threadId: ThreadId;
+  readonly bindingId?: string;
   readonly result: Pick<GitRunStackedActionResult, "pr">;
   readonly commandId: Effect.Effect<CommandId, E>;
 }): Effect.Effect<void, never, Orchestrator.OrchestratorV2 | ProjectService.ProjectService> =>
@@ -80,6 +81,7 @@ export const linkCreatedPullRequest = <E>(input: {
         threadId: input.threadId,
         ...key,
         source: "created",
+        ...(input.bindingId === undefined ? {} : { bindingId: input.bindingId }),
       })
       .pipe(Effect.asVoid);
   }).pipe(

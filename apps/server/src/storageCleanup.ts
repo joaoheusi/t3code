@@ -11,6 +11,7 @@ import type {
   ServerSettingsError,
   TerminalSummary,
   WorktreeCleanupRules,
+  ThreadWorkspace,
 } from "@t3tools/contracts";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
@@ -83,6 +84,7 @@ function sameProjectWorktreePolicies(left: ServerSettings, right: ServerSettings
 /** Live sessions keep their cwd even when no turn is currently running. */
 export function storageCleanupThreadIdle(thread: OrchestrationV2ThreadShell, now: number): boolean {
   return (
+    thread.workspace === undefined &&
     thread.branch !== null &&
     thread.worktreePath !== null &&
     thread.activeRunId === null &&
@@ -90,6 +92,31 @@ export function storageCleanupThreadIdle(thread: OrchestrationV2ThreadShell, now
     (thread.pendingBackgroundTasks?.length ?? 0) === 0 &&
     thread.pendingRuntimeRequest === null &&
     !threadHasQueuedTurnStart(thread, now)
+  );
+}
+
+/** Manifest checkouts are retained until a separately verified ownership cleanup exists. */
+export function storageCleanupPathRetained(
+  workspaces: readonly ThreadWorkspace[],
+  candidate: string,
+  path: {
+    resolve: (value: string) => string;
+    relative: (from: string, to: string) => string;
+    isAbsolute: (value: string) => boolean;
+    sep: string;
+  },
+) {
+  const root = path.resolve(candidate);
+  return workspaces.some((workspace) =>
+    workspace.bindings.some((binding) =>
+      [binding.checkoutPath, binding.sourcePath].some((value) => {
+        const relative = path.relative(root, path.resolve(value));
+        return (
+          relative === "" ||
+          (!path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep))
+        );
+      }),
+    ),
   );
 }
 
@@ -149,6 +176,13 @@ export const make = Effect.gen(function* () {
         );
       });
 
+  const retainedWorkspaces = Effect.fn("StorageCleanup.retainedWorkspaces")(function* () {
+    const rows = yield* sql<{
+      payload_json: string;
+    }>`SELECT payload_json FROM orchestration_v2_projection_threads WHERE json_extract(payload_json,'$.workspace') IS NOT NULL`;
+    const threads = yield* Effect.forEach(rows, (row) => decodeCleanupThread(row.payload_json));
+    return threads.flatMap((thread) => (thread.workspace ? [thread.workspace] : []));
+  });
   const readThreads = Effect.fn("StorageCleanup.readThreads")(function* () {
     const active = yield* projections.getShellSnapshot();
     const archived = yield* projections.getShellSnapshot({ location: "archive" });
@@ -220,7 +254,13 @@ export const make = Effect.gen(function* () {
       ...[...groups.values()].flatMap((group) => (group.length === 1 ? [group[0]!] : [])),
       ...deletedThreads.filter((thread) => !groups.has(path.resolve(thread.worktreePath!))),
     ];
+    const retained = yield* retainedWorkspaces();
     for (const thread of candidates) {
+      if (
+        thread.workspace !== undefined ||
+        storageCleanupPathRetained(retained, thread.worktreePath!, path)
+      )
+        continue;
       const settings = resolveWorktreeCleanup(serverSettings, thread.projectId);
       if (!worktreeCleanupEnabled(settings)) continue;
       const worktreePath = path.resolve(thread.worktreePath!);
@@ -387,6 +427,7 @@ export const make = Effect.gen(function* () {
           )
         )
           return;
+        if (storageCleanupPathRetained(yield* retainedWorkspaces(), worktreePath, path)) return;
         yield* git.removeWorktree({ cwd: project.workspaceRoot, path: worktreePath, force: false });
         yield* gitManager.invalidateStatus(project.workspaceRoot);
         // Preserve branch and path: ProviderTurnStartService recreates the checkout

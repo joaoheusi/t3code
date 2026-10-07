@@ -129,6 +129,7 @@ export function formatCliCommand(input: {
   readonly entryPath: string;
   readonly version: string;
 }): string {
+  if (input.version.includes("-j4.")) return `j4code ${input.subcommand}`;
   const runner = detectCliRunner(input.entryPath);
   if (runner === null) {
     return `t3 ${input.subcommand}`;

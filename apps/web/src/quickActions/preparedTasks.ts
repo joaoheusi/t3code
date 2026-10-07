@@ -1,8 +1,16 @@
+import type { ActionContextInput, EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { useSyncExternalStore } from "react";
 import type { ComposerThreadTarget } from "../composerDraftStore";
 import type { ReviewCommentContext } from "../reviewCommentContext";
 import { actionTargetKey } from "./dispatcher";
 export interface PreparedTask {
+  readonly validation?: {
+    readonly environmentId: EnvironmentId;
+    readonly projectId: ProjectId;
+    readonly action?: { id: string; revision: number };
+    readonly context?: ActionContextInput;
+    readonly workspaceRevision?: number | null;
+  };
   readonly id: string;
   readonly prompt: string;
   readonly reviewComments?: readonly ReviewCommentContext[];
@@ -39,3 +47,6 @@ export function usePreparedTask(target: ComposerThreadTarget) {
     () => tasks.get(actionTargetKey(target)) ?? null,
   );
 }
+
+export const readPreparedTask = (target: ComposerThreadTarget) =>
+  tasks.get(actionTargetKey(target)) ?? null;

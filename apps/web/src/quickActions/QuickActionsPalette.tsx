@@ -1,3 +1,8 @@
+import type { ActionContextInput, ActionContextResult, PullRequestRef } from "@t3tools/contracts";
+import { useThreadShell } from "../state/entities";
+import { forkWorkspace } from "../state/forkWorkspace";
+import { isPreviewFocused } from "../lib/previewFocus";
+import { prepareTask } from "./preparedTasks";
 import { useEnvironmentOperateAccess } from "../hooks/useEnvironmentOperateAccess";
 import { useEffect, useRef, useState } from "react";
 import type {
@@ -48,10 +53,21 @@ export function QuickActionsPalette({
   keybindings: ResolvedKeybindingsConfig;
   terminalOpen: boolean;
 }) {
+  const thread = useThreadShell(typeof target === "string" ? null : target);
+  const targetKey = actionTargetKey(target);
+  const activeTargetKey = useRef(targetKey);
+  useEffect(() => {
+    activeTargetKey.current = targetKey;
+  }, [targetKey]);
+  const [hostContext, setHostContext] = useState<ActionContextResult | null>(null);
+  const [repositoryId, setRepositoryId] = useState("");
+  const [prIndex, setPrIndex] = useState("");
+  const resolveContext = useAtomCommand(forkWorkspace.context, { reportFailure: false });
   const supported =
     useServerConfigs().get(environmentId)?.environment.capabilities.forkQuickActionsVersion === 1;
   const canOperate = useEnvironmentOperateAccess(environmentId) === "granted";
   const [open, setOpen] = useState(false);
+  const [libraryDirty, setLibraryDirty] = useState(false);
   const [manage, setManage] = useState(false);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
@@ -63,6 +79,8 @@ export function QuickActionsPalette({
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const invocation = useRef<ActionInvocation | null>(null);
+  const [hasInvocation, setHasInvocation] = useState(false);
+  const cancellation = useRef(0);
   const instant = useRef(new Date());
   const list = useEnvironmentQuery(
     open && supported
@@ -72,8 +90,11 @@ export function QuickActionsPalette({
   const reload = useAtomCommand(quickActionsEnvironment.reload, { reportFailure: false });
   const actions = rankQuickActions(list.data ?? [], query, recent);
   const cancel = () => {
+    if (manage && libraryDirty && !window.confirm("Discard unsaved action changes?")) return;
     if (invocation.current) actionDispatcher.cancel(invocation.current);
     invocation.current = null;
+    setHasInvocation(false);
+    cancellation.current++;
     setOpen(false);
   };
   const begin = (actionId = "palette") => {
@@ -81,11 +102,15 @@ export function QuickActionsPalette({
     invocation.current = canOperate
       ? actionDispatcher.capture(actionTargetKey(target), actionId, 0)
       : null;
+    setHasInvocation(invocation.current !== null);
     instant.current = new Date();
     setError(null);
     setStale(false);
     setSelected(null);
     setValues({});
+    setHostContext(null);
+    setRepositoryId("");
+    setPrIndex("");
     setQuery("");
     setIndex(0);
     setManage(false);
@@ -94,7 +119,17 @@ export function QuickActionsPalette({
       setError("The target composer is unavailable. You can still view the library.");
     return true;
   };
-  const choose = async (action: QuickAction) => {
+  const choose = async (
+    action: QuickAction,
+    execute = true,
+    bindingId = repositoryId,
+    selectedPr = prIndex,
+  ) => {
+    const capturedTarget = target;
+    const capturedKey = targetKey;
+    const capturedInvocation = invocation.current;
+    const capturedCancellation = cancellation.current;
+
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
@@ -111,8 +146,150 @@ export function QuickActionsPalette({
         time: instant.current.toLocaleTimeString(),
       };
       if (variables.includes("clipboard")) context.clipboard = await navigator.clipboard.readText();
+      const contextual =
+        fresh.id === "99aa6720-f388-4bbd-aacc-000000000000" ||
+        fresh.id === "99aa6720-f388-4bbd-aacc-000000000001";
+      let host: ActionContextResult | null = null;
+      let contextInput: ActionContextInput | undefined;
+      if (
+        projectId &&
+        (contextual || variables.some((name) => !["date", "time", "clipboard"].includes(name)))
+      ) {
+        const linked =
+          selectedPr !== ""
+            ? thread?.pullRequests[Number(selectedPr)]
+            : thread?.pullRequests.length === 1
+              ? thread.pullRequests[0]
+              : undefined;
+        const pr: PullRequestRef | undefined = linked
+          ? { projectId, host: linked.host, repository: linked.repository, number: linked.number }
+          : undefined;
+        contextInput = {
+          projectId,
+          ...(typeof capturedTarget === "string" ? {} : { threadId: capturedTarget.threadId }),
+          ...(bindingId ? { bindingId } : {}),
+          ...(pr ? { pullRequest: pr } : {}),
+        };
+        const result = await resolveContext({ environmentId, input: contextInput });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        host = result.value;
+        if (host.threadTitle) context["thread.title"] = host.threadTitle;
+        context["workspace.repositories"] = host.repositories
+          .map(
+            (entry) =>
+              `${entry.label} · ${entry.mode} · ${entry.repository.path} · ${entry.repository.branch ?? "Detached HEAD"}`,
+          )
+          .join("\n");
+        const repo = bindingId
+          ? host.repositories.find((entry) => entry.id === bindingId)
+          : host.repositories.length === 1
+            ? host.repositories[0]
+            : undefined;
+        if (repo) {
+          context["repo.name"] = repo.label;
+          context["repo.path"] = repo.repository.path;
+          context["repo.branch"] = repo.repository.branch ?? "Detached HEAD";
+        }
+        if (host.pullRequest) {
+          context["pr.url"] = host.pullRequest.url;
+          context["ci.failures"] = host.pullRequest.failures;
+        }
+      }
+      const complete =
+        !variables.some((name) => context[name as QuickActionVariable] === undefined) &&
+        (!contextual || (host?.pullRequest !== null && host !== null));
+      const rendered = complete
+        ? renderQuickAction(fresh.template, context) +
+          (contextual
+            ? `\n\n${fresh.id.endsWith("000000000001") ? host!.pullRequest!.conflicts : host!.pullRequest!.failures}`
+            : "")
+        : null;
+      if (cancellation.current !== capturedCancellation) return;
+      if (activeTargetKey.current !== capturedKey) {
+        if (rendered && projectId)
+          prepareTask(capturedTarget, {
+            prompt: rendered,
+            validation: {
+              environmentId,
+              projectId,
+              action: { id: fresh.id, revision: fresh.revision },
+              ...(contextInput
+                ? {
+                    context: {
+                      ...contextInput,
+                      ...(host?.pullRequest?.headSha
+                        ? { expectedHeadSha: host.pullRequest.headSha }
+                        : {}),
+                    },
+                    workspaceRevision: host?.workspaceRevision ?? null,
+                  }
+                : {}),
+            },
+          });
+        return;
+      }
+      if (capturedInvocation)
+        invocation.current = actionDispatcher.select(capturedInvocation, fresh.id, fresh.revision);
       setValues(context);
+      setHostContext(host);
       setSelected(fresh);
+      if (execute && rendered && invocation.current) {
+        const latest = await reload({ environmentId, input: projectId ? { projectId } : {} });
+        if (latest._tag === "Failure") throw squashAtomCommandFailure(latest);
+        if (
+          !latest.value.some(
+            (entry) => entry.enabled && entry.id === fresh.id && entry.revision === fresh.revision,
+          )
+        )
+          throw new Error("This action changed while context loaded. Choose it again.");
+        if (cancellation.current !== capturedCancellation) return;
+        const result = actionDispatcher.insert(
+          invocation.current,
+          rendered,
+          contextual ? "append" : "selection",
+        );
+        if (result === "inserted") {
+          setRecent((previous) =>
+            [fresh.id, ...previous.filter((id) => id !== fresh.id)].slice(0, 20),
+          );
+          cancel();
+          return;
+        }
+        if (
+          result === "unavailable-target" &&
+          activeTargetKey.current !== capturedKey &&
+          projectId
+        ) {
+          prepareTask(capturedTarget, {
+            prompt: rendered,
+            validation: {
+              environmentId,
+              projectId,
+              action: { id: fresh.id, revision: fresh.revision },
+              ...(contextInput
+                ? {
+                    context: {
+                      ...contextInput,
+                      ...(host?.pullRequest?.headSha
+                        ? { expectedHeadSha: host.pullRequest.headSha }
+                        : {}),
+                    },
+                    workspaceRevision: host?.workspaceRevision ?? null,
+                  }
+                : {}),
+            },
+          });
+          return;
+        }
+        if (result === "stale-draft") setStale(true);
+        setError(
+          result === "stale-draft"
+            ? "The draft changed. Append this text to the current draft or cancel."
+            : "The original composer is unavailable. Return to that thread and choose again.",
+        );
+      }
+      if (contextual && !host?.pullRequest)
+        setError("Select an associated PR before preparing this task.");
       // Host context is resolved only from validated workspace/PR data. Never guess paths or logs.
       if (variables.some((name) => context[name as QuickActionVariable] === undefined))
         setError(
@@ -139,11 +316,49 @@ export function QuickActionsPalette({
       const action = result.value.find((entry) => entry.id === selected.id && entry.enabled);
       if (!action || action.revision !== selected.revision)
         throw new Error("This action changed. Cancel and choose it again.");
-      const text = renderQuickAction(action.template, values);
+      const contextual =
+        action.id === "99aa6720-f388-4bbd-aacc-000000000000" ||
+        action.id === "99aa6720-f388-4bbd-aacc-000000000001";
+      if (contextual && !hostContext?.pullRequest)
+        throw new Error("Select an associated PR first.");
+      if (hostContext?.pullRequest && projectId) {
+        const linked =
+          prIndex !== ""
+            ? thread?.pullRequests[Number(prIndex)]
+            : thread?.pullRequests.length === 1
+              ? thread.pullRequests[0]
+              : undefined;
+        if (!linked) throw new Error("The associated PR is unavailable. Choose again.");
+        const refreshed = await resolveContext({
+          environmentId,
+          input: {
+            projectId,
+            ...(typeof target === "string" ? {} : { threadId: target.threadId }),
+            ...(repositoryId ? { bindingId: repositoryId } : {}),
+            pullRequest: {
+              projectId,
+              host: linked.host,
+              repository: linked.repository,
+              number: linked.number,
+            },
+            ...(hostContext.pullRequest.headSha
+              ? { expectedHeadSha: hostContext.pullRequest.headSha }
+              : {}),
+          },
+        });
+        if (refreshed._tag === "Failure") throw squashAtomCommandFailure(refreshed);
+        if (refreshed.value.workspaceRevision !== hostContext.workspaceRevision)
+          throw new Error("The workspace changed. Choose this action again.");
+      }
+      const text =
+        renderQuickAction(action.template, values) +
+        (contextual
+          ? `\n\n${action.id.endsWith("000000000001") ? hostContext!.pullRequest!.conflicts : hostContext!.pullRequest!.failures}`
+          : "");
       const inserted = actionDispatcher.insert(
         invocation.current,
         text,
-        append ? "append" : "selection",
+        append || contextual ? "append" : "selection",
         append,
       );
       if (inserted === "stale-draft") {
@@ -168,7 +383,11 @@ export function QuickActionsPalette({
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const command = resolveShortcutCommand(event, keybindings, {
-        context: { terminalFocus: getTerminalFocusOwner() !== null, terminalOpen },
+        context: {
+          terminalFocus: getTerminalFocusOwner() !== null,
+          previewFocus: isPreviewFocused(),
+          terminalOpen,
+        },
       });
       if (
         command !== "quickActions.toggle" &&
@@ -198,8 +417,15 @@ export function QuickActionsPalette({
     () => () => {
       if (invocation.current) actionDispatcher.cancel(invocation.current);
     },
-    [target],
+    [targetKey],
   );
+  const preview = () =>
+    renderQuickAction(selected!.template, values) +
+    ((selected?.id === "99aa6720-f388-4bbd-aacc-000000000000" ||
+      selected?.id === "99aa6720-f388-4bbd-aacc-000000000001") &&
+    hostContext?.pullRequest
+      ? `\n\n${selected.id.endsWith("000000000001") ? hostContext.pullRequest.conflicts : hostContext.pullRequest.failures}`
+      : "");
   if (!supported) return null;
   return (
     <>
@@ -245,14 +471,55 @@ export function QuickActionsPalette({
           <DialogPanel>
             {error || list.error ? <p role="alert">{error ?? list.error}</p> : null}
             {manage ? (
-              <QuickActionLibrary environmentId={environmentId} />
+              <QuickActionLibrary environmentId={environmentId} onDirtyChange={setLibraryDirty} />
             ) : selected ? (
               <>
                 <p>Insert editable text into the captured thread. Review it before sending.</p>
+                {hostContext && hostContext.repositories.length > 1 ? (
+                  <label>
+                    Repository
+                    <select
+                      value={repositoryId}
+                      onChange={(event) => {
+                        setRepositoryId(event.target.value);
+                        void choose(selected, false, event.target.value);
+                      }}
+                    >
+                      <option value="">Choose a repository</option>
+                      {hostContext.repositories.map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {entry.label} · {entry.repository.path}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {thread && thread.pullRequests.length > 1 ? (
+                  <label>
+                    Pull request
+                    <select
+                      value={prIndex}
+                      onChange={(event) => {
+                        setPrIndex(event.target.value);
+                        void choose(selected, false, repositoryId, event.target.value);
+                      }}
+                    >
+                      <option value="">Choose a PR</option>
+                      {thread.pullRequests.map((pr, index) => (
+                        <option key={`${pr.host}:${pr.repository}:${pr.number}`} value={index}>
+                          {pr.host}/{pr.repository}#{pr.number}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {hostContext?.notices.map((notice) => (
+                  <p key={notice}>{notice}</p>
+                ))}
                 <pre className="my-3 max-h-80 overflow-auto whitespace-pre-wrap">
                   {(() => {
                     try {
-                      return renderQuickAction(selected.template, values);
+                      return preview();
                     } catch {
                       return selected.template;
                     }
@@ -260,9 +527,25 @@ export function QuickActionsPalette({
                 </pre>
                 <Button
                   type="button"
+                  variant="outline"
+                  onClick={() => {
+                    try {
+                      void navigator.clipboard
+                        .writeText(preview())
+                        .catch(() => setError("Clipboard access was denied."));
+                    } catch (failure) {
+                      setError(String(failure));
+                    }
+                  }}
+                >
+                  Copy text
+                </Button>
+                <Button
+                  type="button"
                   disabled={
                     busy ||
-                    !invocation.current ||
+                    !canOperate ||
+                    !hasInvocation ||
                     templateVariables(selected.template).some(
                       (name) => values[name as QuickActionVariable] === undefined,
                     )
@@ -326,6 +609,8 @@ export function QuickActionsPalette({
               type="button"
               variant="ghost"
               onClick={() => {
+                if (manage && libraryDirty && !window.confirm("Discard unsaved action changes?"))
+                  return;
                 setManage(!manage);
                 setSelected(null);
               }}

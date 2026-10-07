@@ -1,3 +1,6 @@
+import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAccess";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { WorkspaceManager } from "../../workspace/WorkspaceManager";
 import { PreparedTaskBanner } from "../../quickActions/PreparedTaskBanner";
 import { QuickActionsPalette } from "../../quickActions/QuickActionsPalette";
 import { registerActionEditor } from "~/quickActions/dispatcher";
@@ -240,7 +243,7 @@ import {
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
 import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
-import { readThreadShell, useThreadShells } from "~/state/entities";
+import { readThreadShell, useThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
@@ -2160,7 +2163,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderEntry?.snapshot,
     selectedModel,
   );
+  const actionOperateAccess = useEnvironmentOperateAccess(environmentId);
+  const threadWorkspace = useThreadShell(
+    activeThreadId ? scopeThreadRef(environmentId, activeThreadId) : null,
+  )?.workspace;
   const sendDisabledReason =
+    (threadWorkspace && threadWorkspace.state !== "ready"
+      ? "Prepare every repository before sending."
+      : null) ??
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
@@ -6124,6 +6134,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     () =>
       registerActionEditor(composerDraftTarget, {
         available: () =>
+          actionOperateAccess === "granted" &&
+          activeThread?.archivedAt == null &&
+          activeThread?.deletedAt == null &&
           environmentUnavailable === null &&
           !isRevertingCheckpoint &&
           !isConnecting &&
@@ -6137,10 +6150,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             end: promptRef.current.length,
           },
         }),
-        replace: (start, end, text) => applyPromptReplacement(start, end, text),
+        replace: (start, end, text) => {
+          if (
+            promptRef.current.slice(0, start) + text + promptRef.current.slice(end) ===
+            promptRef.current
+          )
+            return true;
+          composerEditorRef.current?.beginAtomicEdit?.();
+          const inserted = applyPromptReplacement(start, end, text);
+          if (!inserted) composerEditorRef.current?.beginAtomicEdit?.(false);
+          return inserted;
+        },
       }),
     [
       composerDraftTarget,
+      actionOperateAccess,
+      activeThread?.archivedAt,
+      activeThread?.deletedAt,
       environmentUnavailable,
       isRevertingCheckpoint,
       isConnecting,
@@ -6646,6 +6672,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             restingControlsHost,
           )
         : null}
+      <WorkspaceManager
+        environmentId={environmentId}
+        threadId={activeThreadId}
+        projectId={pullRequestProjectId}
+        modelSelection={selectedModelSelection}
+        runtimeMode={runtimeMode}
+        interactionMode={interactionMode}
+        primaryPath={gitCwd}
+      />
       <PreparedTaskBanner target={composerDraftTarget} />
       <QuickActionsPalette
         environmentId={environmentId}

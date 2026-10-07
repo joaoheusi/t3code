@@ -1,3 +1,4 @@
+import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 /**
@@ -164,7 +165,7 @@ export function ThreadDetailsPrRow({
       onActed?.();
     },
   });
-  const { handoff, startHandoff } = usePullRequestHandoffs({
+  const { handoff, startHandoff, openNew, chooser } = usePullRequestHandoffs({
     environmentId,
     detail,
     target: threadRef ?? null,
@@ -183,25 +184,31 @@ export function ThreadDetailsPrRow({
     "merge",
   );
 
-  const startResolveConflicts = () => {
+  const startResolveConflicts = (explicitNew = false) => {
     if (detail === null) return;
-    void startHandoff("conflicts", {
+    const task = {
+      context: {
+        kind: "conflicts" as const,
+        reference: reference!,
+        ...(detail.headSha ? { headSha: detail.headSha } : {}),
+      },
       prompt: buildResolveConflictsPrompt({
         number: detail.number,
         url: detail.url,
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
       }),
-    });
+    };
+    if (explicitNew) void openNew(task);
+    else void startHandoff("conflicts", task);
   };
 
-  const startFixChecks = () => {
+  const startFixChecks = (explicitNew = false) => {
     if (detail === null) return;
     // The compact row fetches no conversation, so the handoff carries the failing checks alone;
     // review threads keep arriving through the full panel's richer version of this action.
-    void startHandoff(
-      "findings",
-      buildFixFindingsHandoff({
+    const task = {
+      ...buildFixFindingsHandoff({
         number: detail.number,
         title: detail.title,
         url: detail.url,
@@ -212,7 +219,14 @@ export function ThreadDetailsPrRow({
         checks: detail.checks,
         commentsTruncated: false,
       }),
-    );
+      context: {
+        kind: "ci" as const,
+        reference: reference!,
+        ...(detail.headSha ? { headSha: detail.headSha } : {}),
+      },
+    };
+    if (explicitNew) void openNew(task);
+    else void startHandoff("findings", task);
   };
 
   // Host details distinguish drafts; all panels share the same PR-state glyph.
@@ -315,8 +329,8 @@ export function ThreadDetailsPrRow({
           pending: handoff === "conflicts",
           destructive: true,
           suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-          tooltip: "Check the branch out and resolve the conflicts in a new thread",
-          onClick: startResolveConflicts,
+          tooltip: "Insert a conflict task into this thread",
+          onClick: () => startResolveConflicts(),
         }
       : rowAction === "ready"
         ? {
@@ -335,8 +349,8 @@ export function ThreadDetailsPrRow({
               pending: handoff === "findings",
               destructive: true,
               suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-              tooltip: "Fix the failing checks in a new thread",
-              onClick: startFixChecks,
+              tooltip: "Insert a CI task into this thread",
+              onClick: () => startFixChecks(),
             }
           : rowAction === "merge"
             ? {
@@ -393,64 +407,112 @@ export function ThreadDetailsPrRow({
 
   return (
     <>
-      {detail ? (
-        <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ThreadDetailsControl
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  part="link-primary"
-                  aria-label={openAriaLabel}
-                  onClick={onOpen}
+      {chooser}
+      <>
+        {detail ? (
+          <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <ThreadDetailsControl
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    part="link-primary"
+                    aria-label={openAriaLabel}
+                    onClick={onOpen}
+                  />
+                }
+              >
+                {rowContent}
+              </TooltipTrigger>
+              {rowTooltip}
+            </Tooltip>
+            {watchSegment}
+            {checksRollup !== null && !conflicting && !detail.isDraft ? (
+              <>
+                <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+                <PullRequestChecksPopover
+                  checksState={checksRollup}
+                  checks={detail.checks}
+                  variant="count"
+                  render={<ThreadDetailsControl part="checks" />}
                 />
-              }
-            >
-              {rowContent}
-            </TooltipTrigger>
-            {rowTooltip}
-          </Tooltip>
-          {watchSegment}
-          {checksRollup !== null && !conflicting && !detail.isDraft ? (
-            <>
-              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-              <PullRequestChecksPopover
-                checksState={checksRollup}
-                checks={detail.checks}
-                variant="count"
-                render={<ThreadDetailsControl part="checks" />}
-              />
-            </>
-          ) : null}
-          {trailingAction ? (
-            <>
-              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
-              <Tooltip>
-                <TooltipTrigger
+              </>
+            ) : null}
+            {rowAction === "resolve" || rowAction === "fix" ? (
+              <Menu>
+                <MenuTrigger
                   render={
                     <ThreadDetailsControl
                       type="button"
                       variant="ghost"
                       size="sm"
                       part="action"
-                      tone={trailingAction.destructive ? "destructive" : "default"}
-                      disabled={actionPending || handoff !== null}
-                      onClick={trailingAction.onClick}
+                      aria-label="PR task options"
                     />
                   }
                 >
-                  {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
-                  {trailingAction.suffix}
-                </TooltipTrigger>
-                <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
-              </Tooltip>
-            </>
-          ) : null}
-        </div>
-      ) : watchSegment ? (
-        <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
+                  ⋯
+                </MenuTrigger>
+                <MenuPopup>
+                  <MenuItem
+                    onClick={() =>
+                      rowAction === "resolve" ? startResolveConflicts(true) : startFixChecks(true)
+                    }
+                  >
+                    Open in new thread
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
+            ) : null}
+            {trailingAction ? (
+              <>
+                <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <ThreadDetailsControl
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        part="action"
+                        tone={trailingAction.destructive ? "destructive" : "default"}
+                        disabled={actionPending || handoff !== null}
+                        onClick={trailingAction.onClick}
+                      />
+                    }
+                  >
+                    {trailingAction.pending ? trailingAction.pendingLabel : trailingAction.label}
+                    {trailingAction.suffix}
+                  </TooltipTrigger>
+                  <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
+                </Tooltip>
+              </>
+            ) : null}
+          </div>
+        ) : watchSegment ? (
+          <div className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <ThreadDetailsControl
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    part="link-primary"
+                    aria-label={openAriaLabel}
+                    onClick={onOpen}
+                  />
+                }
+              >
+                {rowContent}
+              </TooltipTrigger>
+              {rowTooltip}
+            </Tooltip>
+            {watchSegment}
+          </div>
+        ) : (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -458,7 +520,7 @@ export function ThreadDetailsPrRow({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  part="link-primary"
+                  part="row"
                   aria-label={openAriaLabel}
                   onClick={onOpen}
                 />
@@ -468,54 +530,35 @@ export function ThreadDetailsPrRow({
             </TooltipTrigger>
             {rowTooltip}
           </Tooltip>
-          {watchSegment}
-        </div>
-      ) : (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <ThreadDetailsControl
-                type="button"
-                variant="ghost"
-                size="sm"
-                part="row"
-                aria-label={openAriaLabel}
-                onClick={onOpen}
-              />
-            }
-          >
-            {rowContent}
-          </TooltipTrigger>
-          {rowTooltip}
-        </Tooltip>
-      )}
-      {rowAction === "merge" ? (
-        <AlertDialog open={confirmingMerge} onOpenChange={(open) => setConfirmingMerge(open)}>
-          <AlertDialogPopup>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Merge pull request?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This merges #{number} using {selectedMergeMethod}.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogClose render={<Button variant="outline" size="sm" />}>
-                Cancel
-              </AlertDialogClose>
-              <Button
-                size="sm"
-                disabled={actionPending}
-                onClick={() => {
-                  setConfirmingMerge(false);
-                  void perform("merge", selectedMergeMethod);
-                }}
-              >
-                Merge
-              </Button>
-            </AlertDialogFooter>
-          </AlertDialogPopup>
-        </AlertDialog>
-      ) : null}
+        )}
+        {rowAction === "merge" ? (
+          <AlertDialog open={confirmingMerge} onOpenChange={(open) => setConfirmingMerge(open)}>
+            <AlertDialogPopup>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Merge pull request?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This merges #{number} using {selectedMergeMethod}.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose render={<Button variant="outline" size="sm" />}>
+                  Cancel
+                </AlertDialogClose>
+                <Button
+                  size="sm"
+                  disabled={actionPending}
+                  onClick={() => {
+                    setConfirmingMerge(false);
+                    void perform("merge", selectedMergeMethod);
+                  }}
+                >
+                  Merge
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogPopup>
+          </AlertDialog>
+        ) : null}
+      </>
     </>
   );
 }

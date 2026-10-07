@@ -406,6 +406,14 @@
     "./quickActions": {
       "types": "./src/quickActions.ts",
       "import": "./src/quickActions.ts"
+    },
+    "./actionContext": {
+      "types": "./src/actionContext.ts",
+      "import": "./src/actionContext.ts"
+    },
+    "./workspaceTerminal": {
+      "types": "./src/workspaceTerminal.ts",
+      "import": "./src/workspaceTerminal.ts"
     }
   },
   "scripts": {

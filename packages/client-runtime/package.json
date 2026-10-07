@@ -394,6 +394,10 @@
     "./state/quickActions": {
       "types": "./src/state/quickActions.ts",
       "default": "./src/state/quickActions.ts"
+    },
+    "./state/forkWorkspace": {
+      "types": "./src/state/forkWorkspace.ts",
+      "default": "./src/state/forkWorkspace.ts"
     }
   },
   "scripts": {

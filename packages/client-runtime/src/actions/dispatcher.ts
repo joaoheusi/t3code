@@ -30,10 +30,12 @@ export class ActionDispatcher {
     string,
     { invocation: ActionInvocation; consumed: boolean }
   >();
-  constructor(
-    private readonly now: () => number = Date.now,
-    private readonly nextId: () => string = () => crypto.randomUUID(),
-  ) {}
+  private readonly now: () => number;
+  private readonly nextId: () => string;
+  constructor(now: () => number, nextId: () => string) {
+    this.now = now;
+    this.nextId = nextId;
+  }
   register(target: string, editor: ActionEditor): () => void {
     this.editors.set(target, editor);
     return () => {
@@ -57,6 +59,17 @@ export class ActionDispatcher {
     };
     this.invocations.set(invocation.id, { invocation, consumed: false });
     return invocation;
+  }
+  select(
+    invocation: ActionInvocation,
+    actionId: string,
+    actionRevision: number,
+  ): ActionInvocation | null {
+    const record = this.invocations.get(invocation.id);
+    if (!record || record.invocation !== invocation || record.consumed) return null;
+    const selected = { ...invocation, actionId, actionRevision };
+    record.invocation = selected;
+    return selected;
   }
   cancel(invocation: ActionInvocation): void {
     this.invocations.delete(invocation.id);

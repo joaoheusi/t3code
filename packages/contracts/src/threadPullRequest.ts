@@ -128,6 +128,7 @@ export const ThreadPullRequestLink = Schema.Struct({
   ...ThreadPullRequestKey.fields,
   url: TrimmedNonEmptyString,
   source: ThreadPullRequestLinkSource,
+  bindingId: Schema.optional(TrimmedNonEmptyString),
   linkedAt: IsoDateTime,
   snapshot: Schema.NullOr(ThreadPullRequestSnapshot),
   stack: Schema.NullOr(ThreadPullRequestStack),

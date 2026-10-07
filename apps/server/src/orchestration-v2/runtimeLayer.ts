@@ -1,3 +1,5 @@
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
+import * as WorkspacePreparation from "../workspace/WorkspacePreparation.ts";
 import * as UsageLimitRecoveryWorker from "./UsageLimitRecoveryWorker.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
@@ -57,7 +59,7 @@ export const layerEventInfrastructure = Layer.mergeAll(
 );
 
 const layerRuntimePolicyProvided = RuntimePolicy.layerFromProjectStore.pipe(
-  Layer.provide(ProjectStore.layer),
+  Layer.provide(Layer.merge(ProjectStore.layer, WorkspaceRepositories.layer)),
 );
 
 const layerEventStoreProvided = EventStore.layerFromOrchestrationEventStore.pipe(
@@ -200,6 +202,7 @@ const layerRunFinalizationServiceProvided = RunFinalizationService.layer.pipe(
 const layerOrchestratorProvided = Orchestrator.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      WorkspaceRepositories.layer,
       layerCheckpointServiceProvided,
       CommandPolicy.layer,
       layerStores,
@@ -285,9 +288,20 @@ const layerThreadTitleRegenerationProvided = ThreadTitleRegenerationService.laye
     Layer.mergeAll(layerThreadManagementProvided, ProjectStore.layer, TextGeneration.layer),
   ),
 );
+const layerWorkspacePreparationProvided = WorkspacePreparation.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      WorkspaceRepositories.layer,
+      ProjectionStore.layer,
+      layerEventSinkProvided,
+      ThreadCommandExecutor.layer,
+    ),
+  ),
+);
 const layerEffectExecutorProvided = EffectWorker.layerExecutor.pipe(
   Layer.provide(
     Layer.mergeAll(
+      layerWorkspacePreparationProvided,
       layerRunFinalizationServiceProvided,
       layerCheckpointRollbackServiceProvided,
       layerProviderSessionManagerProvided,

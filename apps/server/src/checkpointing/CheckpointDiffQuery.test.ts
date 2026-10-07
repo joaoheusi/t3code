@@ -53,6 +53,7 @@ function layerFor(input: {
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(null),
           getCheckpointContext: () => input.projection,
         }),
         Layer.mock(CheckpointStore.CheckpointStore)({

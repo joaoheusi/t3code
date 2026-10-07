@@ -1,4 +1,7 @@
-import { ActionDispatcher } from "@t3tools/client-runtime/actions/dispatcher";
+import {
+  type ActionInvocation,
+  ActionDispatcher,
+} from "@t3tools/client-runtime/actions/dispatcher";
 import {
   composerTargetKey,
   resolveComposerDraftKey,
@@ -9,7 +12,8 @@ import type { ActionEditor } from "@t3tools/client-runtime/actions/dispatcher";
 import { toastManager } from "../components/ui/toast";
 import type { ReviewCommentContext } from "../reviewCommentContext";
 
-export const actionDispatcher = new ActionDispatcher();
+import { randomUUID } from "../lib/utils";
+export const actionDispatcher = new ActionDispatcher(Date.now, randomUUID);
 export const actionTargetKey = (target: ComposerThreadTarget) => composerTargetKey(target);
 
 const draftRevisions = new Map<string, number>();
@@ -46,8 +50,12 @@ export function registerActionEditor(
 export function insertContextualTask(
   target: ComposerThreadTarget,
   task: { prompt: string; reviewComments?: readonly ReviewCommentContext[] },
+  captured?: ActionInvocation | null,
 ): boolean {
-  const invocation = actionDispatcher.capture(actionTargetKey(target), "pull-request-task", 1);
+  const invocation =
+    captured === undefined
+      ? actionDispatcher.capture(actionTargetKey(target), "pull-request-task", 1)
+      : captured;
   if (!invocation || actionDispatcher.insert(invocation, task.prompt, "append") !== "inserted") {
     toastManager.add({
       type: "error",

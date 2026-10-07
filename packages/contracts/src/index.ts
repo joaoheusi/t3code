@@ -63,3 +63,5 @@ export * from "./rpc.ts";
 export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./quickActions.ts";
+
+export * from "./forkWorkspace.ts";

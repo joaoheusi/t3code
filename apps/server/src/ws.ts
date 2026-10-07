@@ -1,3 +1,5 @@
+import * as WorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
+import * as WorkspaceApi from "./workspace/WorkspaceApi.ts";
 import * as QuickActions from "./quickActions/QuickActions.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
@@ -23,6 +25,8 @@ import { subscribeChatGptHandoff } from "./provider/CodexChatGptHandoff.ts";
 import { subscribeCodexAuthCallback } from "./provider/CodexAuthCallback.ts";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  TerminalWorkspaceError,
+  WorkspaceError,
   AcpRegistryOperationError,
   CommandId,
   AuthAccessStreamError,
@@ -1299,6 +1303,8 @@ const layerWsRpc = (
         ),
       );
       const quickActions = yield* QuickActions.QuickActions;
+      const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+      const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
@@ -1886,7 +1892,7 @@ const layerWsRpc = (
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetTurnDiffError({
-                    message: "Failed to load turn diff",
+                    message: cause.message,
                     cause,
                   }),
               ),
@@ -1900,7 +1906,7 @@ const layerWsRpc = (
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetFullThreadDiffError({
-                    message: "Failed to load full thread diff",
+                    message: cause.message,
                     cause,
                   }),
               ),
@@ -2566,6 +2572,30 @@ const layerWsRpc = (
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.actionContext]: workspaceApi.context,
+        [WS_METHODS.workspaceInspect]: (input) => workspaceRepositories.inspect(input.path),
+        [WS_METHODS.workspaceDiscover]: (input) =>
+          workspaceRepositories.discover(input.root, input.depth),
+        [WS_METHODS.workspaceStatus]: workspaceApi.status,
+        [WS_METHODS.workspaceDiff]: workspaceApi.diff,
+        [WS_METHODS.workspaceWriteFile]: workspaceApi.writeFile,
+        [WS_METHODS.workspaceSearch]: workspaceApi.search,
+        [WS_METHODS.workspaceReadFile]: workspaceApi.readFile,
+        [WS_METHODS.workspaceTerminal]: workspaceApi.terminal,
+        [WS_METHODS.workspaceGitAction]: (input) =>
+          workspaceApi.gitAction(input).pipe(
+            Effect.tap((result) =>
+              linkCreatedPullRequest({
+                threadId: input.threadId,
+                bindingId: input.bindingId,
+                result,
+                commandId: serverCommandId("workspace-pr-created-link"),
+              }).pipe(
+                Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
+                Effect.provideService(ProjectService.ProjectService, projectService),
+              ),
+            ),
+          ),
         [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
         [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
         [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),
@@ -3115,15 +3145,17 @@ const layerWsRpc = (
         [WS_METHODS.projectsWriteFile]: (input) =>
           observeRpcEffect(
             WS_METHODS.projectsWriteFile,
-            workspaceFileSystem.writeFile(input).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProjectWriteFileError({
-                    cwd: input.cwd,
-                    relativePath: input.relativePath,
-                    ...projectFileFailureContext(cause),
-                    cause,
-                  }),
+            workspaceApi.assertLegacyMutation(input.cwd).pipe(
+              Effect.andThen(workspaceFileSystem.writeFile(input)),
+              Effect.mapError((cause) =>
+                Schema.is(WorkspaceError)(cause)
+                  ? cause
+                  : new ProjectWriteFileError({
+                      cwd: input.cwd,
+                      relativePath: input.relativePath,
+                      ...projectFileFailureContext(cause),
+                      cause,
+                    }),
               ),
             ),
             { "rpc.aggregate": "workspace" },
@@ -3313,56 +3345,74 @@ const layerWsRpc = (
         [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsPull,
-            gitWorkflow.pullCurrentBranch(input.cwd).pipe(
-              Effect.matchCauseEffect({
-                onFailure: (cause) => Effect.failCause(cause),
-                onSuccess: (result) =>
-                  refreshGitStatus(input.cwd).pipe(Effect.ignore({ log: true }), Effect.as(result)),
-              }),
-            ),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.pullCurrentBranch(input.cwd)))
+              .pipe(
+                Effect.matchCauseEffect({
+                  onFailure: (cause) => Effect.failCause(cause),
+                  onSuccess: (result) =>
+                    refreshGitStatus(input.cwd).pipe(
+                      Effect.ignore({ log: true }),
+                      Effect.as(result),
+                    ),
+                }),
+              ),
             { "rpc.aggregate": "git" },
           ),
         [WS_METHODS.gitRunStackedAction]: (input) =>
           observeRpcStream(
             WS_METHODS.gitRunStackedAction,
-            Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
-              gitWorkflow
-                .runStackedAction(input, {
-                  actionId: input.actionId,
-                  progressReporter: {
-                    publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
-                  },
-                })
-                .pipe(
-                  Effect.matchCauseEffect({
-                    onFailure: (cause) => Queue.failCause(queue, cause),
-                    onSuccess: (result) =>
-                      (input.threadId === undefined
-                        ? Effect.void
-                        : linkCreatedPullRequest({
-                            threadId: input.threadId,
-                            result,
-                            commandId: serverCommandId("pr-created-link"),
-                          }).pipe(
-                            Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
-                            Effect.provideService(ProjectService.ProjectService, projectService),
-                          )
-                      ).pipe(
-                        Effect.andThen(
-                          refreshPushedPullRequests(input, result).pipe(
-                            Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
-                            Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
-                            Effect.provideService(
-                              PullRequestService.PullRequestService,
-                              pullRequests,
+            Stream.callback<GitActionProgressEvent, GitManagerServiceError | WorkspaceError>(
+              (queue) =>
+                workspaceApi
+                  .assertLegacyMutation(input.cwd)
+                  .pipe(
+                    Effect.andThen(
+                      gitWorkflow.runStackedAction(input, {
+                        actionId: input.actionId,
+                        progressReporter: {
+                          publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+                        },
+                      }),
+                    ),
+                  )
+                  .pipe(
+                    Effect.matchCauseEffect({
+                      onFailure: (cause) => Queue.failCause(queue, cause),
+                      onSuccess: (result) =>
+                        (input.threadId === undefined
+                          ? Effect.void
+                          : linkCreatedPullRequest({
+                              threadId: input.threadId,
+                              result,
+                              commandId: serverCommandId("pr-created-link"),
+                            }).pipe(
+                              Effect.provideService(
+                                Orchestrator.OrchestratorV2,
+                                orchestrationEngine,
+                              ),
+                              Effect.provideService(ProjectService.ProjectService, projectService),
+                            )
+                        ).pipe(
+                          Effect.andThen(
+                            refreshPushedPullRequests(input, result).pipe(
+                              Effect.provideService(
+                                Orchestrator.OrchestratorV2,
+                                orchestrationEngine,
+                              ),
+                              Effect.provideService(ProjectStore.ProjectStoreV2, projectStore),
+                              Effect.provideService(
+                                PullRequestService.PullRequestService,
+                                pullRequests,
+                              ),
                             ),
                           ),
+                          Effect.andThen(refreshGitStatus(input.cwd)),
+                          Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
                         ),
-                        Effect.andThen(refreshGitStatus(input.cwd)),
-                        Effect.andThen(Queue.end(queue).pipe(Effect.asVoid)),
-                      ),
-                  }),
-                ),
+                    }),
+                  ),
             ),
             { "rpc.aggregate": "vcs" },
           ),
@@ -3377,8 +3427,9 @@ const layerWsRpc = (
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            gitWorkflow
-              .preparePullRequestThread(input)
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.preparePullRequestThread(input)))
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
@@ -3389,25 +3440,37 @@ const layerWsRpc = (
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateWorktree,
-            gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.createWorktree(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.removeWorktree(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.createRef(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.switchRef(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
@@ -3429,15 +3492,29 @@ const layerWsRpc = (
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalOpen,
+            workspaceApi.terminalTarget(input).pipe(
+              Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+              Effect.flatMap((target) => terminalManager.open({ ...input, ...(target ?? {}) })),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalAttach]: (input) =>
           observeRpcStream(
             WS_METHODS.terminalAttach,
             Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
               Effect.acquireRelease(
-                terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
+                workspaceApi.terminalTarget(input).pipe(
+                  Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+                  Effect.flatMap((target) =>
+                    terminalManager.attachStream({ ...input, ...(target ?? {}) }, (event) =>
+                      Queue.offer(queue, event),
+                    ),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
@@ -3456,9 +3533,16 @@ const layerWsRpc = (
             "rpc.aggregate": "terminal",
           }),
         [WS_METHODS.terminalRestart]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalRestart,
+            workspaceApi.terminalTarget(input).pipe(
+              Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+              Effect.flatMap((target) => terminalManager.restart({ ...input, ...(target ?? {}) })),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalClose]: (input) =>
           observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
             "rpc.aggregate": "terminal",
@@ -3817,6 +3901,8 @@ export const layer = Layer.unwrap(
           );
         }
         const quickActions = yield* QuickActions.QuickActions;
+        const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+        const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
         const analytics = yield* AnalyticsService.AnalyticsService;
@@ -3854,6 +3940,10 @@ export const layer = Layer.unwrap(
               serverBrowser,
             ).pipe(
               Layer.provide(Layer.succeed(QuickActions.QuickActions, quickActions)),
+              Layer.provide(
+                Layer.succeed(WorkspaceRepositories.WorkspaceRepositories, workspaceRepositories),
+              ),
+              Layer.provide(Layer.succeed(WorkspaceApi.WorkspaceApi, workspaceApi)),
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),

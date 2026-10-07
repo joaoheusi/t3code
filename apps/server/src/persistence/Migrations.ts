@@ -14,6 +14,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 // Import all migrations statically
+import Migration0060 from "./Migrations/060_ForkWorkspaceOperations.ts";
 import Migration0001 from "./Migrations/001_OrchestrationEvents.ts";
 import Migration0002 from "./Migrations/002_OrchestrationCommandReceipts.ts";
 import Migration0003 from "./Migrations/003_CheckpointDiffBlobs.ts";
@@ -146,6 +147,7 @@ export const migrationEntries = [
   [57, "ScheduledTaskWebhooks", Migration0057],
   [58, "WebhookRelayDeliveries", Migration0058],
   [59, "ForkQuickActions", Migration0059],
+  [60, "ForkWorkspaceOperations", Migration0060],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -186,24 +188,20 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     toMigrationInclusive === undefined || toMigrationInclusive >= 55
       ? yield* reconcileV2PreviewMigration()
       : [];
-  const executedMigrations = [
-    ...previewMigrations,
-    ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
-  ];
-  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
-  yield* migrations.length === 0
-    ? Effect.logDebug("Database schema is current")
-    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
-
   // The migrator keys on migration_id: a database that recorded a different
   // migration under a shared id (local or fork builds) keeps that id and
   // silently skips this build's migration at it. Surface the divergence so the
   // skipped schema change is diagnosable.
   const sql = yield* SqlClient.SqlClient;
-  const recorded = yield* sql<{
-    readonly migration_id: number;
-    readonly name: string;
-  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const ledger =
+    yield* sql`SELECT name FROM sqlite_master WHERE type='table' AND name='effect_sql_migrations'`;
+  const recorded =
+    ledger.length === 0
+      ? []
+      : yield* sql<{
+          readonly migration_id: number;
+          readonly name: string;
+        }>`SELECT migration_id, name FROM effect_sql_migrations`;
   const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
   const divergent = recorded.flatMap((row) => {
     const expected = manifestNames.get(row.migration_id);
@@ -215,9 +213,19 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
       : [`${row.migration_id}:${row.name} (this build: ${expected})`];
   });
   if (divergent.length > 0) {
-    yield* Effect.logWarning(
-      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
-    ).pipe(Effect.annotateLogs({ divergent }));
+    return yield* new Migrator.MigrationError({
+      kind: "BadState",
+      message: `This database belongs to an incompatible build: ${divergent.join(", ")}. Restore a compatible backup or use a separate profile. No migrations were applied.`,
+    });
   }
+  const executedMigrations = [
+    ...previewMigrations,
+    ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
+  ];
+  const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
+  yield* migrations.length === 0
+    ? Effect.logDebug("Database schema is current")
+    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
+
   return executedMigrations;
 });

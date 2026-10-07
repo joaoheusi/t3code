@@ -8486,3 +8486,33 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     );
   });
 });
+
+it.effect("keeps multi-root grants to the selected leaf paths without relaxing approvals", () =>
+  Effect.gen(function* () {
+    for (const mode of ["approval-required", "auto-accept-edits", "full-access"] as const) {
+      const params = yield* CodexAdapterV2.buildCodexTurnStartParams({
+        nativeThreadId: "multi-root",
+        codexInput: [{ type: "text", text: "test" }],
+        runtimePolicy: {
+          runtimeMode: mode,
+          interactionMode: "default",
+          cwd: "/approved/api",
+          additionalDirectories: ["/approved/web", "/approved/web"],
+          workspaceInstructions: "Repository API: /approved/api; Web: /approved/web",
+        },
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      });
+      if (mode === "approval-required") assert.equal(params.sandboxPolicy?.type, "readOnly");
+      if (mode === "auto-accept-edits") {
+        assert.equal(params.sandboxPolicy?.type, "workspaceWrite");
+        if (params.sandboxPolicy?.type === "workspaceWrite")
+          assert.deepEqual(params.sandboxPolicy.writableRoots, ["/approved/web"]);
+        assert.equal(params.approvalPolicy, "on-request");
+      }
+      assert.include(
+        params.collaborationMode?.settings.developer_instructions ?? "",
+        "/approved/web",
+      );
+    }
+  }),
+);

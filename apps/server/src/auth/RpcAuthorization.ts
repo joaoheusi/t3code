@@ -26,6 +26,16 @@ type WsRpcMethod = RpcGroup.Rpcs<typeof WsRpcGroup>["_tag"];
  * runtime failure.
  */
 export const RPC_REQUIRED_SCOPES = {
+  [WS_METHODS.actionContext]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceInspect]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceDiscover]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceStatus]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceDiff]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceWriteFile]: AuthOrchestrationOperateScope,
+  [WS_METHODS.workspaceSearch]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceReadFile]: AuthOrchestrationReadScope,
+  [WS_METHODS.workspaceTerminal]: AuthTerminalOperateScope,
+  [WS_METHODS.workspaceGitAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.quickActionsList]: AuthOrchestrationReadScope,
   [WS_METHODS.quickActionsSave]: AuthOrchestrationOperateScope,
   [WS_METHODS.quickActionsImport]: AuthOrchestrationOperateScope,

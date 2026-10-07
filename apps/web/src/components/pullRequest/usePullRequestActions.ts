@@ -1,6 +1,5 @@
+import { useTaskDestination } from "../../quickActions/useTaskDestination";
 import type { ComposerThreadTarget } from "../../composerDraftStore";
-import { insertContextualTask } from "../../quickActions/dispatcher";
-import { prepareTask } from "../../quickActions/preparedTasks";
 /**
  * The actions a pull request offers, extracted from the detail panel so smaller surfaces — the
  * thread details panel's pull request row — perform them through the very same code. Two callers
@@ -29,7 +28,6 @@ import { buildPhysicalToLogicalProjectKeyMap } from "~/sidebarProjectGrouping";
 import { useProjects } from "~/state/entities";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 
-import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
@@ -37,7 +35,7 @@ import { pullRequestEnvironment } from "~/state/pullRequests";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { toastManager } from "../ui/toast";
-import { handoffPrompt, handoffReviewComments, readableFailure } from "./pullRequestDetail.logic";
+import { readableFailure } from "./pullRequestDetail.logic";
 import { pullRequestEntryKey, type EnvironmentPullRequestEntry } from "./pullRequestList.logic";
 
 /** Resolve on demand so hidden quick actions do not rebuild the legacy project grouping. */
@@ -238,6 +236,11 @@ export function usePullRequestCloseBatch(onClosed: (entry: EnvironmentPullReques
 
 export interface PullRequestThreadTask {
   prompt: string;
+  context?: {
+    kind: "ci" | "conflicts";
+    reference: import("@t3tools/contracts").PullRequestRef;
+    headSha?: string;
+  };
   reviewComments?: ReadonlyArray<ReviewCommentContext>;
 }
 
@@ -246,13 +249,6 @@ export type PullRequestHandoffDetail = Pick<
   PullRequestDetail,
   "projectId" | "workspaceRoot" | "url"
 >;
-
-/**
- * What the last hand-off wrote into each draft, kept outside React because the panel that wrote it
- * is closed by the time the next one opens. It is how a prompt the reader has since edited is told
- * apart from the one they were handed: only the sentence still exactly as written may be replaced.
- */
-const lastHandoffPromptByDraft = new Map<DraftId, string>();
 
 /**
  * The hand-offs from a pull request into a thread: a question that needs nothing checked out, and
@@ -268,6 +264,7 @@ export function usePullRequestHandoffs({
   target?: ComposerThreadTarget | null;
   detail: PullRequestHandoffDetail | null;
 }) {
+  const destination = useTaskDestination(environmentId, detail?.projectId ?? null, target);
   const newThread = useNewThreadHandler();
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId,
@@ -277,61 +274,14 @@ export function usePullRequestHandoffs({
   // alone. One at a time whatever the key: they all check the same pull request out.
   const [handoff, setHandoff] = useState<string | null>(null);
 
-  /**
-   * Opens a thread on this project and leaves the task in its composer for the reader to send.
-   *
-   * Nothing is checked out: asking a question is not a reason to move somebody's working tree or
-   * to make a worktree they did not ask for. The two hand-offs that do need the code call this
-   * after preparing it, so there is one path from "a task" to "a thread holding it".
-   */
-  const openThreadWithTask = async (
-    projectRef: ReturnType<typeof scopeProjectRef>,
-    task: PullRequestThreadTask | null,
-    opened?: { draftId: DraftId },
-  ): Promise<{ draftId: DraftId } | null> => {
-    const session =
-      opened ??
-      (await newThread(projectRef).then(
-        (result) => result,
-        () => null,
-      ));
-    if (session === null) return null;
-    const store = useComposerDraftStore.getState();
-    if (task === null) return session;
-    // The latest press is the ask: it takes over what an earlier hand-off left, prompt and chips
-    // both, rather than stacking a second one under the first. What the reader typed themselves
-    // survives — the composer they are handed is not always a fresh one, and a prompt they have
-    // since edited is theirs rather than the hand-off's.
-    const draft = store.getComposerDraft(session.draftId);
-    const existingComments = draft?.reviewComments ?? [];
-    const prompt = handoffPrompt(
-      {
-        prompt: draft?.prompt ?? "",
-        lastHandoffPrompt: lastHandoffPromptByDraft.get(session.draftId),
-      },
-      task.prompt,
-    );
-    // Remember the hand-off's own contribution, not the merged prompt: only that sentence is
-    // this session's to take back next time, and the reader's text around it is not.
-    lastHandoffPromptByDraft.set(session.draftId, task.prompt);
-    store.setPrompt(session.draftId, prompt);
-    store.setReviewComments(
-      session.draftId,
-      handoffReviewComments(existingComments, task.reviewComments ?? []),
-    );
-    return session;
-  };
-
   /** A question about the change, which needs a thread and nothing else. */
   const startAsk = async (_kind: string, task: PullRequestThreadTask) => {
-    if (detail && handoff === null && target !== null) {
-      if (!insertContextualTask(target, task)) prepareTask(target, task);
+    if (detail && handoff === null) {
+      destination.request(task);
     }
   };
 
-  // Every handoff works the same way: check the pull request out into its own worktree, open a
-  // thread there, and — when it carries a task — put that in the composer for the user to read
-  // before sending. Checking out is the whole point of the ones that carry nothing.
+  // Text tasks use the captured composer. Only an explicit checkout prepares a worktree.
   const startHandoff = async (
     kind: string,
     task: PullRequestThreadTask | null,
@@ -342,9 +292,7 @@ export function usePullRequestHandoffs({
   ) => {
     if (!detail || handoff !== null) return;
     if (task !== null) {
-      if (target !== null) {
-        if (!insertContextualTask(target, task)) prepareTask(target, task);
-      }
+      destination.request(task);
       return;
     }
 
@@ -428,34 +376,27 @@ export function usePullRequestHandoffs({
       description:
         "The checkout could not be moved onto the pull request's latest commits, so the code there is older than the pull request. Uncommitted work or local commits keep it where it is.",
     } as const;
-    if (task === null) {
-      toastManager.update(
-        toastId,
-        prepared.value.isOnPullRequestHead
-          ? {
-              type: "success",
-              title: mode === "local" ? "Checked out here" : "Checked out",
-              description:
-                mode === "local"
-                  ? "This repository is on the pull request's branch, with a thread open on it."
-                  : "The pull request is in its own worktree, with a thread open on it.",
-            }
-          : staleCheckoutToast,
-      );
-      return;
-    }
-    await openThreadWithTask(projectRef, task, opened);
     toastManager.update(
       toastId,
       prepared.value.isOnPullRequestHead
         ? {
             type: "success",
-            title: "Checkout ready",
-            description: "The task is in the composer — read it over, then send.",
+            title: mode === "local" ? "Checked out here" : "Checked out",
+            description:
+              mode === "local"
+                ? "This repository is on the pull request's branch, with a thread open on it."
+                : "The pull request is in its own worktree, with a thread open on it.",
           }
         : staleCheckoutToast,
     );
+    return;
   };
 
-  return { handoff, startAsk, startHandoff };
+  return {
+    handoff,
+    startAsk,
+    startHandoff,
+    openNew: destination.openNew,
+    chooser: destination.chooser,
+  };
 }

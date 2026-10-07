@@ -10,8 +10,8 @@ import {
 } from "./baseSchemas.ts";
 
 /** Wire version for orchestration snapshots, streams, commands, and RPC payloads. */
-export const ORCHESTRATION_PROTOCOL_VERSION = 2;
-export const ORCHESTRATION_PROTOCOL_VERSION_TEXT = "2";
+export const ORCHESTRATION_PROTOCOL_VERSION = 1002;
+export const ORCHESTRATION_PROTOCOL_VERSION_TEXT = "1002";
 export const ORCHESTRATION_PROTOCOL_QUERY_PARAM = "orchestrationProtocol";
 export const ORCHESTRATION_PROTOCOL_HEADER = "x-t3-orchestration-protocol";
 
@@ -96,6 +96,7 @@ export const ServerSelfUpdateCapability = Schema.Literals([
 export type ServerSelfUpdateCapability = typeof ServerSelfUpdateCapability.Type;
 
 export const ExecutionEnvironmentCapabilities = Schema.Struct({
+  forkMultiRepoVersion: Schema.optional(Schema.Int),
   forkQuickActionsVersion: Schema.optionalKey(Schema.Int),
   forkSameThreadActionsVersion: Schema.optionalKey(Schema.Int),
   repositoryIdentity: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),

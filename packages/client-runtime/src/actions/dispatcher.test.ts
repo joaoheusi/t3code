@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { ActionDispatcher, type ActionEditor } from "./dispatcher.ts";
 
 describe("action insertion", () => {
@@ -18,9 +18,10 @@ describe("action insertion", () => {
         return true;
       },
     };
+    let sequence = 0;
     const dispatcher = new ActionDispatcher(
       () => clock,
-      () => String(Math.random()),
+      () => String(++sequence),
     );
     const unregister = dispatcher.register("host:original", editor);
     return {

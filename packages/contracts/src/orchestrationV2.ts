@@ -1,3 +1,4 @@
+import { ThreadWorkspace, WorkspaceConfiguration } from "./forkWorkspace.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -364,6 +365,7 @@ export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitReco
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
+  workspace: Schema.optional(ThreadWorkspace),
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   providerInstanceId: ProviderInstanceId,
@@ -1833,6 +1835,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
 export const OrchestrationV2ThreadShell = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
+  workspace: Schema.optional(ThreadWorkspace),
   projectId: ProjectId,
   title: Schema.String,
   providerInstanceId: ProviderInstanceId,
@@ -2737,6 +2740,13 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.metadata.update"),
     commandId: CommandId,
     threadId: ThreadId,
+    workspaceConfiguration: Schema.optional(WorkspaceConfiguration),
+    workspaceControl: Schema.optional(
+      Schema.Struct({
+        type: Schema.Literals(["retry", "cancel"]),
+        expectedRevision: NonNegativeInt,
+      }),
+    ),
     title: Schema.optional(TrimmedNonEmptyString),
     /** Kick off (true) or abandon (false) an async title regeneration. */
     regenerateTitle: Schema.optional(Schema.Boolean),
@@ -2756,6 +2766,7 @@ export const OrchestrationV2Command = Schema.Union([
     ...ThreadPullRequestKey.fields,
     url: TrimmedNonEmptyString,
     source: ThreadPullRequestLinkSource,
+    bindingId: Schema.optional(TrimmedNonEmptyString),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.unlink"),
