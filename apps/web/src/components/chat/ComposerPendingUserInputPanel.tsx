@@ -1,5 +1,12 @@
 import { type RuntimeRequestId } from "@t3tools/contracts";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
@@ -18,7 +25,24 @@ interface PendingUserInputPanelProps {
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
+  onPrevious: () => void;
   onDismiss: (requestId: RuntimeRequestId) => void;
+}
+
+const OPTION_SELECTOR = "button[data-pending-user-input-option]:not(:disabled)";
+
+/**
+ * Focuses the selected option of the visible question, or its first option.
+ * Returns false when no option can take focus: no question, a collapsed card,
+ * or a prompt that is responding.
+ */
+export function focusPendingUserInputOption(container: ParentNode): boolean {
+  const option =
+    container.querySelector<HTMLButtonElement>(`${OPTION_SELECTOR}[aria-pressed="true"]`) ??
+    container.querySelector<HTMLButtonElement>(OPTION_SELECTOR);
+  if (!option) return false;
+  option.focus({ preventScroll: true });
+  return true;
 }
 
 export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
@@ -28,6 +52,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
   questionIndex,
   onToggleOption,
   onAdvance,
+  onPrevious,
   onDismiss,
 }: PendingUserInputPanelProps) {
   if (pendingUserInputs.length === 0) return null;
@@ -43,6 +68,7 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       questionIndex={questionIndex}
       onToggleOption={onToggleOption}
       onAdvance={onAdvance}
+      onPrevious={onPrevious}
       onDismiss={onDismiss}
     />
   );
@@ -55,6 +81,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex,
   onToggleOption,
   onAdvance,
+  onPrevious,
   onDismiss,
 }: {
   prompt: PendingUserInput;
@@ -63,6 +90,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   questionIndex: number;
   onToggleOption: (questionId: string, optionValue: string) => void;
   onAdvance: () => void;
+  onPrevious: () => void;
   onDismiss: (requestId: RuntimeRequestId) => void;
 }) {
   // Message-mode requests remain answerable after their provider turn ends.
@@ -151,14 +179,41 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   useEffect(() => {
     if (activeQuestionId === null || responseDisabled || isCollapsed || isMobileViewport) return;
     const options = optionsRef.current;
-    const firstOption = options?.querySelector<HTMLButtonElement>("button");
-    if (!options || !firstOption) return;
+    if (!options) return;
     const activeElement = document.activeElement;
     const focusIsIdle = activeElement === null || activeElement === document.body;
     const focusIsInComposer = options.closest("form")?.contains(activeElement) === true;
     if (!focusIsIdle && !focusIsInComposer) return;
-    firstOption.focus({ preventScroll: true });
+    focusPendingUserInputOption(options);
   }, [activeQuestionId, isCollapsed, isMobileViewport, responseDisabled]);
+
+  // Arrow keys on a focused option: up and down move between options, left and
+  // right move between questions. Right follows the Next button's rule, so it
+  // never skips an unanswered question and never submits from the last one.
+  const handleOptionsKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const options = Array.from(
+        event.currentTarget.querySelectorAll<HTMLButtonElement>(OPTION_SELECTOR),
+      );
+      if (options.length === 0) return;
+      event.preventDefault();
+      const current = options.findIndex((option) => option === document.activeElement);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      const next = current === -1 ? 0 : (current + step + options.length) % options.length;
+      options[next]?.focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (!progress.isLastQuestion && progress.canAdvance) onAdvance();
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (progress.questionIndex > 0) onPrevious();
+    }
+  };
 
   // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
   // outside editable fields. Multi-select prompts toggle options in place; single-
@@ -260,7 +315,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}
-            <div ref={optionsRef} className="mt-2 space-y-0.5">
+            <div ref={optionsRef} className="mt-2 space-y-0.5" onKeyDown={handleOptionsKeyDown}>
               {activeQuestion.options.map((option, index) => {
                 const optionValue = option.value ?? option.label;
                 const isOptimisticallySelected =
@@ -303,6 +358,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                   <button
                     key={`${activeQuestion.id}:${optionValue}`}
                     type="button"
+                    data-pending-user-input-option
+                    aria-pressed={isSelected}
                     disabled={isResponding}
                     onClick={() => {
                       handleOptionSelection(activeQuestion.id, optionValue);

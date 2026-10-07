@@ -276,7 +276,10 @@ import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
-import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+import {
+  ComposerPendingUserInputPanel,
+  focusPendingUserInputOption,
+} from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import {
   ComposerControl,
@@ -6455,6 +6458,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerRef,
     () => ({
       focusAtEnd: () => {
+        // While a question with options is open, its options are the
+        // composer's keyboard target, so refocusing the composer (thread
+        // switch, window focus, closing a menu) lands on them instead of the
+        // custom-answer editor. Phones keep the editor, as the panel does.
+        const form = composerFormRef.current;
+        if (pendingUserInputs.length > 0 && !isMobileViewport && form) {
+          if (focusPendingUserInputOption(form)) return;
+        }
         composerEditorRef.current?.focusAtEnd();
       },
       focusAt: (cursor: number) => {
@@ -6689,6 +6700,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       isConnecting,
       isComposerApprovalState,
       isChoiceOnlyPendingQuestion,
+      isMobileViewport,
       pendingUserInputs.length,
       projectSelectionRequired,
       applyPromptReplacement,
@@ -6864,6 +6876,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     questionIndex={activePendingQuestionIndex}
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
+                    onPrevious={onPreviousActivePendingUserInputQuestion}
                     onDismiss={onDismissActivePendingUserInput}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
@@ -6884,6 +6897,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       questionIndex={activePendingQuestionIndex}
                       onToggleOption={onSelectActivePendingUserInputOption}
                       onAdvance={onAdvanceActivePendingUserInput}
+                      onPrevious={onPreviousActivePendingUserInputQuestion}
                       onDismiss={onDismissActivePendingUserInput}
                     />
                     {!isChoiceOnlyPendingQuestion ||

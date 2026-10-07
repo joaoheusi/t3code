@@ -5,8 +5,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+import {
+  ComposerPendingUserInputPanel,
+  focusPendingUserInputOption,
+} from "./ComposerPendingUserInputPanel";
 import type { PendingUserInput } from "../../session-logic";
+import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 
 const prompt: PendingUserInput = {
   requestId: RuntimeRequestId.make("request-1"),
@@ -75,7 +79,10 @@ afterEach(async () => {
 
 async function renderPanel(props: {
   questionIndex?: number;
+  answers?: Record<string, PendingUserInputDraftAnswer>;
   onToggleOption?: (questionId: string, optionValue: string) => void;
+  onAdvance?: () => void;
+  onPrevious?: () => void;
   respondingRequestIds?: RuntimeRequestId[];
 }) {
   await act(async () => {
@@ -83,12 +90,21 @@ async function renderPanel(props: {
       <ComposerPendingUserInputPanel
         pendingUserInputs={[prompt]}
         respondingRequestIds={props.respondingRequestIds ?? []}
-        answers={{}}
+        answers={props.answers ?? {}}
         questionIndex={props.questionIndex ?? 0}
         onToggleOption={props.onToggleOption ?? (() => {})}
-        onAdvance={() => {}}
+        onAdvance={props.onAdvance ?? (() => {})}
+        onPrevious={props.onPrevious ?? (() => {})}
         onDismiss={() => {}}
       />,
+    );
+  });
+}
+
+async function pressKey(key: string) {
+  await act(async () => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
     );
   });
 }
@@ -160,5 +176,58 @@ describe("ComposerPendingUserInputPanel focus", () => {
     await renderPanel({});
 
     expect(document.activeElement).toBe(editor);
+  });
+
+  it("refocuses the selected option rather than the first", async () => {
+    await renderPanel({ answers: { "question-1": { selectedOptionValues: ["Big bang"] } } });
+    editor.focus();
+
+    expect(focusPendingUserInputOption(form)).toBe(true);
+    expect(document.activeElement).toBe(optionButtons()[1]);
+  });
+
+  it("moves between options with the up and down arrows, wrapping at the ends", async () => {
+    await renderPanel({});
+    const [first, second] = optionButtons();
+
+    await pressKey("ArrowDown");
+    expect(document.activeElement).toBe(second);
+    await pressKey("ArrowDown");
+    expect(document.activeElement).toBe(first);
+    await pressKey("ArrowUp");
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("moves between questions with the left and right arrows", async () => {
+    const onAdvance = vi.fn();
+    const onPrevious = vi.fn();
+
+    await renderPanel({ onAdvance, onPrevious });
+    await pressKey("ArrowRight");
+    await pressKey("ArrowLeft");
+    // Unanswered first question: right does not skip it, left has nowhere to go.
+    expect(onAdvance).not.toHaveBeenCalled();
+    expect(onPrevious).not.toHaveBeenCalled();
+
+    await renderPanel({
+      answers: { "question-1": { selectedOptionValues: ["Incremental"] } },
+      onAdvance,
+      onPrevious,
+    });
+    await pressKey("ArrowRight");
+    expect(onAdvance).toHaveBeenCalledTimes(1);
+
+    await renderPanel({ questionIndex: 1, onAdvance, onPrevious });
+    await pressKey("ArrowLeft");
+    expect(onPrevious).toHaveBeenCalledTimes(1);
+    // Right on the last question never submits.
+    await renderPanel({
+      questionIndex: 1,
+      answers: { "question-2": { selectedOptionValues: ["Canary"] } },
+      onAdvance,
+      onPrevious,
+    });
+    await pressKey("ArrowRight");
+    expect(onAdvance).toHaveBeenCalledTimes(1);
   });
 });
