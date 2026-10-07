@@ -5,6 +5,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
+  type ThreadWorkspace,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -88,6 +89,23 @@ function providerRuntimeMode(
     : "approval-required";
 }
 
+/**
+ * Where the agent starts, and the checkouts outside it that need a directory grant.
+ * Paths are canonical checkout paths the workspace recorded on this host.
+ */
+export function workspaceDirectories(workspace: ThreadWorkspace) {
+  const cwd =
+    workspace.root?.checkoutPath ??
+    workspace.bindings.find((binding) => binding.id === workspace.primaryBindingId)!.checkoutPath;
+  const inside = cwd + (cwd.includes("\\") ? "\\" : "/");
+  return {
+    cwd,
+    additionalDirectories: workspace.bindings
+      .map((binding) => binding.checkoutPath)
+      .filter((path) => path !== cwd && !path.startsWith(inside)),
+  };
+}
+
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
@@ -125,24 +143,27 @@ export const layerFromProjectStore: Layer.Layer<
           if (Option.isNone(workspaceRepositories))
             return yield* error("Workspace validation is unavailable.");
           yield* workspaceRepositories.value.validate(workspace).pipe(Effect.mapError(error));
+          const { cwd, additionalDirectories } = workspaceDirectories(workspace);
           if (
-            workspace.bindings.length > 1 &&
+            additionalDirectories.length > 0 &&
             instance?.driverKind !== "codex" &&
             instance?.driverKind !== "claudeAgent"
           )
             return yield* error(
               "This provider has not been verified for multi-repository access. Select Codex or Claude.",
             );
-          const primary = workspace.bindings.find(
-            (binding) => binding.id === workspace.primaryBindingId,
-          )!;
           workspacePolicy = {
-            cwd: primary.checkoutPath,
-            additionalDirectories: workspace.bindings
-              .filter((binding) => binding.id !== primary.id)
-              .map((binding) => binding.checkoutPath),
+            cwd,
+            additionalDirectories,
             workspaceInstructions: [
               `Validated workspace revision ${workspace.revision}. The application owns checkout configuration. Do not create, switch, reset, stash, or delete worktrees.`,
+              ...(workspace.root
+                ? [
+                    workspace.root.mode === "mirror"
+                      ? `Working folder ${cwd} mirrors ${workspace.root.sourcePath}: each repository below is a worktree at its original relative path. Files outside those repositories were not copied.`
+                      : `Working folder ${cwd} holds the repositories below.`,
+                  ]
+                : []),
               ...workspace.bindings.map(
                 (binding) =>
                   `${binding.id}: ${binding.label}; ${binding.mode}; ${binding.checkoutPath}; branch ${binding.branch ?? "detached"}. Apply each repository's instructions only to paths in that repository.`,

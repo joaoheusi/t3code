@@ -215,6 +215,115 @@ describe("host workspace identity and preparation", () => {
   );
 });
 
+describe("folder roots", () => {
+  const worktree = (id: string, sourcePath: string) => ({
+    id,
+    label: id,
+    sourcePath,
+    mode: "new-worktree" as const,
+    branch: `task/${id}`,
+  });
+  it.effect(
+    "mirrors repositories at their relative paths and keeps outside ones beside the mirror",
+    () =>
+      Effect.gen(function* () {
+        const folder = join(root, "org");
+        const web = init(join(folder, "web"));
+        const api = init(join(folder, "services", "api"));
+        yield* run((service) =>
+          Effect.gen(function* () {
+            const plan = yield* service.plan(
+              {
+                expectedRevision: 0,
+                root: { sourcePath: folder, mode: "mirror" },
+                primaryBindingId: "web",
+                bindings: [worktree("web", web), worktree("api", api), worktree("repo", repo)],
+              },
+              CommandId.make("mirror"),
+            );
+            const mirror = plan.root!.checkoutPath;
+            expect(NodePath.basename(mirror)).toBe("org");
+            expect(plan.bindings.map((binding) => binding.checkoutPath)).toEqual([
+              join(mirror, "web"),
+              join(mirror, "services", "api"),
+              join(NodePath.dirname(mirror), "repo"),
+            ]);
+            for (const binding of plan.bindings) {
+              const ready = yield* service.prepare(binding, plan.operationId);
+              expect(git(ready.checkoutPath, "branch", "--show-current")).toBe(binding.branch);
+            }
+            expect(readFileSync(join(mirror, "services", "api", "file.txt"), "utf8")).toBe(
+              "base\n",
+            );
+          }),
+        );
+      }),
+  );
+  it.effect("refuses folder selections it could not mirror or that leave the folder", () =>
+    Effect.gen(function* () {
+      const folder = join(root, "org");
+      const web = init(join(folder, "web"));
+      const nested = init(join(web, "nested"));
+      yield* run((service) =>
+        Effect.gen(function* () {
+          const attempt = (
+            mode: "current" | "mirror",
+            bindings: Parameters<typeof service.plan>[0]["bindings"],
+          ) =>
+            service
+              .plan(
+                {
+                  expectedRevision: 0,
+                  root: { sourcePath: folder, mode },
+                  primaryBindingId: bindings[0]!.id,
+                  bindings,
+                },
+                CommandId.make("refused"),
+              )
+              .pipe(
+                Effect.flip,
+                Effect.map((error) => error.message),
+              );
+          expect(
+            yield* attempt("mirror", [
+              { id: "web", label: "web", sourcePath: web, mode: "current" },
+            ]),
+          ).toContain("needs a new worktree");
+          expect(
+            yield* attempt("mirror", [worktree("web", web), worktree("nested", nested)]),
+          ).toContain("inside another selected repository");
+          expect(yield* attempt("mirror", [worktree("web", web), worktree("org", repo)])).toContain(
+            "inside the mirrored folder",
+          );
+          expect(
+            yield* attempt("current", [
+              { id: "repo", label: "repo", sourcePath: repo, mode: "current" },
+            ]),
+          ).toContain("No selected repository is inside");
+          const current = yield* service.plan(
+            {
+              expectedRevision: 0,
+              root: { sourcePath: folder, mode: "current" },
+              primaryBindingId: "web",
+              bindings: [
+                { id: "web", label: "web", sourcePath: web, mode: "current" },
+                { id: "nested", label: "nested", sourcePath: nested, mode: "current" },
+              ],
+            },
+            CommandId.make("current"),
+          );
+          expect(current.root).toEqual({
+            sourcePath: folder,
+            mode: "current",
+            checkoutPath: folder,
+          });
+          expect(current.bindings.map((binding) => binding.checkoutPath)).toEqual([web, nested]);
+        }),
+      );
+    }),
+  );
+});
+
 describe("Git change categories", () => {
   it("keeps staging, unstaged work, untracked files, conflicts and rename destinations distinct", () => {
     const changes = Repositories.parseWorkspaceChanges(

@@ -1,7 +1,12 @@
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { resolveWorkspaceTerminal } from "@t3tools/shared/workspaceTerminal";
 import * as Identity from "../project/RepositoryIdentityResolver.ts";
-import { ThreadId, type ActionContextInput, type ActionContextResult } from "@t3tools/contracts";
+import {
+  hasRepositorySet,
+  ThreadId,
+  type ActionContextInput,
+  type ActionContextResult,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -172,8 +177,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError(failure));
         const owner = snapshot.threads.find(
           (thread) =>
-            thread.workspace &&
-            thread.workspace.bindings.length > 1 &&
+            hasRepositorySet(thread.workspace) &&
             thread.workspace.bindings.some(
               (binding) => binding.checkoutPath === actual.success.path,
             ),
@@ -189,6 +193,12 @@ const make = Effect.gen(function* () {
           .getThreadShell(ThreadId.make(input.threadId))
           .pipe(Effect.mapError(failure));
         if (!thread?.workspace) return null;
+        // A folder thread's own terminals open in its folder, not in one of its repositories.
+        if (thread.workspace.root && !input.terminalId.startsWith("repo:")) {
+          if (thread.workspace.state !== "ready")
+            return yield* failure("Prepare the workspace before opening a terminal.");
+          return { cwd: thread.workspace.root.checkoutPath, worktreePath: null };
+        }
         const binding = yield* Effect.try({
           try: () => resolveWorkspaceTerminal(thread.workspace!, input.terminalId),
           catch: failure,

@@ -4,6 +4,8 @@ import type {
   WorkspaceBindingRequest,
   WorkspaceConfiguration,
   WorkspaceRepository,
+  WorkspaceRepositoryDefault,
+  WorkspaceRootRequest,
 } from "@t3tools/contracts";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 
@@ -31,9 +33,51 @@ export const CHECKOUT_MODE_LABEL: Record<CheckoutMode, string> = {
 
 export const basename = (path: string) => path.split(/[\\/]/).findLast(Boolean) ?? path;
 
+/** A thread holds at most this many repositories. */
+export const REPOSITORY_LIMIT = 20;
+
+export const isInsideFolder = (folder: string, path: string) => {
+  const separator = folder.includes("\\") ? "\\" : "/";
+  return path.startsWith(folder.endsWith(separator) ? folder : folder + separator);
+};
+
 /** A linked worktree keeps its own git dir under the repository's common dir. */
 export const isLinkedWorktree = (repository: Pick<WorkspaceRepository, "gitDir" | "commonDir">) =>
   repository.gitDir !== repository.commonDir;
+
+/**
+ * The repositories a folder holds at its top level. Nested repositories and extra
+ * checkouts of one repository are left out, since a thread can't use them side by side.
+ */
+export function topLevelRepositories(repositories: readonly WorkspaceRepository[]) {
+  const kept: WorkspaceRepository[] = [];
+  for (const repository of repositories.toSorted((a, b) => a.path.localeCompare(b.path))) {
+    if (kept.some((parent) => isInsideFolder(parent.path, repository.path))) continue;
+    const twin = kept.findIndex((entry) => entry.commonDir === repository.commonDir);
+    if (twin === -1) kept.push(repository);
+    else if (isLinkedWorktree(kept[twin]!) && !isLinkedWorktree(repository))
+      kept[twin] = repository;
+  }
+  return kept;
+}
+
+export function draftRepositoryFromDefault(entry: WorkspaceRepositoryDefault): DraftRepository {
+  return {
+    id: entry.path,
+    label: basename(entry.path),
+    path: entry.path,
+    commonDir: entry.commonDir,
+    mode: entry.mode,
+    branch: null,
+    head: "",
+  };
+}
+
+export const repositoryDefaultFrom = (repository: DraftRepository): WorkspaceRepositoryDefault => ({
+  path: repository.path,
+  commonDir: repository.commonDir,
+  mode: repository.mode,
+});
 
 export function draftRepositoryFrom(repository: WorkspaceRepository, id: string): DraftRepository {
   return {
@@ -85,12 +129,14 @@ export function draftBindingRequest(repository: DraftRepository): WorkspaceBindi
       sourcePath: repository.path,
       mode: repository.mode,
     };
+  // Without a known branch the server starts the worktree from the repository's current one.
+  const baseRef = repository.branch ?? (repository.head || null);
   return {
     id: repository.id,
     label: repository.label,
     sourcePath: repository.path,
     mode: "new-worktree",
-    baseRef: repository.branch ?? repository.head,
+    ...(baseRef ? { baseRef } : {}),
     branch: temporaryBranch(),
   };
 }
@@ -99,11 +145,14 @@ export function draftBindingRequest(repository: DraftRepository): WorkspaceBindi
  * Binding IDs name each new worktree's folder, which the agent reads in every path,
  * so they come from the repository labels: `web`, `api`, `api-2`.
  */
-export function workspaceConfiguration(
-  primary: WorkspaceBindingRequest,
-  extras: readonly DraftRepository[],
-  expectedRevision: number,
-): WorkspaceConfiguration {
+export function workspaceConfiguration(input: {
+  /** The project's own checkout; a folder project has none. */
+  readonly primary: WorkspaceBindingRequest | null;
+  readonly root?: WorkspaceRootRequest;
+  readonly repositories: readonly DraftRepository[];
+  readonly expectedRevision: number;
+}): WorkspaceConfiguration {
+  const { primary, root, expectedRevision } = input;
   const taken = new Set<string>();
   const readableId = (label: string) => {
     const base =
@@ -117,11 +166,31 @@ export function workspaceConfiguration(
     taken.add(id);
     return id;
   };
-  const bindings = [primary, ...extras.map(draftBindingRequest)].map((binding) => ({
-    ...binding,
-    id: readableId(binding.label),
-  }));
-  return { expectedRevision, primaryBindingId: bindings[0]!.id, bindings };
+  // The mirror folder sits beside worktrees named by these IDs, so its name is taken.
+  if (root?.mode === "mirror") readableId(basename(root.sourcePath));
+  // A folder's mode applies to every repository inside it.
+  const repositories = input.repositories.map((repository) =>
+    root && isInsideFolder(root.sourcePath, repository.path)
+      ? {
+          ...repository,
+          mode:
+            root.mode === "mirror"
+              ? ("new-worktree" as const)
+              : repository.mode === "existing-worktree"
+                ? repository.mode
+                : ("current" as const),
+        }
+      : repository,
+  );
+  const bindings = [...(primary ? [primary] : []), ...repositories.map(draftBindingRequest)].map(
+    (binding) => ({ ...binding, id: readableId(binding.label) }),
+  );
+  return {
+    expectedRevision,
+    ...(root ? { root } : {}),
+    primaryBindingId: bindings[0]!.id,
+    bindings,
+  };
 }
 
 /** Thread workspaces keep their bindings; reconfiguring starts from what was recorded. */
@@ -136,9 +205,6 @@ export function draftRepositoryFromBinding(binding: WorkspaceBinding): DraftRepo
     head: binding.baseCommit,
   };
 }
-
-export const isMultiRepository = (workspace: ThreadWorkspace | undefined) =>
-  (workspace?.bindings.length ?? 0) > 1;
 
 export function workspaceProgress(workspace: ThreadWorkspace) {
   return {

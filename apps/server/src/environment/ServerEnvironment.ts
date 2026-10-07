@@ -216,7 +216,7 @@ export const make = Effect.gen(function* () {
     serverVersion: packageJson.version,
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
-      forkMultiRepoVersion: 1,
+      forkMultiRepoVersion: 2,
       forkQuickActionsVersion: 1,
       forkSameThreadActionsVersion: 1,
       repositoryIdentity: true,

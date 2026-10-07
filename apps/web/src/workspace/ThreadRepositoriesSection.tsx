@@ -1,8 +1,9 @@
-import type {
-  EnvironmentId,
-  ScopedThreadRef,
-  ThreadId,
-  WorkspaceBinding,
+import {
+  hasRepositorySet,
+  type EnvironmentId,
+  type ScopedThreadRef,
+  type ThreadId,
+  type WorkspaceBinding,
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -46,15 +47,15 @@ export function useRepositoryStatus(environmentId: EnvironmentId, binding: Works
 }
 
 /**
- * The repository the diff, files, and Git controls show for a multi-repository
- * thread: the one the user picked, else the thread's primary repository.
+ * The repository the diff, files, and Git controls show for a thread with several
+ * repositories or a folder: the one the user picked, else the thread's primary one.
  */
 export function useActiveRepository(threadRef: ScopedThreadRef | null): WorkspaceBinding | null {
   const workspace = useThreadShell(threadRef)?.workspace;
   const picked = useWorkspaceUiStore((state) =>
     threadRef ? state.activeRepository[scopedThreadKey(threadRef)] : undefined,
   );
-  if (!workspace || workspace.bindings.length < 2) return null;
+  if (!hasRepositorySet(workspace)) return null;
   return (
     workspace.bindings.find((binding) => binding.id === picked) ??
     workspace.bindings.find((binding) => binding.id === workspace.primaryBindingId) ??
@@ -74,7 +75,7 @@ export function ThreadRepositoriesSection(props: {
     props.threadId,
     workspace?.revision ?? 0,
   );
-  if (!workspace || workspace.bindings.length < 2 || !active) return null;
+  if (!hasRepositorySet(workspace) || !active) return null;
   const select = (binding: WorkspaceBinding) =>
     useWorkspaceUiStore
       .getState()

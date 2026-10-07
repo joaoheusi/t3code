@@ -9,7 +9,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, RunId } from "@t3tools/contracts";
+import { isThreadCheckoutBinding, type ScopedThreadRef, type RunId } from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -241,7 +241,9 @@ export default function DiffPanel({
   // A multi-repository thread shows one repository at a time; turn diffs only exist for the primary.
   const workspaceRepository = useActiveRepository(routeThreadRef ?? null);
   const turnDiffsAvailable =
-    !workspaceRepository || workspaceRepository.id === activeThread?.workspace?.primaryBindingId;
+    !workspaceRepository ||
+    (activeThread?.workspace !== undefined &&
+      isThreadCheckoutBinding(activeThread.workspace, workspaceRepository.id));
   const activeCwd =
     workspaceRepository?.checkoutPath ?? activeThread?.worktreePath ?? activeProject?.workspaceRoot;
   const activeRepositoryRoot =

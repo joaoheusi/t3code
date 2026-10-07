@@ -42,6 +42,13 @@ export const WorkspaceRepository = Schema.Struct({
   ),
 });
 export type WorkspaceRepository = typeof WorkspaceRepository.Type;
+/** A repository saved as a project's default; new threads in the project start with it. */
+export const WorkspaceRepositoryDefault = Schema.Struct({
+  path: PathText,
+  commonDir: PathText,
+  mode: WorkspaceBindingRequest.fields.mode,
+});
+export type WorkspaceRepositoryDefault = typeof WorkspaceRepositoryDefault.Type;
 export const WorkspaceBinding = Schema.Struct({
   ...WorkspaceBindingRequest.fields,
   commonDir: PathText,
@@ -54,6 +61,21 @@ export const WorkspaceBinding = Schema.Struct({
   error: Schema.NullOr(Schema.String),
 });
 export type WorkspaceBinding = typeof WorkspaceBinding.Type;
+/**
+ * A project folder that holds repositories rather than being one. The agent starts in
+ * `checkoutPath`: the folder itself, or in `mirror` mode a new folder where each
+ * repository inside gets a worktree at the same relative path.
+ */
+export const WorkspaceRootRequest = Schema.Struct({
+  sourcePath: PathText,
+  mode: Schema.Literals(["current", "mirror"]),
+});
+export type WorkspaceRootRequest = typeof WorkspaceRootRequest.Type;
+export const WorkspaceRoot = Schema.Struct({
+  ...WorkspaceRootRequest.fields,
+  checkoutPath: PathText,
+});
+export type WorkspaceRoot = typeof WorkspaceRoot.Type;
 export const ThreadWorkspace = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   revision: NonNegativeInt,
@@ -61,10 +83,12 @@ export const ThreadWorkspace = Schema.Struct({
   state: Schema.Literals(["planned", "validating", "preparing", "ready", "failed", "cancelled"]),
   primaryBindingId: WorkspaceBindingId,
   bindings: Schema.Array(WorkspaceBinding).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+  root: Schema.optional(WorkspaceRoot),
 });
 export type ThreadWorkspace = typeof ThreadWorkspace.Type;
 export const WorkspaceConfiguration = Schema.Struct({
   expectedRevision: NonNegativeInt,
+  root: Schema.optional(WorkspaceRootRequest),
   primaryBindingId: WorkspaceBindingId,
   bindings: Schema.Array(WorkspaceBindingRequest).check(
     Schema.isMinLength(1),
@@ -72,6 +96,14 @@ export const WorkspaceConfiguration = Schema.Struct({
   ),
 });
 export type WorkspaceConfiguration = typeof WorkspaceConfiguration.Type;
+/** The thread has a repository set rather than only its project's own checkout. */
+export const hasRepositorySet = (
+  workspace: ThreadWorkspace | undefined,
+): workspace is ThreadWorkspace =>
+  workspace !== undefined && (workspace.bindings.length > 1 || workspace.root !== undefined);
+/** Whether this binding is also the thread's own checkout, where turn diffs and the branch toolbar apply. */
+export const isThreadCheckoutBinding = (workspace: ThreadWorkspace, bindingId: string) =>
+  workspace.root === undefined && bindingId === workspace.primaryBindingId;
 export const WorkspaceDiscoverInput = Schema.Struct({
   root: PathText,
   depth: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 })),

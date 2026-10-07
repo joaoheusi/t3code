@@ -10,7 +10,11 @@ interface DraftRepositorySelection {
 }
 
 interface WorkspaceUiState {
-  /** Extra repositories picked for a composer before its thread exists, keyed by composer target. */
+  /**
+   * Repositories the user chose for a composer before its thread exists, keyed by composer
+   * target. An absent key means untouched, so the project's default applies; an empty list
+   * is a real choice of none.
+   */
   readonly draftRepositories: Record<string, DraftRepositorySelection>;
   /** The message to send once a thread's repositories are ready, keyed by thread. */
   readonly pendingSends: Record<string, { readonly prompt: string }>;
@@ -59,10 +63,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
       if (!current) return state;
       const repositories = current.repositories.filter((entry) => entry.id !== id);
       return {
-        draftRepositories:
-          repositories.length === 0
-            ? without(state.draftRepositories, key)
-            : { ...state.draftRepositories, [key]: { ...current, repositories } },
+        draftRepositories: { ...state.draftRepositories, [key]: { ...current, repositories } },
       };
     }),
   setDraftRepositoryMode: (key, id, mode) =>
@@ -84,7 +85,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
   setDraftRepositories: (key, selection) =>
     set((state) => ({
       draftRepositories:
-        selection === null || selection.repositories.length === 0
+        selection === null
           ? without(state.draftRepositories, key)
           : { ...state.draftRepositories, [key]: selection },
     })),
@@ -99,31 +100,18 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
     set((state) => ({ activeRepository: { ...state.activeRepository, [threadKey]: bindingId } })),
 }));
 
-const EMPTY: readonly DraftRepository[] = [];
-
-/** Extra repositories for this composer, if they were picked on this machine and project. */
+/** The repositories chosen for this composer on this machine and project, or null if untouched. */
 export function useDraftRepositories(
   key: string,
   environmentId: EnvironmentId,
   projectId: ProjectId | null,
-): readonly DraftRepository[] {
+): readonly DraftRepository[] | null {
   return useWorkspaceUiStore((state) => {
     const selection = state.draftRepositories[key];
     return selection &&
       selection.environmentId === environmentId &&
       selection.projectId === projectId
       ? selection.repositories
-      : EMPTY;
+      : null;
   });
-}
-
-export function readDraftRepositories(
-  key: string,
-  environmentId: EnvironmentId,
-  projectId: ProjectId,
-): readonly DraftRepository[] {
-  const selection = useWorkspaceUiStore.getState().draftRepositories[key];
-  return selection?.environmentId === environmentId && selection.projectId === projectId
-    ? selection.repositories
-    : EMPTY;
 }

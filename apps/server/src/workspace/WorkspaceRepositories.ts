@@ -38,6 +38,8 @@ const fail = (detail: string) => new WorkspaceError({ detail });
 export class WorkspaceRepositories extends Context.Service<
   WorkspaceRepositories,
   {
+    /** The real absolute path, with `~` expanded and symlinks resolved. */
+    readonly canonical: (path: string) => Effect.Effect<string, WorkspaceError>;
     readonly inspect: (path: string) => Effect.Effect<WorkspaceRepository, WorkspaceError>;
     readonly discover: (
       root: string,
@@ -80,7 +82,7 @@ export function parseWorkspaceChanges(output: string) {
 }
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const { isAbsolute, join, relative, resolve } = yield* Path.Path;
+  const { basename, isAbsolute, join, relative, resolve } = yield* Path.Path;
   const platform = yield* HostProcessPlatform;
   const permits = yield* Semaphore.make(4);
   const runner = yield* ProcessRunner.ProcessRunner;
@@ -93,6 +95,16 @@ const make = Effect.gen(function* () {
         .realPath(path)
         .pipe(Effect.mapError(() => fail(`The path is missing or unreadable: ${path}`)));
     });
+  /** Whether `child` is strictly inside `parent`; both must already be canonical. */
+  const contains = (parent: string, child: string) => {
+    const rel = relative(parent, child);
+    return (
+      rel !== "" &&
+      rel !== ".." &&
+      !rel.startsWith(".." + (platform === "win32" ? "\\" : "/")) &&
+      !isAbsolute(rel)
+    );
+  };
   const git = (cwd: string, args: readonly string[]) =>
     runner
       .run({
@@ -251,6 +263,15 @@ const make = Effect.gen(function* () {
       const ids = new Set<string>();
       const identities = new Set<string>();
       const bindings: WorkspaceBinding[] = [];
+      const safeOperation = Buffer.from(operationId).toString("hex");
+      if (safeOperation.length > 256) return yield* fail("The operation ID is too long.");
+      const operationDir = join(config.worktreesDir, "workspace", safeOperation);
+      const rootPath = input.root ? yield* canonical(input.root.sourcePath) : null;
+      // A mirror keeps the folder's name, so paths the agent reads still look like the project.
+      const mirrorPath =
+        rootPath && input.root?.mode === "mirror"
+          ? join(operationDir, basename(rootPath) || "folder")
+          : null;
       for (const request of input.bindings) {
         if (ids.has(request.id))
           return yield* fail("Each repository binding must have a unique ID.");
@@ -261,22 +282,35 @@ const make = Effect.gen(function* () {
             `Only one checkout from ${repository.commonDir} can be active in a thread.`,
           );
         identities.add(repository.commonDir);
+        const insideRoot = rootPath !== null && contains(rootPath, repository.path);
+        if (mirrorPath && insideRoot && request.mode !== "new-worktree")
+          return yield* fail(
+            `${request.label} is inside the mirrored folder, so it needs a new worktree.`,
+          );
         let checkoutPath = repository.path;
         let baseCommit = repository.head;
         let branch = repository.branch;
         if (request.mode === "new-worktree") {
-          if (!request.branch || !request.baseRef)
-            return yield* fail("A new worktree requires a branch and base ref.");
+          if (!request.branch) return yield* fail("A new worktree requires a branch.");
           yield* git(repository.path, ["check-ref-format", "--branch", request.branch]);
           baseCommit = (yield* git(repository.path, [
             "rev-parse",
             "--verify",
             "--end-of-options",
-            `${request.baseRef}^{commit}`,
+            `${request.baseRef ?? repository.branch ?? repository.head}^{commit}`,
           ])).trim();
-          const safeOperation = Buffer.from(operationId).toString("hex");
-          if (safeOperation.length > 256) return yield* fail("The operation ID is too long.");
-          checkoutPath = join(config.worktreesDir, "workspace", safeOperation, request.id);
+          checkoutPath =
+            mirrorPath && insideRoot
+              ? join(mirrorPath, relative(rootPath!, repository.path))
+              : join(operationDir, request.id);
+          if (
+            mirrorPath &&
+            !insideRoot &&
+            (checkoutPath === mirrorPath || contains(mirrorPath, checkoutPath))
+          )
+            return yield* fail(
+              `${request.label} would land inside the mirrored folder. Give it another ID.`,
+            );
           branch = request.branch;
         }
         bindings.push({
@@ -294,6 +328,21 @@ const make = Effect.gen(function* () {
       }
       if (!ids.has(input.primaryBindingId))
         return yield* fail("Select a primary repository from the workspace.");
+      if (rootPath !== null) {
+        const inside = bindings.filter((binding) => contains(rootPath, binding.sourcePath));
+        if (inside.length === 0)
+          return yield* fail(`No selected repository is inside ${rootPath}.`);
+        // A worktree can't hold another repository's worktree.
+        const nested = mirrorPath
+          ? inside.find((binding) =>
+              inside.some((other) => contains(other.sourcePath, binding.sourcePath)),
+            )
+          : undefined;
+        if (nested)
+          return yield* fail(
+            `${nested.label} is inside another selected repository, so the folder can't be mirrored. Remove one of them.`,
+          );
+      }
       return {
         schemaVersion: 1,
         revision: input.expectedRevision + 1,
@@ -301,6 +350,15 @@ const make = Effect.gen(function* () {
         state: "planned",
         primaryBindingId: input.primaryBindingId,
         bindings,
+        ...(rootPath !== null
+          ? {
+              root: {
+                sourcePath: rootPath,
+                mode: input.root!.mode,
+                checkoutPath: mirrorPath ?? rootPath,
+              },
+            }
+          : {}),
       };
     },
   );
@@ -423,7 +481,7 @@ const make = Effect.gen(function* () {
         );
     }
   });
-  return WorkspaceRepositories.of({ inspect, discover, plan, prepare, validate });
+  return WorkspaceRepositories.of({ canonical, inspect, discover, plan, prepare, validate });
 });
 import * as Schema from "effect/Schema";
 export const layer = Layer.effect(WorkspaceRepositories, make).pipe(

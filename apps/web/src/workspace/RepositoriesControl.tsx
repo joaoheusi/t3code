@@ -1,5 +1,6 @@
 import {
   CommandId,
+  hasRepositorySet,
   type EnvironmentId,
   type ProjectId,
   type ThreadId,
@@ -8,10 +9,12 @@ import {
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
+  BookmarkIcon,
   CopyIcon,
   FileDiffIcon,
   FolderGit2Icon,
   FolderPlusIcon,
+  FolderTreeIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SquareTerminalIcon,
@@ -38,9 +41,9 @@ import { Spinner } from "../components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { toastManager } from "../components/ui/toast";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
-import { randomUUID } from "../lib/utils";
+import { cn, randomUUID } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
-import { useServerConfigs, useThreadShell } from "../state/entities";
+import { useThreadShell } from "../state/entities";
 import { forkWorkspace } from "../state/forkWorkspace";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -48,16 +51,25 @@ import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { useRepositoryStatus } from "./ThreadRepositoriesSection";
 import { useAddRepository } from "./useAddRepository";
 import {
+  useComposerRepositories,
+  useMultiRepositoryVersion,
+  useSaveRepositoryDefault,
+} from "./useComposerRepositories";
+import {
   CHECKOUT_MODE_LABEL,
+  REPOSITORY_LIMIT,
+  basename,
   draftBindingRequest,
   draftRepositoryFromBinding,
+  isInsideFolder,
   primaryBindingRequest,
   repositoriesSummary,
+  repositoryDefaultFrom,
   workspaceConfiguration,
   workspaceProgress,
   type DraftRepository,
 } from "./workspaceModel";
-import { useDraftRepositories, useWorkspaceUiStore } from "./workspaceStores";
+import { useWorkspaceUiStore } from "./workspaceStores";
 
 interface RepositoriesControlProps {
   readonly environmentId: EnvironmentId;
@@ -69,56 +81,72 @@ interface RepositoriesControlProps {
     readonly title: string;
     readonly workspaceRoot: string;
   };
+  readonly isGitRepo: boolean;
   readonly envMode: "local" | "worktree";
+  readonly onEnvModeChange: (mode: "local" | "worktree") => void;
   readonly worktreePath: string | null;
   readonly branch: string | null;
 }
 
-export function useMultiRepositorySupported(environmentId: EnvironmentId) {
-  return useServerConfigs().get(environmentId)?.environment.capabilities.forkMultiRepoVersion === 1;
-}
+export const FOLDER_MODE_LABEL = { local: "Current folder", worktree: "New worktrees" } as const;
 
 /**
  * The thread's repositories, next to its workspace and branch. Before the first
  * message the user picks them here; afterwards this shows them and their actions.
+ * A project folder that holds repositories rather than being one lists them here too.
  */
 export const RepositoriesControl = memo(function RepositoriesControl(
   props: RepositoriesControlProps,
 ) {
-  const supported = useMultiRepositorySupported(props.environmentId);
+  const version = useMultiRepositoryVersion(props.environmentId);
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const shell = useThreadShell(threadRef);
   const workspace = shell?.workspace;
   const started = Boolean(
     shell && (shell.latestRun !== null || shell.itemCount > 0 || shell.runtime !== null),
   );
-  const pending = useDraftRepositories(props.composerKey, props.environmentId, props.project.id);
-  const menuProps = useComposerMenuProps();
-  const [open, setOpen] = useState(false);
-  if (!supported) return null;
-  const configured = (workspace?.bindings.length ?? 0) > 1;
   // Membership only changes before the first message, and not while repositories prepare.
   const editable =
     !started && (!workspace || workspace.state === "failed" || workspace.state === "cancelled");
-  if (!editable && !configured) return null;
+  const selection = useComposerRepositories({
+    composerKey: props.composerKey,
+    environmentId: props.environmentId,
+    project: props.project,
+    isGitRepo: props.isGitRepo,
+    workspace,
+    choosing: editable,
+  });
+  const menuProps = useComposerMenuProps();
+  const [open, setOpen] = useState(false);
+  if (version < 1) return null;
+  const configured = hasRepositorySet(workspace);
+  if (!configured && !(editable && (props.isGitRepo || selection.folder))) return null;
 
+  const folder = configured ? workspace!.root !== undefined : selection.folder;
   const labels = configured
     ? workspace!.bindings.map((binding) => binding.label)
-    : [props.project.title, ...pending.map((repository) => repository.label)];
+    : folder
+      ? selection.repositories.map((repository) => repository.label)
+      : [props.project.title, ...selection.repositories.map((repository) => repository.label)];
   const progress = workspace ? workspaceProgress(workspace) : null;
   const preparing = workspace && ["planned", "validating", "preparing"].includes(workspace.state);
   const failed = workspace?.state === "failed";
+  const summary = folder
+    ? `${props.project.title} · ${labels.length} ${labels.length === 1 ? "repository" : "repositories"}`
+    : repositoriesSummary(labels);
   const trigger =
-    labels.length > 1 ? (
+    folder || labels.length > 1 ? (
       <>
         {preparing ? (
           <Spinner size="xs" />
         ) : failed ? (
           <TriangleAlertIcon className="size-3 text-destructive" />
+        ) : folder ? (
+          <FolderTreeIcon className="size-3" />
         ) : (
           <FolderGit2Icon className="size-3" />
         )}
-        <ComposerContextLabel>{repositoriesSummary(labels)}</ComposerContextLabel>
+        <ComposerContextLabel>{summary}</ComposerContextLabel>
         <ComposerControlChevron size="xs" />
       </>
     ) : (
@@ -134,7 +162,7 @@ export const RepositoriesControl = memo(function RepositoriesControl(
               render={
                 <ComposerControl
                   size="xs"
-                  aria-label={labels.length > 1 ? "Repositories" : "Add repositories"}
+                  aria-label={folder || labels.length > 1 ? "Repositories" : "Add repositories"}
                   data-composer-context-control
                 />
               }
@@ -144,16 +172,21 @@ export const RepositoriesControl = memo(function RepositoriesControl(
           {trigger}
         </TooltipTrigger>
         <TooltipPopup>
-          {labels.length > 1
-            ? preparing && progress
-              ? `Preparing ${progress.ready} of ${progress.total} repositories`
-              : `${labels.length} repositories`
-            : "Add repositories to this thread"}
+          {preparing && progress
+            ? `Preparing ${progress.ready} of ${progress.total} repositories`
+            : folder || labels.length > 1
+              ? summary
+              : "Add repositories to this thread"}
         </TooltipPopup>
       </Tooltip>
       <PopoverPopup side="top" align="start" width="lg" padding="compact" {...menuProps}>
         {editable ? (
-          <EditableRepositories {...props} pending={pending} onDone={() => setOpen(false)} />
+          <EditableRepositories
+            {...props}
+            selection={selection}
+            folder={folder}
+            onDone={() => setOpen(false)}
+          />
         ) : (
           <ThreadRepositories
             detail={
@@ -182,11 +215,12 @@ function PopoverHeading(props: { title: string; detail: string }) {
 
 function EditableRepositories(
   props: RepositoriesControlProps & {
-    readonly pending: readonly DraftRepository[];
+    readonly selection: ReturnType<typeof useComposerRepositories>;
+    readonly folder: boolean;
     readonly onDone: () => void;
   },
 ) {
-  const { environmentId, threadId, composerKey, project } = props;
+  const { environmentId, threadId, composerKey, project, selection, folder } = props;
   const workspace = useThreadShell(scopeThreadRef(environmentId, threadId))?.workspace;
   const openAdd = useAddRepository({
     draftKey: composerKey,
@@ -194,19 +228,15 @@ function EditableRepositories(
     projectId: project.id,
     primaryRoot: project.workspaceRoot,
   });
+  const saveDefault = useSaveRepositoryDefault(environmentId, project.id);
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
     reportFailure: false,
   });
   const [saving, setSaving] = useState(false);
-  // A thread whose preparation failed or was cancelled starts from what it recorded.
-  const repositories =
-    props.pending.length === 0 && workspace
-      ? workspace.bindings
-          .filter((binding) => binding.id !== workspace.primaryBindingId)
-          .map(draftRepositoryFromBinding)
-      : props.pending;
+  const { repositories } = selection;
+  // Edits apply to the draft's own copy of the list, made on the first change.
   const seed = () => {
-    if (props.pending.length === 0 && workspace)
+    if (selection.untouched)
       useWorkspaceUiStore.getState().setDraftRepositories(composerKey, {
         environmentId,
         projectId: project.id,
@@ -216,15 +246,26 @@ function EditableRepositories(
   const recordedPrimary = workspace?.bindings.find(
     (binding) => binding.id === workspace.primaryBindingId,
   );
-  const primary = recordedPrimary
-    ? draftBindingRequest(draftRepositoryFromBinding(recordedPrimary))
-    : primaryBindingRequest({
-        label: project.title,
-        workspaceRoot: project.workspaceRoot,
-        envMode: props.envMode,
-        worktreePath: props.worktreePath,
-        branch: props.branch,
-      });
+  const primary = folder
+    ? null
+    : recordedPrimary
+      ? draftBindingRequest(draftRepositoryFromBinding(recordedPrimary))
+      : primaryBindingRequest({
+          label: project.title,
+          workspaceRoot: project.workspaceRoot,
+          envMode: props.envMode,
+          worktreePath: props.worktreePath,
+          branch: props.branch,
+        });
+  const inFolder = (repository: DraftRepository) =>
+    folder && isInsideFolder(project.workspaceRoot, repository.path);
+  const isDefault =
+    selection.saved.length === repositories.length &&
+    repositories.every((repository, index) => {
+      const saved = selection.saved[index]!;
+      const next = repositoryDefaultFrom(repository);
+      return saved.path === next.path && saved.mode === next.mode;
+    });
 
   // Before the first message the selection is prepared on Send. A thread that already
   // exists, because an earlier preparation failed, prepares again from here.
@@ -237,7 +278,19 @@ function EditableRepositories(
         type: "thread.metadata.update",
         commandId: CommandId.make(randomUUID()),
         threadId,
-        workspaceConfiguration: workspaceConfiguration(primary, repositories, workspace.revision),
+        workspaceConfiguration: workspaceConfiguration({
+          primary,
+          ...(folder
+            ? {
+                root: {
+                  sourcePath: project.workspaceRoot,
+                  mode: props.envMode === "worktree" ? "mirror" : "current",
+                },
+              }
+            : {}),
+          repositories,
+          expectedRevision: workspace.revision,
+        }),
       },
     });
     setSaving(false);
@@ -257,23 +310,52 @@ function EditableRepositories(
     <div className="flex flex-col">
       <PopoverHeading title="Repositories" detail="The agent works across all of them" />
       <ul className="flex flex-col gap-0.5">
-        <RepositoryRow
-          label={recordedPrimary?.label ?? project.title}
-          detail={primary.sourcePath}
-          trailing={
-            <span className="shrink-0 text-muted-foreground text-xs">
-              {CHECKOUT_MODE_LABEL[primary.mode]}
-            </span>
-          }
-        />
+        {folder ? (
+          <RepositoryRow
+            icon={<FolderTreeIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+            label={project.title}
+            detail={project.workspaceRoot}
+            trailing={
+              <Select
+                value={props.envMode}
+                onValueChange={(mode) =>
+                  props.onEnvModeChange(mode === "worktree" ? "worktree" : "local")
+                }
+              >
+                <SelectTrigger size="xs" aria-label={`Checkout for ${project.title}`}>
+                  <SelectValue>{FOLDER_MODE_LABEL[props.envMode]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value="local">{FOLDER_MODE_LABEL.local}</SelectItem>
+                  <SelectItem value="worktree">{FOLDER_MODE_LABEL.worktree}</SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+        ) : (
+          <RepositoryRow
+            label={recordedPrimary?.label ?? project.title}
+            detail={primary!.sourcePath}
+            trailing={
+              <span className="shrink-0 text-muted-foreground text-xs">
+                {CHECKOUT_MODE_LABEL[primary!.mode]}
+              </span>
+            }
+          />
+        )}
         {repositories.map((repository) => (
           <RepositoryRow
             key={repository.id}
             label={repository.label}
-            detail={repository.path}
+            detail={
+              inFolder(repository)
+                ? repository.path.slice(project.workspaceRoot.replace(/[\\/]+$/, "").length + 1)
+                : repository.path
+            }
+            nested={inFolder(repository)}
             trailing={
               <>
-                {repository.mode === "existing-worktree" ? (
+                {inFolder(repository) ? null : repository.mode === "existing-worktree" ? (
                   <span className="shrink-0 text-muted-foreground text-xs">
                     {CHECKOUT_MODE_LABEL["existing-worktree"]}
                   </span>
@@ -321,23 +403,47 @@ function EditableRepositories(
           />
         ))}
       </ul>
-      <Button
-        size="sm"
-        variant="ghost"
-        className="mt-1 justify-start"
-        onClick={() => {
-          seed();
-          props.onDone();
-          openAdd();
-        }}
-      >
-        <PlusIcon />
-        Add repository
-      </Button>
+      {selection.untouched &&
+      selection.saved.length === 0 &&
+      selection.foundCount > REPOSITORY_LIMIT ? (
+        <p className="px-1 pt-1 text-muted-foreground text-xs">
+          Showing the first {REPOSITORY_LIMIT} of {selection.foundCount} repositories in this
+          folder.
+        </p>
+      ) : null}
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        <Button
+          size="sm"
+          variant="ghost"
+          // The project's own checkout takes one of the thread's places unless it's a folder.
+          disabled={repositories.length >= REPOSITORY_LIMIT - (folder ? 0 : 1)}
+          onClick={() => {
+            seed();
+            props.onDone();
+            openAdd();
+          }}
+        >
+          <PlusIcon />
+          Add repository
+        </Button>
+        {isDefault ? null : (
+          <Button size="sm" variant="ghost" onClick={() => void saveDefault(repositories)}>
+            <BookmarkIcon />
+            Save as project default
+          </Button>
+        )}
+        {selection.saved.length > 0 ? (
+          <Button size="sm" variant="ghost" onClick={() => void saveDefault(null)}>
+            Clear project default
+          </Button>
+        ) : null}
+      </div>
       <p className="mt-2 border-t px-1 pt-2 text-muted-foreground text-xs">
-        {workspace
-          ? "Each repository keeps its own branch. New worktrees start from the latest commit."
-          : "Prepared when you send. New worktrees start from the latest commit; uncommitted changes stay where they are."}
+        {folder && props.envMode === "worktree"
+          ? `Each repository gets a new worktree at its place in a copy of ${basename(project.workspaceRoot)}. Files outside the repositories aren't copied.`
+          : workspace
+            ? "Each repository keeps its own branch. New worktrees start from the latest commit."
+            : "Prepared when you send. New worktrees start from the latest commit; uncommitted changes stay where they are."}
       </p>
       {workspace ? (
         <Button
@@ -356,12 +462,15 @@ function EditableRepositories(
 function RepositoryRow(props: {
   label: string;
   detail: string;
+  icon?: ReactNode;
+  /** Indented under the folder it lives in. */
+  nested?: boolean;
   status?: ReactNode;
   trailing: ReactNode;
 }) {
   return (
-    <li className="flex min-h-8 items-center gap-2 rounded-md px-1">
-      <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />
+    <li className={cn("flex min-h-8 items-center gap-2 rounded-md px-1", props.nested && "ps-4")}>
+      {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-1.5 truncate text-sm">
           {props.label}

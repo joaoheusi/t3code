@@ -407,7 +407,11 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import { vcsEnvironment } from "../state/vcs";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
-import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
+import {
+  hasRepositorySet,
+  projectCloneDisplayName,
+  projectCloneProgressSummary,
+} from "@t3tools/contracts";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
   resolveThreadDetailRef,
@@ -550,13 +554,12 @@ import {
   useStartWorkspaceThread,
   useWorkspaceBannerItem,
 } from "../workspace/useWorkspaceSend";
+import { useComposerRepositories } from "../workspace/useComposerRepositories";
 import {
-  isMultiRepository,
   primaryBindingRequest,
   repositoriesSummary,
   workspaceConfiguration,
 } from "../workspace/workspaceModel";
-import { readDraftRepositories } from "../workspace/workspaceStores";
 import { quickActionIdFromCommand } from "../quickActions/useQuickActionPalette";
 import {
   awaitAttachmentUploads,
@@ -2988,9 +2991,7 @@ export default function ChatView(props: ChatViewProps) {
   // A multi-repository thread's checkouts were chosen with its repositories.
   const envLocked = Boolean(
     activeThread &&
-    (activeMessageCount > 0 ||
-      activeRuntime !== null ||
-      isMultiRepository(serverThread?.workspace)),
+    (activeMessageCount > 0 || activeRuntime !== null || hasRepositorySet(serverThread?.workspace)),
   );
 
   const loadBalancingSettings = useClientSettings();
@@ -4201,6 +4202,15 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  // The repositories this thread starts with; the composer strip lists the same ones.
+  const composerRepositories = useComposerRepositories({
+    composerKey: composerTargetKey(composerDraftTarget),
+    environmentId,
+    project: activeProject ?? null,
+    isGitRepo,
+    workspace: serverThread?.workspace,
+    choosing: activeMessageCount === 0 && serverThread?.workspace === undefined,
+  });
   // When context is enabled, keep a hidden, off-flow strip mounted so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
@@ -4237,6 +4247,7 @@ export default function ChatView(props: ChatViewProps) {
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
+    hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
@@ -4245,6 +4256,7 @@ export default function ChatView(props: ChatViewProps) {
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
+    hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -9029,7 +9041,7 @@ export default function ChatView(props: ChatViewProps) {
     const composerKey = composerTargetKey(composerDraftTarget);
     const pendingRepositories =
       isFirstMessage && serverThread?.workspace === undefined
-        ? readDraftRepositories(composerKey, environmentId, activeProject.id)
+        ? composerRepositories.repositories
         : [];
     if (pendingRepositories.length > 0) {
       if (multipleModelSelections !== null) {
@@ -9049,25 +9061,39 @@ export default function ChatView(props: ChatViewProps) {
         projectId: activeProject.id,
         createThread: isLocalDraftThread
           ? {
-              title: repositoriesSummary([
-                activeProject.title,
-                ...pendingRepositories.map((repository) => repository.label),
-              ]),
+              title: composerRepositories.folder
+                ? activeProject.title
+                : repositoriesSummary([
+                    activeProject.title,
+                    ...pendingRepositories.map((repository) => repository.label),
+                  ]),
               modelSelection: ctxSelectedModelSelection,
               runtimeMode,
               interactionMode: sendInteractionMode,
             }
           : null,
         configuration: workspaceConfiguration(
-          primaryBindingRequest({
-            label: activeProject.title,
-            workspaceRoot: activeProject.workspaceRoot,
-            envMode: sendEnvMode,
-            worktreePath: activeThread.worktreePath,
-            branch: activeThreadBranch,
-          }),
-          pendingRepositories,
-          0,
+          composerRepositories.folder
+            ? {
+                primary: null,
+                root: {
+                  sourcePath: activeProject.workspaceRoot,
+                  mode: envMode === "worktree" ? "mirror" : "current",
+                },
+                repositories: pendingRepositories,
+                expectedRevision: 0,
+              }
+            : {
+                primary: primaryBindingRequest({
+                  label: activeProject.title,
+                  workspaceRoot: activeProject.workspaceRoot,
+                  envMode: sendEnvMode,
+                  worktreePath: activeThread.worktreePath,
+                  branch: activeThreadBranch,
+                }),
+                repositories: pendingRepositories,
+                expectedRevision: 0,
+              },
         ),
         prompt: promptRef.current,
         draftKey: composerKey,

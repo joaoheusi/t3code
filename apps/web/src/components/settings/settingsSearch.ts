@@ -173,6 +173,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["name icon emoji image checkout remove delete"],
   },
   {
+    id: "thread-repositories",
+    title: "Repositories",
+    to: "/settings/projects",
+    searchTerms: ["multi repository folder repos default saved new thread worktree mirror"],
+  },
+  {
     id: "default-model",
     title: "Default model",
     to: "/settings/general",

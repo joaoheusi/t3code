@@ -16,6 +16,7 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { useEnvironments } from "../../state/environments";
+import { basename, repositoriesSummary } from "../../workspace/workspaceModel";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
@@ -77,6 +78,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedSubmodules = useScopedSettingsMixed(["worktreeSubmodules"]);
+  const mixedRepositories = useScopedSettingsMixed(["workspaceRepositories"]);
   const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
@@ -248,6 +250,28 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     />
   );
 
+  const repositoriesRow = isProjectScope ? (
+    <SettingsRow
+      serverScoped
+      settingKeys={["workspaceRepositories"]}
+      mixed={mixedRepositories}
+      id={searchableSetting("thread-repositories").id}
+      title="Repositories"
+      description="Repositories new threads in this project start with. Save them from the repositories button under the composer."
+      control={
+        <span className="truncate text-muted-foreground text-sm">
+          {mixedRepositories
+            ? "Mixed"
+            : settings.workspaceRepositories.length === 0
+              ? "Not saved"
+              : repositoriesSummary(
+                  settings.workspaceRepositories.map((repository) => basename(repository.path)),
+                )}
+        </span>
+      }
+    />
+  ) : null;
+
   return (
     <SettingsSection
       id={
@@ -269,6 +293,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         <>
           {modelRow}
           {workspaceRow}
+          {repositoriesRow}
         </>
       ) : category === "general" ? (
         <>

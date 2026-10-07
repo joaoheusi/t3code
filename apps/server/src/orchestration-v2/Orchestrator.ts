@@ -23,6 +23,8 @@ import {
   type OrchestrationV2InternalCommand,
   type OrchestrationV2ServerCommand,
   type ThreadPullRequestLink,
+  type ThreadWorkspace,
+  hasRepositorySet,
   type ThreadPullRequestWatch,
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
@@ -482,6 +484,27 @@ function pendingThreadTitleGenerationEffect(
 }
 
 const WORKSPACE_PREPARATION_INPUT = "Preparing workspace";
+
+/**
+ * Where a configured thread works. A folder thread works in its folder or mirror and has
+ * no branch of its own; otherwise the primary repository's checkout is the thread's.
+ */
+function threadCheckout(
+  workspace: ThreadWorkspace,
+  worktreePath: string | null,
+  originalPath: string | null,
+) {
+  if (workspace.root)
+    return {
+      branch: null,
+      worktreePath: workspace.root.mode === "mirror" ? workspace.root.checkoutPath : worktreePath,
+    };
+  const primary = workspace.bindings.find((binding) => binding.id === workspace.primaryBindingId)!;
+  return {
+    branch: primary.branch,
+    worktreePath: primary.checkoutPath === originalPath ? worktreePath : primary.checkoutPath,
+  };
+}
 
 /** A reopened preparation item drops the output and exit code of the attempt it replaces. */
 function withoutPreparationResult(
@@ -2525,20 +2548,33 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           commandType: command.type,
           cause: "The primary project is unavailable.",
         });
-      const original = yield* extension.value
-        .inspect(thread.worktreePath ?? project.value.workspaceRoot)
-        .pipe(mapDispatchError(command));
-      originalWorkspacePath = original.path;
-      if (
-        plannedWorkspace.bindings.find(
-          (binding) => binding.id === plannedWorkspace!.primaryBindingId,
-        )?.commonDir !== original.commonDir
-      )
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: "The primary binding must belong to this thread's primary project.",
-        });
+      if (plannedWorkspace.root) {
+        // A folder project isn't a repository itself; its folder is what must match.
+        const projectRoot = yield* extension.value
+          .canonical(project.value.workspaceRoot)
+          .pipe(mapDispatchError(command));
+        if (plannedWorkspace.root.sourcePath !== projectRoot)
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The workspace folder must be this thread's project folder.",
+          });
+      } else {
+        const original = yield* extension.value
+          .inspect(thread.worktreePath ?? project.value.workspaceRoot)
+          .pipe(mapDispatchError(command));
+        originalWorkspacePath = original.path;
+        if (
+          plannedWorkspace.bindings.find(
+            (binding) => binding.id === plannedWorkspace!.primaryBindingId,
+          )?.commonDir !== original.commonDir
+        )
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "The primary binding must belong to this thread's primary project.",
+          });
+      }
     }
     const workspaceControl =
       command.type === "thread.metadata.update" ? command.workspaceControl : undefined;
@@ -2577,8 +2613,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       };
     }
     if (
-      thread.workspace?.bindings.length &&
-      thread.workspace.bindings.length > 1 &&
+      hasRepositorySet(thread.workspace) &&
       command.type === "thread.metadata.update" &&
       workspaceConfiguration === undefined &&
       (command.branch !== undefined || command.worktreePath !== undefined)
@@ -3030,19 +3065,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : { workspace: plannedWorkspace }),
             ...(workspaceConfiguration === undefined
               ? {}
-              : {
-                  branch: plannedWorkspace!.bindings.find(
-                    (binding) => binding.id === plannedWorkspace!.primaryBindingId,
-                  )!.branch,
-                  worktreePath:
-                    plannedWorkspace!.bindings.find(
-                      (binding) => binding.id === plannedWorkspace!.primaryBindingId,
-                    )!.checkoutPath === originalWorkspacePath
-                      ? thread.worktreePath
-                      : plannedWorkspace!.bindings.find(
-                          (binding) => binding.id === plannedWorkspace!.primaryBindingId,
-                        )!.checkoutPath,
-                }),
+              : threadCheckout(plannedWorkspace!, thread.worktreePath, originalWorkspacePath)),
             ...(command.title === undefined ? {} : { title: command.title }),
             ...(command.limitRecovery === undefined ? {} : { limitRecovery }),
             ...(command.limitRecovery !== undefined &&

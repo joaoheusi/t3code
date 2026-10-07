@@ -26,13 +26,26 @@ Import accepts the Quick Actions app's JSON format. Imports are added as copies 
 
 Before a thread's first message, choose its repositories with the repositories button next to the workspace and branch controls under the composer. Pick from this machine's projects, or browse to any folder; a folder that isn't a repository is searched for repositories inside it. Each added repository uses its **Current checkout** or a **New worktree** from its current branch. Adding a linked worktree folder uses that **Existing worktree**. The thread's own project follows the workspace and branch controls.
 
+To start every new thread in a project with the same repositories, choose **Save as project default** in that menu. **Clear project default** there, or the reset beside **Repositories** in the project's settings, goes back to the project alone.
+
+### Folder projects
+
+A project whose folder isn't a repository but holds repositories is a folder project. Its new threads start with every repository found up to three folders deep, at most 20; remove the ones you don't need. Repositories nested inside another one, and extra checkouts of the same repository, are left out. The folder row in the menu chooses where the agent works:
+
+- **Current folder** works in the folder itself.
+- **New worktrees** makes a copy of the folder's layout with a new worktree of each repository at the same place, so paths between them still work. Files outside the repositories, such as a shared script at the top of the folder, aren't copied.
+
+The folder's mode also follows the project's default workspace setting. Repositories outside the folder can still be added with their own checkout.
+
+### Preparing and working
+
 When you send, the repositories are prepared first and your message sends once they are ready. A notice above the composer shows progress and lets you cancel or retry. New worktrees start from the latest commit; uncommitted and ignored files stay where they are. Worktrees created for a thread are not deleted automatically.
 
-After the first message, the repository list is fixed. Open the thread details panel to see each repository's branch and to open a terminal there, copy its path, or show its changes. The repository you select there is the one the diff panel, **Open in**, and the commit, push, and pull request controls act on; the diff panel also has a repository menu. Turn diffs and whole-thread file restore cover only the thread's own project. The files panel also shows only the thread's own project; open other repositories with **Open in**.
+After the first message, the repository list is fixed. Open the thread details panel to see each repository's branch and to open a terminal there, copy its path, or show its changes. The repository you select there is the one the diff panel, **Open in**, and the commit, push, and pull request controls act on; the diff panel also has a repository menu. Turn diffs and whole-thread file restore cover only the thread's own project, and a folder project has none. The files panel also shows only the thread's own project or folder; open other repositories with **Open in**.
 
 Repositories can change branch or go through a merge or rebase during the thread. Sending stops only if a checkout disappears or becomes a different repository.
 
-Claude and Codex can work across several repositories. Other providers refuse a multi-repository thread. In full-access mode an agent can reach more than these folders.
+Claude and Codex can work across repositories outside the thread's folder. Other providers can only work in a folder project whose repositories are all inside it. In full-access mode an agent can reach more than these folders.
 
 ## CI and conflict tasks
 

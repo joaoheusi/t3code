@@ -1,9 +1,10 @@
-import type {
-  EditorId,
-  EnvironmentId,
-  ProjectScript,
-  ResolvedKeybindingsConfig,
-  ThreadId,
+import {
+  isThreadCheckoutBinding,
+  type EditorId,
+  type EnvironmentId,
+  type ProjectScript,
+  type ResolvedKeybindingsConfig,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 
@@ -88,8 +89,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   // A multi-repository thread lists its repositories, and Git acts on the one picked there.
   const activeRepository = useActiveRepository(props.draftId ? null : threadRef);
-  const primaryBindingId = useThreadShell(props.draftId ? null : threadRef)?.workspace
-    ?.primaryBindingId;
+  const workspace = useThreadShell(props.draftId ? null : threadRef)?.workspace;
   const gitCwd = activeRepository?.checkoutPath ?? props.gitCwd;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -223,7 +223,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               separated={density === "full"}
             >
               <div className="flex flex-col">
-                {activeRepository && activeRepository.id !== primaryBindingId ? (
+                {activeRepository &&
+                workspace &&
+                !isThreadCheckoutBinding(workspace, activeRepository.id) ? (
                   <RepositoryBranchRow
                     environmentId={props.environmentId}
                     binding={activeRepository}

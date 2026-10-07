@@ -729,13 +729,16 @@ export const BranchToolbar = memo(function BranchToolbar({
         </div>
       ) : null}
 
-      {showGitControls && activeProject ? (
+      {/* Also shown outside Git: a folder project lists the repositories inside it. */}
+      {activeProject ? (
         <RepositoriesControl
           environmentId={environmentId}
           threadId={threadId}
           composerKey={draftId ?? scopedThreadKey(threadRef)}
           project={activeProject}
+          isGitRepo={showGitControls}
           envMode={effectiveEnvMode}
+          onEnvModeChange={onEnvModeChange}
           worktreePath={activeWorktreePath}
           branch={activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null}
         />
