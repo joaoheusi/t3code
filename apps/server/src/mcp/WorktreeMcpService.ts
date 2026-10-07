@@ -165,6 +165,11 @@ const make = Effect.gen(function* () {
       );
     }
 
+    if (projection.thread.workspace !== undefined)
+      return yield* failure(
+        "invalid_request",
+        "This thread has an explicit repository manifest. Use Repositories to configure its bindings before the first provider session. This legacy worktree tool cannot replace a manifest checkout.",
+      );
     const project = yield* loadProject(scope, projection.thread.projectId);
     const projectCwd = project.workspaceRoot;
 

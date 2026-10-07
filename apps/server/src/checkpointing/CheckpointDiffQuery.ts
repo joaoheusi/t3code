@@ -23,6 +23,7 @@ import * as Schema from "effect/Schema";
 import { checkpointRefForScopeOrdinal } from "../orchestration-v2/CheckpointService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import {
+  MultiRepositoryCheckpointError,
   CheckpointDiffResultInvalidError,
   CheckpointRefUnavailableError,
   CheckpointThreadNotFoundError,
@@ -83,6 +84,15 @@ export const make = Effect.gen(function* () {
   const getTurnDiff: CheckpointDiffQuery["Service"]["getTurnDiff"] = Effect.fn("getTurnDiff")(
     function* (input) {
       const operation = "CheckpointDiffQuery.getTurnDiff";
+      const thread = yield* threads
+        .getThreadShell(input.threadId)
+        .pipe(
+          Effect.mapError(
+            () => new CheckpointThreadNotFoundError({ operation, threadId: input.threadId }),
+          ),
+        );
+      if (thread?.workspace && thread.workspace.bindings.length > 1)
+        return yield* new MultiRepositoryCheckpointError({ threadId: input.threadId });
       const ignoreWhitespace = input.ignoreWhitespace ?? true;
       yield* Effect.annotateCurrentSpan({
         "checkpoint.thread_id": input.threadId,

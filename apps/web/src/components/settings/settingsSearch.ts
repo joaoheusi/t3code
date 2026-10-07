@@ -16,6 +16,7 @@ export type SettingsPath =
   | "/settings/general"
   | "/settings/appearance"
   | "/settings/keybindings"
+  | "/settings/quick-actions"
   | "/settings/snap-shot"
   | "/settings/providers"
   | "/settings/integrations"
@@ -91,6 +92,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
+  "/settings/quick-actions": "Quick actions",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
@@ -169,6 +171,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Project overview",
     to: "/settings/projects",
     searchTerms: ["name icon emoji image checkout remove delete"],
+  },
+  {
+    id: "thread-repositories",
+    title: "Repositories",
+    to: "/settings/projects",
+    searchTerms: ["multi repository folder repos default saved new thread worktree mirror"],
   },
   {
     id: "default-model",
@@ -545,6 +553,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["keyboard shortcuts hotkeys commands bindings json"],
   },
   ...KEYBINDING_SEARCH_ITEMS,
+  {
+    id: "quick-actions",
+    title: "Quick actions",
+    to: "/settings/quick-actions",
+    searchTerms: ["saved prompts templates snippets instructions slash resolve ci import export"],
+  },
   {
     id: "snap-shot-enabled",
     title: "SnapShots",
@@ -929,6 +943,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   // Keybindings fan out to the selection; Providers shows the representative
   // environment at any selection. Neither needs a particular scope to render.
   "/settings/keybindings": null,
+  "/settings/quick-actions": null,
   "/settings/providers": null,
   "/settings/integrations": null,
   "/settings/source-control": "environment-defaults",

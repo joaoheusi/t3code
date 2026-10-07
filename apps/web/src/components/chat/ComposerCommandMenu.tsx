@@ -7,6 +7,7 @@ import {
   type ProjectEntry,
   type ProviderDriverKind,
   type PullRequestContextMetadata,
+  type QuickAction,
   type ScopedThreadRef,
   type ServerProviderSkill,
   type ServerProviderSlashCommand,
@@ -18,6 +19,7 @@ import {
   PackageIcon,
   SettingsIcon,
   UserRoundIcon,
+  ZapIcon,
   type LucideIcon,
 } from "lucide-react";
 import { memo, useLayoutEffect, useRef } from "react";
@@ -29,6 +31,7 @@ import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
+import type { QuickActionVariant } from "../../quickActions/quickActionRunner";
 
 export type ComposerCommandItem =
   | {
@@ -73,6 +76,15 @@ export type ComposerCommandItem =
       id: string;
       type: "thread";
       thread: ScopedThreadRef;
+      label: string;
+      description: string;
+    }
+  | {
+      id: string;
+      type: "quick-action";
+      action: QuickAction;
+      /** Null when the thread lacks the PR or repository the template needs. */
+      variant: QuickActionVariant | "choose" | null;
       label: string;
       description: string;
     };
@@ -200,6 +212,15 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       {props.item.type === "thread" ? (
         <MessagesSquareIcon aria-hidden="true" className="size-4 shrink-0 text-secondary-label" />
       ) : null}
+      {props.item.type === "quick-action" ? (
+        <ZapIcon
+          aria-hidden="true"
+          className={cn(
+            "size-4 shrink-0",
+            props.item.variant ? "text-secondary-label" : "text-secondary-label/50",
+          )}
+        />
+      ) : null}
       {pullRequestPresentation ? (
         <pullRequestPresentation.Icon
           role="img"
@@ -218,7 +239,12 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
             props.item.label
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-left text-secondary-label text-xs">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left text-secondary-label text-xs",
+            props.item.type === "quick-action" && !props.item.variant && "italic",
+          )}
+        >
           {props.item.description}
         </span>
         {skillSourceKind ? (

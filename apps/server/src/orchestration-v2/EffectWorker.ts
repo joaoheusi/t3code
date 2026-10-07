@@ -1,3 +1,4 @@
+import * as WorkspacePreparation from "../workspace/WorkspacePreparation.ts";
 import { CommandId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -93,6 +94,9 @@ export const layerExecutor: Layer.Layer<
 > = Layer.effect(
   OrchestrationEffectExecutorV2,
   Effect.gen(function* () {
+    const workspacePreparation = yield* Effect.serviceOption(
+      WorkspacePreparation.WorkspacePreparation,
+    );
     const runFinalization = yield* RunFinalizationService.RunFinalizationService;
     const resourceCleanup = yield* ResourceCleanupService.ResourceCleanupService;
     const checkpointRollback = yield* CheckpointRollbackService.CheckpointRollbackServiceV2;
@@ -108,6 +112,28 @@ export const layerExecutor: Layer.Layer<
       execute: (effect, options) => {
         const willRetry = options?.willRetry ?? false;
         switch (effect.request.type) {
+          case "workspace.prepare": {
+            const request = effect.request;
+            return Effect.gen(function* () {
+              const preparation = workspacePreparation;
+              if (Option.isNone(preparation))
+                return yield* new OrchestrationEffectExecutionError({
+                  effectId: effect.id,
+                  effectType: effect.request.type,
+                  cause: "Workspace preparation is unavailable.",
+                });
+              yield* preparation.value.execute(effect.threadId, request.operationId).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestrationEffectExecutionError({
+                      effectId: effect.id,
+                      effectType: effect.request.type,
+                      cause,
+                    }),
+                ),
+              );
+            });
+          }
           case "provider-runtime.continue": {
             const sourceRunId = effect.request.sourceRunId;
             return continueRestartedRun({ threadId: effect.threadId, sourceRunId }).pipe(

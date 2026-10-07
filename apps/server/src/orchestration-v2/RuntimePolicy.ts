@@ -1,9 +1,11 @@
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import {
   ModelSelection,
   OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
+  type ThreadWorkspace,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -87,6 +89,23 @@ function providerRuntimeMode(
     : "approval-required";
 }
 
+/**
+ * Where the agent starts, and the checkouts outside it that need a directory grant.
+ * Paths are canonical checkout paths the workspace recorded on this host.
+ */
+export function workspaceDirectories(workspace: ThreadWorkspace) {
+  const cwd =
+    workspace.root?.checkoutPath ??
+    workspace.bindings.find((binding) => binding.id === workspace.primaryBindingId)!.checkoutPath;
+  const inside = cwd + (cwd.includes("\\") ? "\\" : "/");
+  return {
+    cwd,
+    additionalDirectories: workspace.bindings
+      .map((binding) => binding.checkoutPath)
+      .filter((path) => path !== cwd && !path.startsWith(inside)),
+  };
+}
+
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
@@ -94,6 +113,9 @@ export const layerFromProjectStore: Layer.Layer<
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
+    const workspaceRepositories = yield* Effect.serviceOption(
+      WorkspaceRepositories.WorkspaceRepositories,
+    );
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     return RuntimePolicyV2.of({
@@ -103,6 +125,53 @@ export const layerFromProjectStore: Layer.Layer<
           instance === undefined
             ? undefined
             : (yield* instance.snapshot.getSnapshot).supportedRuntimeModes;
+        let workspacePolicy:
+          | {}
+          | {
+              cwd: string;
+              additionalDirectories: readonly string[];
+              workspaceInstructions: string;
+            } = {};
+        if (input.thread.workspace) {
+          const workspace = input.thread.workspace;
+          const error = (cause: unknown) =>
+            new RuntimePolicyResolveError({
+              projectId: input.thread.projectId,
+              providerInstanceId: input.modelSelection.instanceId,
+              cause,
+            });
+          if (Option.isNone(workspaceRepositories))
+            return yield* error("Workspace validation is unavailable.");
+          yield* workspaceRepositories.value.validate(workspace).pipe(Effect.mapError(error));
+          const { cwd, additionalDirectories } = workspaceDirectories(workspace);
+          if (
+            additionalDirectories.length > 0 &&
+            instance?.driverKind !== "codex" &&
+            instance?.driverKind !== "claudeAgent"
+          )
+            return yield* error(
+              "This provider has not been verified for multi-repository access. Select Codex or Claude.",
+            );
+          workspacePolicy = {
+            cwd,
+            additionalDirectories,
+            workspaceInstructions: [
+              `Validated workspace revision ${workspace.revision}. The application owns checkout configuration. Do not create, switch, reset, stash, or delete worktrees.`,
+              ...(workspace.root
+                ? [
+                    workspace.root.mode === "mirror"
+                      ? `Working folder ${cwd} mirrors ${workspace.root.sourcePath}: each repository below is a worktree at its original relative path. Files outside those repositories were not copied.`
+                      : `Working folder ${cwd} holds the repositories below.`,
+                  ]
+                : []),
+              ...workspace.bindings.map(
+                (binding) =>
+                  `${binding.id}: ${binding.label}; ${binding.mode}; ${binding.checkoutPath}; branch ${binding.branch ?? "detached"}. Apply each repository's instructions only to paths in that repository.`,
+              ),
+              "Directory grants do not confine a provider running with full access. Preserve the user's approval and access mode. Git metadata outside the checkout requires approval or validated application Git actions.",
+            ].join("\n"),
+          };
+        }
         const cwd =
           input.thread.worktreePath ??
           (yield* projects.get(input.thread.projectId).pipe(
@@ -132,6 +201,7 @@ export const layerFromProjectStore: Layer.Layer<
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
+          ...workspacePolicy,
         });
       }),
     });

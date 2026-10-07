@@ -111,17 +111,17 @@ it.effect("keeps a user-installed Node reachable when the command runs under sud
       );
     const npx = "/home/theo/.npm/_npx/abc/node_modules/t3/dist/bin.mjs";
     // sudo's secure_path already has a system Node.
-    expect(yield* command("/usr/bin/node", npx)).toBe("sudo npx t3 browser setup");
+    expect(yield* command("/usr/bin/node", npx)).toBe("sudo j4code browser setup");
     // nvm, fnm, and tarball installs are dropped by sudo's PATH reset.
     expect(yield* command("/home/theo/.nvm/versions/node/v24/bin/node", npx)).toBe(
-      'sudo env "PATH=$PATH" npx t3 browser setup',
+      'sudo env "PATH=$PATH" j4code browser setup',
     );
     expect(
       yield* command(
         "/home/theo/.local/node/bin/node",
         "/home/theo/.local/lib/node_modules/t3/dist/bin.mjs",
       ),
-    ).toBe('sudo env "PATH=$PATH" t3 browser setup');
+    ).toBe('sudo env "PATH=$PATH" j4code browser setup');
   }),
 );
 
@@ -130,7 +130,9 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped();
+      const root = yield* fs
+        .makeTempDirectoryScoped()
+        .pipe(Effect.flatMap((value) => fs.realPath(value)));
       for (const [relative, kind] of [
         ["npm/_npx/hash/node_modules/t3/dist/bin.mjs", "npx"],
         ["npm/_npx/hash/node_modules/@t3code/t3-linux-x64/t3", "npx"],
@@ -154,7 +156,9 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped();
+      const root = yield* fs
+        .makeTempDirectoryScoped()
+        .pipe(Effect.flatMap((value) => fs.realPath(value)));
       const prefix = path.join(root, "bunx-tools");
       const packageRoot = path.join(prefix, "lib/node_modules/t3");
       const entry = path.join(packageRoot, "dist/bin.mjs");
@@ -185,7 +189,9 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped();
+      const root = yield* fs
+        .makeTempDirectoryScoped()
+        .pipe(Effect.flatMap((value) => fs.realPath(value)));
       const prefix = path.join(root, "bunx-tools");
       const packageRoot = path.join(prefix, "lib/node_modules/t3");
       const launcher = path.join(packageRoot, "bin/t3.js");
@@ -222,7 +228,9 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const root = yield* fs.makeTempDirectoryScoped();
+      const root = yield* fs
+        .makeTempDirectoryScoped()
+        .pipe(Effect.flatMap((value) => fs.realPath(value)));
       for (const relative of [
         "project/node_modules/t3/dist/bin.mjs",
         "project/apps/server/dist/bin.mjs",
@@ -242,5 +250,16 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
         ).toBeNull();
       }
     }),
+  );
+});
+
+it("never suggests an official package runner for fork builds", () => {
+  assert.equal(
+    formatCliCommand({
+      subcommand: "serve",
+      entryPath: "/tmp/node_modules/t3/dist/bin.mjs",
+      version: "0.0.45-j4.3",
+    }),
+    "j4code serve",
   );
 });

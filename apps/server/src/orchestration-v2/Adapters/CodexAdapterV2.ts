@@ -714,10 +714,23 @@ export function buildCodexTurnStartParams(input: {
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    let sandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    if (
+      sandboxPolicy?.type === "workspaceWrite" &&
+      input.runtimePolicy.additionalDirectories?.length
+    )
+      sandboxPolicy = {
+        ...sandboxPolicy,
+        writableRoots: [
+          ...new Set([
+            ...(sandboxPolicy.writableRoots ?? []),
+            ...input.runtimePolicy.additionalDirectories,
+          ]),
+        ],
+      };
     const selectedEffort = getModelSelectionStringOptionValue(
       input.modelSelection,
       "reasoningEffort",
@@ -728,10 +741,14 @@ export function buildCodexTurnStartParams(input: {
       input.omitServiceTier === true
         ? undefined
         : getCodexServiceTierOptionValue(input.modelSelection);
-    const developerInstructions =
+    const baseDeveloperInstructions =
       input.hasT3Mcp !== true
         ? undefined
         : buildCodexDeveloperInstructions(input.runtimePolicy.interactionMode);
+    const developerInstructions =
+      [baseDeveloperInstructions, input.runtimePolicy.workspaceInstructions]
+        .filter((value) => value !== undefined)
+        .join("\n") || undefined;
     const additionalContext =
       input.hasT3Mcp === true
         ? buildCodexAdditionalContext(

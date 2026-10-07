@@ -30,8 +30,8 @@ export const ThreadLinkedPullRequest = Schema.Struct({
 export type ThreadLinkedPullRequest = typeof ThreadLinkedPullRequest.Type;
 
 /** Who created a thread ↔ pull request link. `stack-dismissed` is a tombstone
- * for a native-stack member the user unlinked, so the sync reactor does not
- * re-add it; clients hide it. */
+ * for a native-stack member or a repository's branch pull request the user
+ * unlinked, so the reactors do not re-add it; clients hide it. */
 export const ThreadPullRequestLinkSource = Schema.Literals([
   "manual",
   "created",
@@ -128,6 +128,7 @@ export const ThreadPullRequestLink = Schema.Struct({
   ...ThreadPullRequestKey.fields,
   url: TrimmedNonEmptyString,
   source: ThreadPullRequestLinkSource,
+  bindingId: Schema.optional(TrimmedNonEmptyString),
   linkedAt: IsoDateTime,
   snapshot: Schema.NullOr(ThreadPullRequestSnapshot),
   stack: Schema.NullOr(ThreadPullRequestStack),

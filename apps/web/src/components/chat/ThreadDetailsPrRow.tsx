@@ -1,3 +1,4 @@
+import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
 /**
@@ -16,14 +17,15 @@ import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
  * from the linked snapshot or branch summary, or just the link when status is unavailable.
  */
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId, ProjectId, PullRequestRef } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, PullRequestRef, ScopedThreadRef } from "@t3tools/contracts";
 import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import {
-  ArrowUpRightIcon,
   EyeIcon,
   EyeOffIcon,
   FileDiffIcon,
   GitBranchIcon,
+  MoreHorizontalIcon,
+  SquarePenIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
@@ -80,6 +82,7 @@ import {
 
 export function ThreadDetailsPrRow({
   environmentId,
+  threadRef,
   pr,
   number,
   reference: linkedReference,
@@ -92,6 +95,7 @@ export function ThreadDetailsPrRow({
   onStopWatching,
 }: {
   environmentId: EnvironmentId;
+  threadRef?: ScopedThreadRef;
   pr: ThreadPr;
   number: number;
   reference?: Pick<PullRequestRef, "host" | "repository" | "number"> | null;
@@ -162,7 +166,11 @@ export function ThreadDetailsPrRow({
       onActed?.();
     },
   });
-  const { handoff, startHandoff } = usePullRequestHandoffs({ environmentId, detail });
+  const { handoff, startHandoff, openNew } = usePullRequestHandoffs({
+    environmentId,
+    detail,
+    target: threadRef ?? null,
+  });
   const [confirmingMerge, setConfirmingMerge] = useState(false);
 
   const rowAction = resolveThreadPanelPullRequestAction(detail);
@@ -177,25 +185,31 @@ export function ThreadDetailsPrRow({
     "merge",
   );
 
-  const startResolveConflicts = () => {
+  const startResolveConflicts = (explicitNew = false) => {
     if (detail === null) return;
-    void startHandoff("conflicts", {
+    const task = {
+      context: {
+        kind: "conflicts" as const,
+        reference: reference!,
+        ...(detail.headSha ? { headSha: detail.headSha } : {}),
+      },
       prompt: buildResolveConflictsPrompt({
         number: detail.number,
         url: detail.url,
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
       }),
-    });
+    };
+    if (explicitNew) void openNew(task);
+    else void startHandoff("conflicts", task);
   };
 
-  const startFixChecks = () => {
+  const startFixChecks = (explicitNew = false) => {
     if (detail === null) return;
     // The compact row fetches no conversation, so the handoff carries the failing checks alone;
     // review threads keep arriving through the full panel's richer version of this action.
-    void startHandoff(
-      "findings",
-      buildFixFindingsHandoff({
+    const task = {
+      ...buildFixFindingsHandoff({
         number: detail.number,
         title: detail.title,
         url: detail.url,
@@ -206,7 +220,14 @@ export function ThreadDetailsPrRow({
         checks: detail.checks,
         commentsTruncated: false,
       }),
-    );
+      context: {
+        kind: "ci" as const,
+        reference: reference!,
+        ...(detail.headSha ? { headSha: detail.headSha } : {}),
+      },
+    };
+    if (explicitNew) void openNew(task);
+    else void startHandoff("findings", task);
   };
 
   // Host details distinguish drafts; all panels share the same PR-state glyph.
@@ -308,9 +329,9 @@ export function ThreadDetailsPrRow({
           pendingLabel: "Preparing...",
           pending: handoff === "conflicts",
           destructive: true,
-          suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-          tooltip: "Check the branch out and resolve the conflicts in a new thread",
-          onClick: startResolveConflicts,
+          suffix: null,
+          tooltip: "Draft a conflict fix in this thread's composer",
+          onClick: () => startResolveConflicts(),
         }
       : rowAction === "ready"
         ? {
@@ -328,9 +349,9 @@ export function ThreadDetailsPrRow({
               pendingLabel: "Preparing...",
               pending: handoff === "findings",
               destructive: true,
-              suffix: <ArrowUpRightIcon aria-hidden className="size-3 shrink-0" />,
-              tooltip: "Fix the failing checks in a new thread",
-              onClick: startFixChecks,
+              suffix: null,
+              tooltip: "Draft a CI fix in this thread's composer",
+              onClick: () => startFixChecks(),
             }
           : rowAction === "merge"
             ? {
@@ -440,6 +461,38 @@ export function ThreadDetailsPrRow({
                 </TooltipTrigger>
                 <TooltipPopup side="top">{trailingAction.tooltip}</TooltipPopup>
               </Tooltip>
+            </>
+          ) : null}
+          {rowAction === "resolve" || rowAction === "fix" ? (
+            <>
+              <span aria-hidden="true" className={THREAD_DETAILS_PANEL_SPLIT_SEPARATOR_CLASS} />
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <ThreadDetailsControl
+                      size="icon-xs"
+                      variant="ghost"
+                      part="icon"
+                      aria-label="More pull request actions"
+                      disabled={handoff !== null}
+                    />
+                  }
+                >
+                  <MoreHorizontalIcon className="size-3.5" />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuItem
+                    onClick={() =>
+                      rowAction === "resolve" ? startResolveConflicts(true) : startFixChecks(true)
+                    }
+                  >
+                    <SquarePenIcon className="size-3.5" />
+                    {rowAction === "resolve"
+                      ? "Resolve conflicts in a new thread"
+                      : "Fix checks in a new thread"}
+                  </MenuItem>
+                </MenuPopup>
+              </Menu>
             </>
           ) : null}
         </div>

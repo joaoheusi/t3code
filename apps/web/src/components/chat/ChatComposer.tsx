@@ -1,3 +1,16 @@
+import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAccess";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { quickActionRequirements, rankQuickActions } from "@t3tools/shared/quickActions";
+import { registerActionEditor } from "~/quickActions/dispatcher";
+import { openCommandPalette } from "../../commandPaletteBus";
+import { prepareTask } from "~/quickActions/preparedTasks";
+import {
+  noteQuickActionUse,
+  quickActionTargets,
+  recentQuickActionIds,
+  renderQuickActionText,
+} from "~/quickActions/quickActionRunner";
+import { useQuickActionLibrary, useResolveActionContext } from "~/quickActions/useQuickActions";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import { runtimeModeConfig, runtimeModeOptions as runtimeModes } from "./runtimeModeConfig";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
@@ -237,7 +250,7 @@ import {
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
 import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
-import { readThreadShell, useThreadShells } from "~/state/entities";
+import { readThreadShell, useThreadShell, useThreadShells } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
@@ -264,7 +277,10 @@ import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
-import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+import {
+  ComposerPendingUserInputPanel,
+  focusPendingUserInputOption,
+} from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import {
   ComposerControl,
@@ -1597,6 +1613,8 @@ export interface ChatComposerProps {
   terminalOpen: boolean;
   gitCwd: string | null;
   pullRequestProjectId: ProjectId | null;
+  /** The composer's project on its environment; null for threads without one. */
+  activeProjectId: ProjectId | null;
   pullRequestRepository: string | null;
   restingControlsHost: HTMLDivElement | null;
   restingControlsHaveLeadingContext: boolean;
@@ -1741,6 +1759,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     terminalOpen,
     gitCwd,
     pullRequestProjectId,
+    activeProjectId,
     pullRequestRepository,
     restingControlsHost,
     restingControlsHaveLeadingContext,
@@ -2157,7 +2176,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderEntry?.snapshot,
     selectedModel,
   );
+  const actionOperateAccess = useEnvironmentOperateAccess(environmentId);
+  const actionThreadShell = useThreadShell(
+    activeThreadId ? scopeThreadRef(environmentId, activeThreadId) : null,
+  );
+  const threadWorkspace = actionThreadShell?.workspace;
   const sendDisabledReason =
+    (threadWorkspace && threadWorkspace.state !== "ready"
+      ? threadWorkspace.state === "failed" || threadWorkspace.state === "cancelled"
+        ? "Prepare the repositories before sending."
+        : "Waiting for the repositories to be ready."
+      : null) ??
     externalSendDisabledReason ??
     (multipleModelSelections?.length === 0 ? "Select at least one model." : null) ??
     (activePendingProgress
@@ -2613,6 +2642,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }),
   );
 
+  const quickActionLibrary = useQuickActionLibrary(
+    environmentId,
+    activeProjectId,
+    composerTrigger?.kind === "slash-command",
+  );
+  const resolveActionContext = useResolveActionContext();
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2693,8 +2728,58 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const visibleProviderSlashCommandItems = providerSlashCommandItems.filter(
         (item) => item.command.name !== "compact" || compactSlashCommandAvailable,
       );
+      const quickActionItems = rankQuickActions(
+        quickActionLibrary.actions,
+        "",
+        recentQuickActionIds(),
+      ).flatMap((action): Array<Extract<ComposerCommandItem, { type: "quick-action" }>> => {
+        const targets = quickActionTargets(action, {
+          environmentId,
+          projectId: activeProjectId,
+          thread: actionThreadShell,
+        });
+        if (targets.kind === "unavailable") {
+          return [
+            {
+              id: `quick-action:${action.id}`,
+              type: "quick-action",
+              action,
+              variant: null,
+              label: action.name,
+              description: targets.reason,
+            },
+          ];
+        }
+        if (targets.variants.length > 1) {
+          return [
+            {
+              id: `quick-action:${action.id}`,
+              type: "quick-action",
+              action,
+              variant: "choose",
+              label: action.name,
+              description: "Choose one or more pull requests or repositories",
+            },
+          ];
+        }
+        return targets.variants.map((variant) => ({
+          id: `quick-action:${action.id}:${variant.key}`,
+          type: "quick-action",
+          action,
+          variant,
+          label: action.name,
+          description: variant.label
+            ? `${variant.label}${action.description ? ` · ${action.description}` : ""}`
+            : action.description,
+        }));
+      });
       const slashCommandItems = slashCommandItemsForPromptPosition(
-        [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
+        [
+          ...builtInSlashCommandItems,
+          ...quickActionItems,
+          ...visibleProviderSlashCommandItems,
+          ...skillItems,
+        ],
         composerTrigger.rangeStart === 0,
       );
       return searchSlashCommandItems(slashCommandItems, query);
@@ -2765,10 +2850,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return [];
   }, [
+    actionThreadShell,
+    activeProjectId,
     activeThreadId,
     compactSlashCommandAvailable,
     composerTrigger,
     environmentId,
+    quickActionLibrary.actions,
     environmentThreadShells,
     exactPullRequestLookup.data,
     planModeUiEnabled,
@@ -3908,6 +3996,62 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   }, [readComposerSnapshot, resolveComposerTrigger]);
 
+  // The `/query` token is already gone; the rendered text goes where it was, unless
+  // the draft moved on while context loaded. Then it waits in a composer banner.
+  const insertQuickActionAtCaret = useCallback(
+    async (item: Extract<ComposerCommandItem, { type: "quick-action" }>, insertAt: number) => {
+      const variant = item.variant;
+      if (!variant || variant === "choose") return;
+      const targetKey = composerDraftTargetKeyRef.current;
+      const promptBefore = promptRef.current;
+      const scope = { environmentId, projectId: activeProjectId, thread: actionThreadShell };
+      const loading = quickActionRequirements(item.action.template).host
+        ? toastManager.add({ type: "loading", title: `Preparing ${item.action.name}…` })
+        : null;
+      try {
+        const rendered = await renderQuickActionText({
+          action: item.action,
+          scope,
+          choice: variant.choice,
+          resolveContext: resolveActionContext,
+        });
+        if (loading) toastManager.close(loading);
+        if (
+          composerDraftTargetKeyRef.current === targetKey &&
+          promptRef.current === promptBefore &&
+          applyPromptReplacement(insertAt, insertAt, rendered.text)
+        ) {
+          noteQuickActionUse(item.action.id);
+          return;
+        }
+        prepareTask(composerDraftTarget, {
+          title: item.action.name,
+          prompt: rendered.text,
+          ...(rendered.contexts.length > 0
+            ? { validation: { environmentId, contexts: rendered.contexts } }
+            : {}),
+        });
+      } catch (error) {
+        const failure = {
+          type: "error" as const,
+          title: `Could not prepare ${item.action.name}`,
+          description: error instanceof Error ? error.message : "Try again.",
+        };
+        if (loading) toastManager.update(loading, failure);
+        else toastManager.add(failure);
+      }
+    },
+    [
+      actionThreadShell,
+      activeProjectId,
+      applyPromptReplacement,
+      composerDraftTarget,
+      environmentId,
+      promptRef,
+      resolveActionContext,
+    ],
+  );
+
   const { onUsageLimitsCommand } = props;
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
@@ -3918,6 +4062,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
+      if (item.type === "quick-action") {
+        if (!item.variant) {
+          toastManager.add({
+            type: "info",
+            title: item.action.name,
+            description: item.description,
+          });
+          return;
+        }
+        const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          focusEditorAfterReplace: item.variant !== "choose",
+        });
+        if (applied) {
+          setComposerHighlightedItemId(null);
+          if (item.variant === "choose") {
+            openCommandPalette({ open: "quick-actions", actionId: item.action.id });
+          } else {
+            void insertQuickActionAtCaret(item, trigger.rangeStart);
+          }
+        }
+        return;
+      }
       if (item.type === "path") {
         const replacement = `${serializeComposerFileLink(item.path)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -4067,6 +4234,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       applyPromptReplacement,
       composerDraftTarget,
       handleInteractionModeChange,
+      insertQuickActionAtCaret,
       planModeUiEnabled,
       onUsageLimitsCommand,
       resolveActiveComposerTrigger,
@@ -6117,6 +6285,54 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [expandMobileComposer, insertComposerText, isComposerCollapsedMobile],
   );
 
+  useEffect(
+    () =>
+      registerActionEditor(composerDraftTarget, {
+        available: () =>
+          actionOperateAccess === "granted" &&
+          activeThread?.archivedAt == null &&
+          activeThread?.deletedAt == null &&
+          environmentUnavailable === null &&
+          !isRevertingCheckpoint &&
+          !isConnecting &&
+          !isComposerApprovalState &&
+          pendingUserInputs.length === 0 &&
+          !projectSelectionRequired,
+        read: () => ({
+          text: promptRef.current,
+          selection: composerEditorRef.current?.readSelectionRange() ?? {
+            start: promptRef.current.length,
+            end: promptRef.current.length,
+          },
+        }),
+        replace: (start, end, text) => {
+          if (
+            promptRef.current.slice(0, start) + text + promptRef.current.slice(end) ===
+            promptRef.current
+          )
+            return true;
+          composerEditorRef.current?.beginAtomicEdit?.();
+          const inserted = applyPromptReplacement(start, end, text);
+          if (!inserted) composerEditorRef.current?.beginAtomicEdit?.(false);
+          return inserted;
+        },
+      }),
+    [
+      composerDraftTarget,
+      actionOperateAccess,
+      activeThread?.archivedAt,
+      activeThread?.deletedAt,
+      environmentUnavailable,
+      isRevertingCheckpoint,
+      isConnecting,
+      isComposerApprovalState,
+      pendingUserInputs.length,
+      projectSelectionRequired,
+      promptRef,
+      applyPromptReplacement,
+    ],
+  );
+
   // Context produced by other panels (diff comments, preview picks) asks the store to place
   // its chip; while this composer is mounted for the draft, that means the caret.
   const insertContextReferencesAtCaret = useCallback(
@@ -6262,6 +6478,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerRef,
     () => ({
       focusAtEnd: () => {
+        // While a question with options is open, its options are the
+        // composer's keyboard target, so refocusing the composer (thread
+        // switch, window focus, closing a menu) lands on them instead of the
+        // custom-answer editor. Phones keep the editor, as the panel does.
+        const form = composerFormRef.current;
+        if (pendingUserInputs.length > 0 && !isMobileViewport && form) {
+          if (focusPendingUserInputOption(form)) return;
+        }
         composerEditorRef.current?.focusAtEnd();
       },
       focusAt: (cursor: number) => {
@@ -6496,6 +6720,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       isConnecting,
       isComposerApprovalState,
       isChoiceOnlyPendingQuestion,
+      isMobileViewport,
       pendingUserInputs.length,
       projectSelectionRequired,
       applyPromptReplacement,
@@ -6671,6 +6896,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     questionIndex={activePendingQuestionIndex}
                     onToggleOption={onSelectActivePendingUserInputOption}
                     onAdvance={onAdvanceActivePendingUserInput}
+                    onPrevious={onPreviousActivePendingUserInputQuestion}
                     onDismiss={onDismissActivePendingUserInput}
                   />
                 ) : !isComposerCollapsedMobile && showPlanFollowUpPrompt && activeProposedPlan ? (
@@ -6691,6 +6917,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       questionIndex={activePendingQuestionIndex}
                       onToggleOption={onSelectActivePendingUserInputOption}
                       onAdvance={onAdvanceActivePendingUserInput}
+                      onPrevious={onPreviousActivePendingUserInputQuestion}
                       onDismiss={onDismissActivePendingUserInput}
                     />
                     {!isChoiceOnlyPendingQuestion ||

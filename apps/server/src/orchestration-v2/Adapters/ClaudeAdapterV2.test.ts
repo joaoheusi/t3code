@@ -8399,3 +8399,29 @@ describe("ClaudeAdapterV2 query message stream", () => {
     }),
   );
 });
+
+it.each([false, true])(
+  "preserves selected multi-root paths and approval mode on resume=%s",
+  (resume) => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "multi-root",
+      resume,
+      cwd: "/approved/api",
+      additionalDirectories: ["/approved/web"],
+      attachmentsDir: "/profile/attachments",
+      workspaceInstructions: "API /approved/api; Web /approved/web",
+      permissionMode: "default",
+    });
+    assert.deepEqual(options.additionalDirectories, [
+      "/approved/web",
+      "/approved/api",
+      "/profile/attachments",
+    ]);
+    assert.equal(options.permissionMode, "default");
+    const prompt = options.systemPrompt as { append?: string };
+    assert.include(prompt.append ?? "", "/approved/web");
+    if (resume) assert.equal(options.resume, "multi-root");
+    else assert.equal(options.sessionId, "multi-root");
+  },
+);

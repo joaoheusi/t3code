@@ -9,7 +9,7 @@ import { scoreProviderSkill } from "../../providerSkillSearch";
 
 type SlashSearchItem = Extract<
   ComposerCommandItem,
-  { type: "slash-command" | "provider-slash-command" | "skill" }
+  { type: "slash-command" | "provider-slash-command" | "skill" | "quick-action" }
 >;
 
 /**
@@ -28,7 +28,37 @@ export function slashCommandItemsForPromptPosition(
   return items.filter((item) => item.type !== "provider-slash-command");
 }
 
+function scoreQuickActionItem(
+  item: Extract<SlashSearchItem, { type: "quick-action" }>,
+  query: string,
+): number | null {
+  const name = item.action.name.toLowerCase();
+  // A slash query has no spaces, so `/resolve-ci` should still find "Resolve CI".
+  const values = [
+    name,
+    name.replace(/\s+/g, "-"),
+    ...item.action.aliases.map((alias) => alias.toLowerCase().replace(/\s+/g, "-")),
+  ];
+  const scores = values.flatMap((value) => {
+    const score = scoreQueryMatch({
+      value,
+      query,
+      exactBase: 0,
+      prefixBase: 2,
+      boundaryBase: 4,
+      includesBase: 6,
+      fuzzyBase: 100,
+      boundaryMarkers: [" ", "-"],
+    });
+    return score === null ? [] : [score];
+  });
+  const tag = item.action.tags.some((value) => value.toLowerCase() === query) ? 20 : null;
+  if (tag !== null) scores.push(tag);
+  return scores.length > 0 ? Math.min(...scores) : null;
+}
+
 function scoreSlashCommandItem(item: SlashSearchItem, query: string): number | null {
+  if (item.type === "quick-action") return scoreQuickActionItem(item, query);
   if (item.type === "skill") {
     if (query === "skill") {
       return 0;
@@ -102,9 +132,11 @@ export function searchSlashCommandItems(
         tieBreaker:
           item.type === "slash-command"
             ? `0\u0000${item.command}`
-            : item.type === "provider-slash-command"
-              ? `1\u0000${item.command.name}\u0000${item.provider}`
-              : `2\u0000${item.skill.name}\u0000${item.provider}`,
+            : item.type === "quick-action"
+              ? `0\u0001${item.action.name}\u0000${item.id}`
+              : item.type === "provider-slash-command"
+                ? `1\u0000${item.command.name}\u0000${item.provider}`
+                : `2\u0000${item.skill.name}\u0000${item.provider}`,
       },
       Number.POSITIVE_INFINITY,
     );

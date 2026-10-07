@@ -367,6 +367,7 @@ import {
   type DraftThreadEnvMode,
   useComposerDraftStore,
   DraftId,
+  composerTargetKey,
 } from "../composerDraftStore";
 import {
   formatTerminalContextLabel,
@@ -406,7 +407,11 @@ import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSki
 import { vcsEnvironment } from "../state/vcs";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
-import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
+import {
+  hasRepositorySet,
+  projectCloneDisplayName,
+  projectCloneProgressSummary,
+} from "@t3tools/contracts";
 import { useEnvironments, usePrimaryEnvironment } from "../state/environments";
 import {
   resolveThreadDetailRef,
@@ -542,6 +547,20 @@ import {
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
+import { useRunQuickAction } from "../quickActions/useQuickActions";
+import { usePreparedTaskBannerItem } from "../quickActions/usePreparedTaskBannerItem";
+import {
+  useSendWhenWorkspaceReady,
+  useStartWorkspaceThread,
+  useWorkspaceBannerItem,
+} from "../workspace/useWorkspaceSend";
+import { useComposerRepositories } from "../workspace/useComposerRepositories";
+import {
+  primaryBindingRequest,
+  repositoriesSummary,
+  workspaceConfiguration,
+} from "../workspace/workspaceModel";
+import { quickActionIdFromCommand } from "../quickActions/useQuickActionPalette";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1787,6 +1806,9 @@ export default function ChatView(props: ChatViewProps) {
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const { runShortcut: runQuickActionShortcut } = useRunQuickAction();
+  const preparedTaskBannerItem = usePreparedTaskBannerItem(composerDraftTarget);
+  const startWorkspaceThread = useStartWorkspaceThread();
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -2966,7 +2988,11 @@ export default function ChatView(props: ChatViewProps) {
     advertisedFileAttachmentBytes === null
       ? null
       : clampFileAttachmentUploadBytes(advertisedFileAttachmentBytes);
-  const envLocked = Boolean(activeThread && (activeMessageCount > 0 || activeRuntime !== null));
+  // A multi-repository thread's checkouts were chosen with its repositories.
+  const envLocked = Boolean(
+    activeThread &&
+    (activeMessageCount > 0 || activeRuntime !== null || hasRepositorySet(serverThread?.workspace)),
+  );
 
   const loadBalancingSettings = useClientSettings();
   const automaticEnvironment = Boolean(
@@ -4176,6 +4202,15 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
+  // The repositories this thread starts with; the composer strip lists the same ones.
+  const composerRepositories = useComposerRepositories({
+    composerKey: composerTargetKey(composerDraftTarget),
+    environmentId,
+    project: activeProject ?? null,
+    isGitRepo,
+    workspace: serverThread?.workspace,
+    choosing: activeMessageCount === 0 && serverThread?.workspace === undefined,
+  });
   // When context is enabled, keep a hidden, off-flow strip mounted so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
@@ -4212,6 +4247,7 @@ export default function ChatView(props: ChatViewProps) {
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
+    hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
@@ -4220,6 +4256,7 @@ export default function ChatView(props: ChatViewProps) {
     persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
+    hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -7593,7 +7630,13 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const workspaceBannerItem = useWorkspaceBannerItem({
+    environmentId,
+    threadId: serverThread?.id ?? null,
+    workspace: serverThread?.workspace,
+  });
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
+    const forkItems = [workspaceBannerItem, preparedTaskBannerItem].filter((item) => item !== null);
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const backgroundWorkItems = [goalBannerItem, backgroundWorkBannerItem].filter(
       (item) => item !== null,
@@ -7608,6 +7651,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
+        ...forkItems,
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
@@ -7620,6 +7664,7 @@ export default function ChatView(props: ChatViewProps) {
     }
     return [
       ...feedbackBannerItems,
+      ...forkItems,
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,
@@ -7679,7 +7724,9 @@ export default function ChatView(props: ChatViewProps) {
     goalBannerItem,
     localCheckoutBranchMismatch,
     parkedThreadBannerItem,
+    preparedTaskBannerItem,
     projectCloneBannerItem,
+    workspaceBannerItem,
     resumeCompactionBannerItem,
     showBranchMismatchBanner,
     systemComposerBannerItems,
@@ -8038,6 +8085,19 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      const quickActionId = quickActionIdFromCommand(command);
+      if (quickActionId) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        void runQuickActionShortcut({
+          actionId: quickActionId,
+          scope: { environmentId, projectId: activeProject?.id ?? null, thread: serverThread },
+          target: composerDraftTarget,
+        });
+        return;
+      }
+
       const scriptId = projectScriptIdFromCommand(command);
       if (!scriptId || !activeProject) return;
       const script = activeProjectScripts.find((entry) => entry.id === scriptId);
@@ -8084,12 +8144,15 @@ export default function ChatView(props: ChatViewProps) {
     toggleThreadPanel,
     toggleTerminalVisibility,
     composerRef,
+    composerDraftTarget,
     draftId,
     environmentId,
     envLocked,
     hasMultipleEnvironments,
     logicalProjectEnvironments,
     onEnvironmentChange,
+    runQuickActionShortcut,
+    serverThread,
   ]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
@@ -8974,6 +9037,80 @@ export default function ChatView(props: ChatViewProps) {
       return;
     }
 
+    // Extra repositories are prepared before the first message; it sends once they're ready.
+    const composerKey = composerTargetKey(composerDraftTarget);
+    const pendingRepositories =
+      isFirstMessage && serverThread?.workspace === undefined
+        ? composerRepositories.repositories
+        : [];
+    if (pendingRepositories.length > 0) {
+      if (multipleModelSelections !== null) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "warning",
+            title: "Pick one model for a multi-repository thread",
+            description: "Each model would need its own copy of every repository.",
+          }),
+        );
+        return;
+      }
+      sendInFlightRef.current = true;
+      void startWorkspaceThread({
+        environmentId,
+        threadId: threadIdForSend,
+        projectId: activeProject.id,
+        createThread: isLocalDraftThread
+          ? {
+              title: composerRepositories.folder
+                ? activeProject.title
+                : repositoriesSummary([
+                    activeProject.title,
+                    ...pendingRepositories.map((repository) => repository.label),
+                  ]),
+              modelSelection: ctxSelectedModelSelection,
+              runtimeMode,
+              interactionMode: sendInteractionMode,
+            }
+          : null,
+        configuration: workspaceConfiguration(
+          composerRepositories.folder
+            ? {
+                primary: null,
+                root: {
+                  sourcePath: activeProject.workspaceRoot,
+                  mode: envMode === "worktree" ? "mirror" : "current",
+                },
+                repositories: pendingRepositories,
+                startFromOrigin:
+                  sendEnvMode === "worktree"
+                    ? startFromOrigin
+                    : activeProjectSettings.settings.newWorktreesStartFromOrigin,
+                expectedRevision: 0,
+              }
+            : {
+                primary: primaryBindingRequest({
+                  label: activeProject.title,
+                  workspaceRoot: activeProject.workspaceRoot,
+                  envMode: sendEnvMode,
+                  worktreePath: activeThread.worktreePath,
+                  branch: activeThreadBranch,
+                }),
+                repositories: pendingRepositories,
+                startFromOrigin:
+                  sendEnvMode === "worktree"
+                    ? startFromOrigin
+                    : activeProjectSettings.settings.newWorktreesStartFromOrigin,
+                expectedRevision: 0,
+              },
+        ),
+        prompt: promptRef.current,
+        draftKey: composerKey,
+      }).finally(() => {
+        sendInFlightRef.current = false;
+      });
+      return;
+    }
+
     const composerImagesSnapshot = [...composerImages];
     const composerFilesSnapshot = [...composerFiles];
     const composerAttachmentsSnapshot = [...composerImagesSnapshot, ...composerFilesSnapshot];
@@ -9812,6 +9949,13 @@ export default function ChatView(props: ChatViewProps) {
       resetLocalDispatch();
     }
   };
+
+  useSendWhenWorkspaceReady({
+    threadKey: routeThreadKey,
+    workspace: serverThread?.workspace,
+    readPrompt: () => promptRef.current,
+    send: () => void onSend(),
+  });
 
   const onRespondToApproval = useCallback(
     async (requestId: RuntimeRequestId, decision: ProviderApprovalDecision) => {
@@ -11385,6 +11529,7 @@ export default function ChatView(props: ChatViewProps) {
                               pullRequestProjectId={
                                 supportsPullRequests ? (activeProject?.id ?? null) : null
                               }
+                              activeProjectId={activeProject?.id ?? null}
                               pullRequestRepository={
                                 supportsPullRequests ? activeProjectRepository : null
                               }

@@ -1,6 +1,6 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronRightIcon, SquareCheckIcon, SquareIcon } from "lucide-react";
 import { type RefObject, useCallback, useState } from "react";
 import { cn } from "~/lib/utils";
 import { shortcutLabelForCommand } from "../keybindings";
@@ -49,7 +49,12 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
   }
 
   return (
-    <CommandList>
+    <CommandList
+      aria-multiselectable={
+        props.groups.some((group) => group.items.some((item) => item.checked !== undefined)) ||
+        undefined
+      }
+    >
       {props.groups.map((group) => (
         <CommandGroup items={group.items} key={group.value}>
           {group.label ? <CommandGroupLabel>{group.label}</CommandGroupLabel> : null}
@@ -117,7 +122,11 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
   }
 
   return (
-    <CommandListVirtualized>
+    <CommandListVirtualized
+      aria-multiselectable={
+        props.rows.some((row) => row.kind === "item" && row.item.checked !== undefined) || undefined
+      }
+    >
       <LegendList<CommandPaletteRow>
         ref={listRef}
         data={props.rows}
@@ -160,6 +169,13 @@ function DisabledCommandPaletteResultRow(props: {
 }) {
   return (
     <div className="flex min-h-8 select-none items-center gap-2 rounded-sm px-2 py-1.5 text-base opacity-64 sm:min-h-7 sm:text-sm">
+      {props.item.checked !== undefined ? (
+        props.item.checked ? (
+          <SquareCheckIcon aria-label="Selected" className="size-4 shrink-0 text-primary" />
+        ) : (
+          <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
+        )
+      ) : null}
       {props.item.icon}
       {props.item.description || props.item.threadContentMatch ? (
         <span className="flex min-w-0 flex-1 flex-col">
@@ -203,6 +219,7 @@ function CommandPaletteResultRow(props: {
       {...(props.index === undefined ? {} : { index: props.index })}
       value={props.item.value}
       active={props.isActive}
+      aria-selected={props.item.checked}
       onMouseDown={(event) => {
         event.preventDefault();
       }}
@@ -210,6 +227,13 @@ function CommandPaletteResultRow(props: {
         props.onExecuteItem(props.item);
       }}
     >
+      {props.item.checked !== undefined ? (
+        props.item.checked ? (
+          <SquareCheckIcon aria-label="Selected" className="size-4 shrink-0 text-primary" />
+        ) : (
+          <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
+        )
+      ) : null}
       {props.item.icon}
       {props.item.description || props.item.threadContentMatch ? (
         <span className="flex min-w-0 flex-1 flex-col">

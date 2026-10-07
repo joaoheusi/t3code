@@ -1,3 +1,7 @@
+import { CommandId } from "@t3tools/contracts";
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodePath from "node:path";
+import { storageCleanupPathRetained } from "./storageCleanup.ts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   ProjectId,
@@ -103,4 +107,41 @@ describe("V2 storage cleanup eligibility", () => {
   function candidateWithStatus(status: OrchestrationV2ThreadShell["status"]) {
     return { ...candidate(), status };
   }
+});
+
+describe("manifest worktree retention", () => {
+  it("protects recorded and nested checkouts even when a legacy thread owns the cleanup candidate", () => {
+    const workspace = {
+      schemaVersion: 1 as const,
+      revision: 1,
+      operationId: CommandId.make("retention"),
+      state: "ready" as const,
+      primaryBindingId: "api",
+      bindings: [
+        {
+          id: "api",
+          label: "API",
+          mode: "current" as const,
+          sourcePath: "/repos/api",
+          checkoutPath: "/worktrees/api/nested",
+          commonDir: "/repos/api/.git",
+          branch: "main",
+          head: "abc",
+          baseCommit: "abc",
+          state: "ready" as const,
+          owned: false,
+          error: null,
+        },
+      ],
+    };
+    expect(storageCleanupPathRetained([workspace], "/worktrees/api", NodePath)).toBe(true);
+    expect(storageCleanupPathRetained([workspace], "/repos/api", NodePath)).toBe(true);
+    expect(storageCleanupPathRetained([workspace], "/worktrees/api-other", NodePath)).toBe(false);
+    expect(
+      storageCleanupThreadIdle(
+        { ...shell({ branch: "main", worktreePath: "/worktrees/api" }), workspace },
+        NOW_MS,
+      ),
+    ).toBe(false);
+  });
 });

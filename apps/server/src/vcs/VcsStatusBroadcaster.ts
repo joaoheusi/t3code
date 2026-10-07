@@ -462,13 +462,15 @@ export const make = Effect.gen(function* () {
         if (pulled !== null) return pulled.remote;
         // Local status holds the Changes totals, which compare against remote refs. A fetch can
         // move them with no local trigger (a push from a terminal, a PR merged on the host), so
-        // re-read local status on the first fetch and whenever divergence moves.
+        // re-read local status on the first fetch, whenever divergence moves, and whenever the PR
+        // base moves (remote status records it as the branch's Changes base).
         if (
           remote &&
           (!previousRemote ||
             previousRemote.aheadCount !== remote.aheadCount ||
             previousRemote.behindCount !== remote.behindCount ||
-            previousRemote.aheadOfDefaultCount !== remote.aheadOfDefaultCount)
+            previousRemote.aheadOfDefaultCount !== remote.aheadOfDefaultCount ||
+            previousRemote.pr?.baseRef !== remote.pr?.baseRef)
         ) {
           yield* refreshLocalStatusCore(cwd);
         }

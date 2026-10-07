@@ -39,6 +39,10 @@ describe("V2 preview upgrade", () => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "ScheduledTaskWebhooks"],
         [58, "WebhookRelayDeliveries"],
+        [59, "ForkQuickActions"],
+        [60, "ForkWorkspaceOperations"],
+        [61, "ForkQuickActionStarters"],
+        [62, "DropForkWorkspaceOperations"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -120,6 +124,10 @@ describe("V2 preview upgrade", () => {
         [56, "RemoveRedundantProjectionIndexes"],
         [57, "ScheduledTaskWebhooks"],
         [58, "WebhookRelayDeliveries"],
+        [59, "ForkQuickActions"],
+        [60, "ForkWorkspaceOperations"],
+        [61, "ForkQuickActionStarters"],
+        [62, "DropForkWorkspaceOperations"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
@@ -138,3 +146,19 @@ describe("V2 preview upgrade", () => {
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });
+
+it.effect("refuses an unknown future schema before applying fork migrations", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* runMigrations({ toMigrationInclusive: 58 });
+    yield* sql`INSERT INTO effect_sql_migrations(migration_id,name) VALUES(999,'FutureBuild')`;
+    assert.ok(Exit.isFailure(yield* Effect.exit(runMigrations())));
+    const tables =
+      yield* sql`SELECT name FROM sqlite_master WHERE type='table' AND name='fork_quick_actions'`;
+    assert.strictEqual(tables.length, 0);
+    assert.strictEqual(
+      (yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id=999`).length,
+      1,
+    );
+  }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+);

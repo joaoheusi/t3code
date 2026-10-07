@@ -1,3 +1,6 @@
+import * as WorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
+import * as WorkspaceApi from "./workspace/WorkspaceApi.ts";
+import * as QuickActions from "./quickActions/QuickActions.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -22,6 +25,8 @@ import { subscribeChatGptHandoff } from "./provider/CodexChatGptHandoff.ts";
 import { subscribeCodexAuthCallback } from "./provider/CodexAuthCallback.ts";
 import {
   DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL,
+  TerminalWorkspaceError,
+  WorkspaceError,
   AcpRegistryOperationError,
   CommandId,
   AuthAccessStreamError,
@@ -1297,6 +1302,9 @@ const layerWsRpc = (
           Effect.ignore,
         ),
       );
+      const quickActions = yield* QuickActions.QuickActions;
+      const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+      const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
@@ -1884,7 +1892,7 @@ const layerWsRpc = (
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetTurnDiffError({
-                    message: "Failed to load turn diff",
+                    message: cause.message,
                     cause,
                   }),
               ),
@@ -1898,7 +1906,7 @@ const layerWsRpc = (
               Effect.mapError(
                 (cause) =>
                   new OrchestrationGetFullThreadDiffError({
-                    message: "Failed to load full thread diff",
+                    message: cause.message,
                     cause,
                   }),
               ),
@@ -2564,6 +2572,15 @@ const layerWsRpc = (
             }),
             { "rpc.aggregate": "server" },
           ),
+        [WS_METHODS.actionContext]: workspaceApi.context,
+        [WS_METHODS.workspaceInspect]: (input) => workspaceRepositories.inspect(input.path),
+        [WS_METHODS.workspaceDiscover]: (input) =>
+          workspaceRepositories.discover(input.root, input.depth),
+        [WS_METHODS.workspaceTerminal]: workspaceApi.terminal,
+        [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
+        [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
+        [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),
+        [WS_METHODS.quickActionsDelete]: (input) => quickActions.remove(input),
         [WS_METHODS.serverGetSettings]: (_input) =>
           observeRpcEffect(
             WS_METHODS.serverGetSettings,
@@ -3335,6 +3352,7 @@ const layerWsRpc = (
                         ? Effect.void
                         : linkCreatedPullRequest({
                             threadId: input.threadId,
+                            cwd: input.cwd,
                             result,
                             commandId: serverCommandId("pr-created-link"),
                           }).pipe(
@@ -3371,8 +3389,9 @@ const layerWsRpc = (
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
           observeRpcEffect(
             WS_METHODS.gitPreparePullRequestThread,
-            gitWorkflow
-              .preparePullRequestThread(input)
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.preparePullRequestThread(input)))
               .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "git" },
           ),
@@ -3389,19 +3408,28 @@ const layerWsRpc = (
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsRemoveWorktree,
-            gitWorkflow.removeWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.removeWorktree(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsCreateRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsCreateRef,
-            gitWorkflow.createRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.createRef(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsSwitchRef,
-            gitWorkflow.switchRef(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+            workspaceApi
+              .assertLegacyMutation(input.cwd)
+              .pipe(Effect.andThen(gitWorkflow.switchRef(input)))
+              .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
             { "rpc.aggregate": "vcs" },
           ),
         [WS_METHODS.vcsInit]: (input) =>
@@ -3423,15 +3451,29 @@ const layerWsRpc = (
             { "rpc.aggregate": "review" },
           ),
         [WS_METHODS.terminalOpen]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalOpen, terminalManager.open(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalOpen,
+            workspaceApi.terminalTarget(input).pipe(
+              Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+              Effect.flatMap((target) => terminalManager.open({ ...input, ...(target ?? {}) })),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalAttach]: (input) =>
           observeRpcStream(
             WS_METHODS.terminalAttach,
             Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
               Effect.acquireRelease(
-                terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
+                workspaceApi.terminalTarget(input).pipe(
+                  Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+                  Effect.flatMap((target) =>
+                    terminalManager.attachStream({ ...input, ...(target ?? {}) }, (event) =>
+                      Queue.offer(queue, event),
+                    ),
+                  ),
+                ),
                 (unsubscribe) => Effect.sync(unsubscribe),
               ),
             ),
@@ -3450,9 +3492,16 @@ const layerWsRpc = (
             "rpc.aggregate": "terminal",
           }),
         [WS_METHODS.terminalRestart]: (input) =>
-          observeRpcEffect(WS_METHODS.terminalRestart, terminalManager.restart(input), {
-            "rpc.aggregate": "terminal",
-          }),
+          observeRpcEffect(
+            WS_METHODS.terminalRestart,
+            workspaceApi.terminalTarget(input).pipe(
+              Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
+              Effect.flatMap((target) => terminalManager.restart({ ...input, ...(target ?? {}) })),
+            ),
+            {
+              "rpc.aggregate": "terminal",
+            },
+          ),
         [WS_METHODS.terminalClose]: (input) =>
           observeRpcEffect(WS_METHODS.terminalClose, terminalManager.close(input), {
             "rpc.aggregate": "terminal",
@@ -3810,6 +3859,9 @@ export const layer = Layer.unwrap(
             { status: 426 },
           );
         }
+        const quickActions = yield* QuickActions.QuickActions;
+        const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+        const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
         const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
         const sessions = yield* SessionStore.SessionStore;
         const analytics = yield* AnalyticsService.AnalyticsService;
@@ -3846,6 +3898,11 @@ export const layer = Layer.unwrap(
               previewAutomationBroker,
               serverBrowser,
             ).pipe(
+              Layer.provide(Layer.succeed(QuickActions.QuickActions, quickActions)),
+              Layer.provide(
+                Layer.succeed(WorkspaceRepositories.WorkspaceRepositories, workspaceRepositories),
+              ),
+              Layer.provide(Layer.succeed(WorkspaceApi.WorkspaceApi, workspaceApi)),
               Layer.provideMerge(RpcSerialization.layerJson),
               Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
               Layer.provide(AgentSessionScanner.layer),

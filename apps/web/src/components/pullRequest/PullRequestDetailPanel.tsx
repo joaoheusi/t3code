@@ -1,8 +1,9 @@
+import { useTaskDestination } from "../../quickActions/useTaskDestination";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
-import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
   type EnvironmentId,
@@ -51,7 +52,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { type DraftId } from "~/composerDraftStore";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { isCommandPaletteOpen } from "~/commandPaletteBus";
@@ -132,8 +133,6 @@ import {
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
   buildResolveConflictsPrompt,
-  handoffPrompt,
-  handoffReviewComments,
   latestPullRequestReviewOutcomes,
   loadingPullRequestCheckoutCommand,
   isPullRequestNotFound,
@@ -154,7 +153,6 @@ import {
   resolvePullRequestMergeMethod,
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
-  stripPullRequestHandoffReferences,
   writePullRequestDetailSnapshot,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
@@ -251,16 +249,6 @@ const TABS: ReadonlyArray<{ value: DetailTab; label: string }> = [
 // Start the download on tab hover or focus, before the click, without loading it for every PR.
 const loadCodeTab = () => import("./PullRequestCodeTab");
 const PullRequestCodeTab = lazy(loadCodeTab);
-
-/**
- * What the last hand-off wrote into each draft, kept outside React because the panel that wrote it
- * is closed by the time the next one opens. It is how a prompt the reader has since edited is told
- * apart from the one they were handed: only the sentence still exactly as written may be replaced.
- */
-const lastHandoffPromptByDraft = new Map<string, string>();
-
-const composerTargetKey = (target: ScopedThreadRef | DraftId): string =>
-  typeof target === "string" ? target : scopedThreadKey(target);
 
 /**
  * Which server the checkout and the hand-offs land on, where more than one of them holds this
@@ -1024,116 +1012,19 @@ export function PullRequestDetailPanel({
     refreshDetail();
   };
 
-  type ThreadTask = {
-    prompt: string;
-    reviewComments?: ReadonlyArray<ReviewCommentContext>;
-  };
+  type ThreadTask = import("./usePullRequestActions").PullRequestThreadTask;
 
-  const attachTarget = composerDraftTarget ?? null;
+  const attachTarget = composerDraftTarget ?? threadRef;
+  const taskDestination = useTaskDestination(
+    actingEnvironmentId,
+    acting?.projectId ?? requestedReference.projectId,
+    attachTarget,
+  );
   const handoffLabels = pullRequestHandoffLabels(attachTarget !== null);
 
-  const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) => {
-    const store = useComposerDraftStore.getState();
-    const draft = store.getComposerDraft(target);
-    const key = composerTargetKey(target);
-    const previousCommentIds = new Set((draft?.reviewComments ?? []).map((comment) => comment.id));
-    const repeatedCommentIds = new Set(
-      (task.reviewComments ?? [])
-        .filter((comment) => previousCommentIds.has(comment.id))
-        .map((comment) => comment.id),
-    );
-    const promptWithoutPreviousHandoff = stripPullRequestHandoffReferences(
-      draft?.prompt ?? "",
-      draft?.reviewComments ?? [],
-      repeatedCommentIds,
-    );
-    const prompt = handoffPrompt(
-      {
-        prompt: promptWithoutPreviousHandoff,
-        lastHandoffPrompt: lastHandoffPromptByDraft.get(key),
-      },
-      task.prompt,
-    );
-    lastHandoffPromptByDraft.set(key, task.prompt);
-    store.setPrompt(target, prompt);
-    store.setReviewComments(
-      target,
-      handoffReviewComments(draft?.reviewComments ?? [], task.reviewComments ?? []),
-    );
-    for (const comment of task.reviewComments ?? []) {
-      if (!repeatedCommentIds.has(comment.id)) continue;
-      store.addReviewComment(target, comment, {
-        allowDuplicateReference: true,
-        insertAtCaret: false,
-      });
-    }
-  };
-
-  /**
-   * Opens a thread on this project and leaves the task in its composer for the reader to send.
-   *
-   * Nothing is checked out: asking a question is not a reason to move somebody's working tree or
-   * to make a worktree they did not ask for. The two hand-offs that do need the code call this
-   * after preparing it, so there is one path from "a task" to "a thread holding it".
-   */
-  const openThreadWithTask = async (
-    projectRef: ReturnType<typeof scopeProjectRef>,
-    task: ThreadTask | null,
-    opened?: { draftId: DraftId },
-  ): Promise<{ draftId: DraftId } | null> => {
-    const session =
-      opened ??
-      (await newThread(projectRef).then(
-        (result) => result,
-        () => null,
-      ));
-    if (session === null) return null;
-    if (task === null) return session;
-    // The latest press is the ask: it takes over what an earlier hand-off left, prompt and chips
-    // both, rather than stacking a second one under the first. What the reader typed themselves
-    // survives — the composer they are handed is not always a fresh one, and a prompt they have
-    // since edited is theirs rather than the hand-off's.
-    writeTaskToComposer(session.draftId, task);
-    return session;
-  };
-
   /** A question about the change, which needs a thread and nothing else. */
-  const startAsk = async (kind: string, task: ThreadTask) => {
-    if (!detail || handoff !== null) return;
-    if (attachTarget !== null) {
-      writeTaskToComposer(attachTarget, task);
-      toastManager.add({
-        type: "success",
-        title: "Added to the composer",
-        description:
-          task.prompt.length > 0
-            ? "The question is in the composer — read it over, then send."
-            : "The pull request is in the composer — type your question, then send.",
-      });
-      return;
-    }
-    setHandoff(kind);
-    const projectRef = scopeProjectRef(actingEnvironmentId, acting?.projectId ?? detail.projectId);
-    const opened = await openThreadWithTask(projectRef, task);
-    setHandoff(null);
-    if (opened === null) {
-      toastManager.add({
-        type: "error",
-        title: "Could not open a thread",
-        description: "Try again from the project, or open a thread first.",
-      });
-      return;
-    }
-    toastManager.add({
-      type: "success",
-      title: "Asked in a thread",
-      // "Ask" leaves the composer empty on purpose, so saying the question is in it would send
-      // the reader looking for something that is not there. The chips are what landed.
-      description:
-        task.prompt.length > 0
-          ? "The question is in the composer — read it over, then send."
-          : "The pull request is in the composer — type your question, then send.",
-    });
+  const startAsk = async (_kind: string, task: ThreadTask) => {
+    if (detail && handoff === null) taskDestination.request(task);
   };
 
   // Every handoff works the same way: check the pull request out into its own worktree, open a
@@ -1146,15 +1037,21 @@ export function PullRequestDetailPanel({
     // the repository itself is what you want when the point is to run the thing where you
     // already work — and it moves the branch under everything else that is open there.
     mode: "worktree" | "local" = "worktree",
+    explicitNew = false,
   ) => {
     if (!handoffSummary || handoff !== null) return;
-    if (attachTarget !== null && task !== null) {
-      writeTaskToComposer(attachTarget, task);
-      toastManager.add({
-        type: "success",
-        title: "Added to the composer",
-        description: "The task is in the composer — read it over, then send.",
-      });
+    if (task !== null) {
+      const context =
+        (kind === "conflicts" || kind === "findings") && detail
+          ? {
+              kind: kind === "conflicts" ? ("conflicts" as const) : ("ci" as const),
+              reference: { ...reference, projectId: acting?.projectId ?? reference.projectId },
+              ...(detail.headSha ? { headSha: detail.headSha } : {}),
+            }
+          : undefined;
+      const prepared = { ...task, ...(context ? { context } : {}) };
+      if (explicitNew) await taskDestination.openNew(prepared);
+      else taskDestination.request(prepared);
       return;
     }
     if (checkoutRoot === null) return;
@@ -1243,33 +1140,20 @@ export function PullRequestDetailPanel({
       description:
         "The checkout could not be moved onto the pull request's latest commits, so the code there is older than the pull request. Uncommitted work or local commits keep it where it is.",
     } as const;
-    if (task === null) {
-      toastManager.update(
-        toastId,
-        prepared.value.isOnPullRequestHead
-          ? {
-              type: "success",
-              title: mode === "local" ? "Checked out here" : "Checked out",
-              description:
-                mode === "local"
-                  ? "This repository is on the pull request's branch, with a thread open on it."
-                  : "The pull request is in its own worktree, with a thread open on it.",
-            }
-          : staleCheckoutToast,
-      );
-      return;
-    }
-    await openThreadWithTask(projectRef, task, opened);
     toastManager.update(
       toastId,
       prepared.value.isOnPullRequestHead
         ? {
             type: "success",
-            title: "Checkout ready",
-            description: "The task is in the composer — read it over, then send.",
+            title: mode === "local" ? "Checked out here" : "Checked out",
+            description:
+              mode === "local"
+                ? "This repository is on the pull request's branch, with a thread open on it."
+                : "The pull request is in its own worktree, with a thread open on it.",
           }
         : staleCheckoutToast,
     );
+    return;
   };
 
   const askAboutPullRequest = () => {
@@ -1341,7 +1225,7 @@ export function PullRequestDetailPanel({
     );
   };
 
-  const startFixFindings = () => {
+  const startFixFindings = (explicitNew = false) => {
     if (!detail) return;
     void startHandoff(
       "findings",
@@ -1356,19 +1240,26 @@ export function PullRequestDetailPanel({
         checks: checksStale ? [] : detail.checks,
         commentsTruncated: detail.commentsTruncated,
       }),
+      "worktree",
+      explicitNew,
     );
   };
 
-  const startResolveConflicts = () => {
+  const startResolveConflicts = (explicitNew = false) => {
     if (!handoffSummary) return;
-    void startHandoff("conflicts", {
-      prompt: buildResolveConflictsPrompt({
-        number: handoffSummary.number,
-        url: handoffSummary.url,
-        headBranch: handoffSummary.headBranch,
-        baseBranch: handoffSummary.baseBranch,
-      }),
-    });
+    void startHandoff(
+      "conflicts",
+      {
+        prompt: buildResolveConflictsPrompt({
+          number: handoffSummary.number,
+          url: handoffSummary.url,
+          headBranch: handoffSummary.headBranch,
+          baseBranch: handoffSummary.baseBranch,
+        }),
+      },
+      "worktree",
+      explicitNew,
+    );
   };
 
   // The host says which strategies it offers at all; the repository narrows that to the ones
@@ -1567,7 +1458,7 @@ export function PullRequestDetailPanel({
               size="xs"
               variant="destructive-outline"
               disabled={handoff !== null || (attachTarget === null && checkoutRoot === null)}
-              onClick={startResolveConflicts}
+              onClick={() => startResolveConflicts()}
               aria-label={handoff === "conflicts" ? "Preparing..." : "Resolve conflicts"}
             >
               <PullRequestGlyph.conflicting aria-hidden className="size-3.5" />
@@ -2003,7 +1894,7 @@ export function PullRequestDetailPanel({
                       <span className="text-xs text-muted-foreground">
                         {attachTarget !== null
                           ? "Adds the pull request to this thread's composer."
-                          : "Opens a thread that knows which pull request you mean."}
+                          : "Choose an existing thread or open a new one."}
                       </span>
                     </span>
                   </MenuItem>
@@ -2016,9 +1907,17 @@ export function PullRequestDetailPanel({
                       </span>
                     </span>
                   </MenuItem>
-                  <MenuItem disabled={handoff !== null} onClick={startFixFindings}>
+                  <MenuItem disabled={handoff !== null} onClick={() => startFixFindings()}>
                     <HammerIcon className="size-3.5" />
                     {handoff === "findings" ? "Preparing..." : handoffLabels.fixFindings}
+                  </MenuItem>
+                  <MenuItem
+                    disabled={handoff !== null}
+                    onClick={() =>
+                      conflicting ? startResolveConflicts(true) : startFixFindings(true)
+                    }
+                  >
+                    Open in new thread
                   </MenuItem>
                   {pickableEnvironments.length > 0 ? (
                     <ActOnEnvironmentPicker

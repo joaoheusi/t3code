@@ -1,4 +1,8 @@
 import type { EnvironmentId, PullRequestLinkedThreadsResult } from "@t3tools/contracts";
+import type {
+  CommandPaletteFolderPick,
+  CommandPaletteView,
+} from "./components/CommandPalette.logic";
 
 export interface CommandPaletteLinkedThreads {
   readonly environmentId: EnvironmentId;
@@ -10,7 +14,13 @@ export interface CommandPaletteLinkedThreads {
 const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
 export interface CommandPaletteOpenDetail {
-  readonly open?: "add-project" | "new-thread-in";
+  readonly open?: "add-project" | "new-thread-in" | "quick-actions";
+  /** With `open: "quick-actions"`, jump straight to this action's targets. */
+  readonly actionId?: string;
+  /** A one-off choice another surface needs, such as which thread receives a task. */
+  readonly view?: CommandPaletteView;
+  /** Browse folders on an environment and hand the chosen path back. */
+  readonly pickFolder?: CommandPaletteFolderPick;
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }

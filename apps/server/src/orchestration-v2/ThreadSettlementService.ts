@@ -140,7 +140,12 @@ export function isAutoSettlementCandidate(
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
-  if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
+  if (
+    thread.pinnedAt != null ||
+    thread.autoSettleDisabledAt != null ||
+    (thread.workspace?.bindings.length ?? 0) > 1
+  )
+    return false;
   // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   // A live run, or background work that will wake the agent, is not

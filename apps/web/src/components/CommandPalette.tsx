@@ -64,7 +64,15 @@ import {
   SquarePenIcon,
   SunIcon,
   TextSearchIcon,
+  ZapIcon,
 } from "lucide-react";
+import type { ComposerThreadTarget } from "../composerDraftStore";
+import type { QuickActionScope } from "../quickActions/quickActionRunner";
+import {
+  NEW_QUICK_ACTION_HASH,
+  isQuickActionsView,
+  useQuickActionPalette,
+} from "../quickActions/useQuickActionPalette";
 import {
   useCallback,
   useDeferredValue,
@@ -162,6 +170,7 @@ import {
   enumerateCommandPaletteItems,
   findHighlightedCommandPaletteItem,
   type CommandPaletteActionItem,
+  type CommandPaletteFolderPick,
   type CommandPaletteOpenIntent,
   type CommandPaletteSubmenuItem,
   type CommandPaletteView,
@@ -565,6 +574,14 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         void navigate({ to: "/usage" });
         return;
       }
+      if (command === "quickActions.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (state.open) setOpen(false);
+        else dispatch({ _tag: "OpenQuickActions" });
+        return;
+      }
       const mode = overlayModeForCommand(command);
       if (mode === null) {
         return;
@@ -583,6 +600,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
     resolvedTheme,
     setAppearanceMode,
     setOpen,
+    state.open,
     terminalOpen,
     theme,
     themeHalves,
@@ -594,6 +612,15 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.view) {
+          dispatch({ _tag: "OpenView", view: detail.view });
+        } else if (detail.pickFolder) {
+          dispatch({ _tag: "PickFolder", request: detail.pickFolder });
+        } else if (detail.open === "quick-actions") {
+          dispatch({
+            _tag: "OpenQuickActions",
+            ...(detail.actionId ? { actionId: detail.actionId } : {}),
+          });
         } else if (detail.open === "add-project") {
           openAddProject();
         } else if (detail.query !== undefined) {
@@ -737,8 +764,40 @@ function OpenCommandPaletteDialog(props: {
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const availableSettingsSearchItems = useAvailableSettingsSearchItems();
-  const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
-    useHandleNewThread();
+  const {
+    activeDraftThread,
+    activeThread,
+    defaultProjectRef,
+    handleNewThread,
+    routeDraftId,
+    routeThreadRef,
+  } = useHandleNewThread();
+  // Quick actions insert into the composer this palette was opened over.
+  const quickActionTarget: ComposerThreadTarget | null = routeThreadRef ?? routeDraftId;
+  const quickActionEnvironmentId =
+    routeThreadRef?.environmentId ?? activeDraftThread?.environmentId ?? null;
+  const quickActionProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+  const quickActionScope = useMemo<QuickActionScope | null>(
+    () =>
+      quickActionEnvironmentId
+        ? {
+            environmentId: quickActionEnvironmentId,
+            projectId: quickActionProjectId,
+            thread: activeThread ?? null,
+          }
+        : null,
+    [activeThread, quickActionEnvironmentId, quickActionProjectId],
+  );
+  const quickActions = useQuickActionPalette({
+    target: quickActionTarget,
+    scope: quickActionScope,
+    onManage: async () => {
+      await navigate({ to: "/settings/quick-actions" });
+    },
+    onCreate: async () => {
+      await navigate({ to: "/settings/quick-actions", hash: NEW_QUICK_ACTION_HASH });
+    },
+  });
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -835,6 +894,9 @@ function OpenCommandPaletteDialog(props: {
   }, [environments, primaryEnvironmentId, providers]);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
+  const [selectedItemValues, setSelectedItemValues] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const environmentIds = useMemo(
     () =>
       environments
@@ -867,6 +929,8 @@ function OpenCommandPaletteDialog(props: {
     null,
   );
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
+  // Set while another surface borrows the folder browser; its submit returns the path.
+  const [folderPick, setFolderPick] = useState<CommandPaletteFolderPick | null>(null);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
   // The name step of New project: while set, the palette input is the name.
   const [newProjectFlow, setNewProjectFlow] = useState<{
@@ -1470,11 +1534,13 @@ function OpenCommandPaletteDialog(props: {
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
       browseNavigation.invalidate();
+      setSelectedItemValues(new Set());
       setViewStack((previousViews) => [
         ...previousViews,
         {
           addonIcon: view.addonIcon,
           groups: view.groups,
+          ...(view.multiSelect ? { multiSelect: view.multiSelect } : {}),
           ...(view.initialQuery ? { initialQuery: view.initialQuery } : {}),
         },
       ]);
@@ -1489,16 +1555,19 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView({
       addonIcon: item.addonIcon,
       groups: item.groups,
+      ...(item.multiSelect ? { multiSelect: item.multiSelect } : {}),
       ...(item.initialQuery ? { initialQuery: item.initialQuery } : {}),
     });
   }
 
   function popView(): void {
+    setSelectedItemValues(new Set());
     browseNavigation.invalidate();
     setAddProjectCloneFlow(null);
     setNewProjectFlow(null);
     if (viewStack.length <= 1) {
       setAddProjectEnvironmentId(null);
+      setFolderPick(null);
     } else if (newProjectFlow?.sourcesEnvironmentId) {
       // The machine switcher may have moved off the sources view's machine.
       setAddProjectEnvironmentId(newProjectFlow.sourcesEnvironmentId);
@@ -1518,8 +1587,10 @@ function OpenCommandPaletteDialog(props: {
   }
 
   const startAddProjectBrowse = useCallback(
-    async (environmentId: EnvironmentId): Promise<void> => {
-      const initialQuery = getAddProjectInitialQueryForEnvironment(environmentId);
+    async (environmentId: EnvironmentId, initialPath?: string): Promise<void> => {
+      const initialQuery = initialPath
+        ? ensureBrowseDirectoryPath(initialPath)
+        : getAddProjectInitialQueryForEnvironment(environmentId);
       const initialBrowsePath = getBrowseDirectoryPath(initialQuery);
       const browseCwd = getBrowseCwdForEnvironment(environmentId);
       const view: CommandPaletteView = {
@@ -1839,6 +1910,46 @@ function OpenCommandPaletteDialog(props: {
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
   useLayoutEffect(() => {
+    if (openIntent?.kind !== "pick-folder") return;
+    clearOpenIntent();
+    setViewStack([]);
+    setAddProjectCloneFlow(null);
+    setNewProjectFlow(null);
+    setFolderPick(openIntent.request);
+    void startAddProjectBrowse(openIntent.request.environmentId, openIntent.request.initialPath);
+  }, [clearOpenIntent, openIntent, startAddProjectBrowse]);
+
+  useLayoutEffect(() => {
+    if (openIntent?.kind !== "view") return;
+    clearOpenIntent();
+    browseNavigation.invalidate();
+    setAddProjectCloneFlow(null);
+    setNewProjectFlow(null);
+    setViewStack([]);
+    setQuery("");
+    pushPaletteView(openIntent.view);
+  }, [browseNavigation, clearOpenIntent, openIntent, pushPaletteView]);
+
+  useLayoutEffect(() => {
+    if (openIntent?.kind !== "quick-actions") return;
+    // A shortcut's action can only open its submenu once the library has loaded.
+    if (openIntent.actionId && quickActions.isPending) return;
+    clearOpenIntent();
+    browseNavigation.invalidate();
+    setAddProjectCloneFlow(null);
+    setNewProjectFlow(null);
+    setViewStack([]);
+    setQuery("");
+    pushPaletteView({
+      addonIcon: <ZapIcon className={ADDON_ICON_CLASS} />,
+      groups: quickActions.groups,
+    });
+    // A direct shortcut whose action has several targets lands on its choices.
+    const item = openIntent.actionId ? quickActions.findItem(openIntent.actionId) : undefined;
+    if (item?.kind === "submenu") pushView(item);
+  }, [browseNavigation, clearOpenIntent, openIntent, pushPaletteView, quickActions]);
+
+  useLayoutEffect(() => {
     if (openIntent?.kind !== "new-thread-in" || projectThreadItems.length === 0) {
       return;
     }
@@ -1916,6 +2027,20 @@ function OpenCommandPaletteDialog(props: {
       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
       addonIcon: <SquarePenIcon className={ADDON_ICON_CLASS} />,
       groups: [{ value: "projects", label: "Projects", items: projectThreadItems }],
+    });
+  }
+
+  if (quickActions.supported && quickActionTarget !== null) {
+    actionItems.push({
+      kind: "submenu",
+      value: "action:quick-actions",
+      searchTerms: ["quick actions", "prompt", "template", "snippet", "insert"],
+      title: "Quick actions",
+      description: "Insert a saved instruction into this thread",
+      icon: <ZapIcon className={ITEM_ICON_CLASS} />,
+      addonIcon: <ZapIcon className={ADDON_ICON_CLASS} />,
+      shortcutCommand: "quickActions.toggle",
+      groups: quickActions.groups,
     });
   }
 
@@ -2323,11 +2448,13 @@ function OpenCommandPaletteDialog(props: {
           addProjectEnvironmentId,
           buildAddProjectRemoteSourceReadiness(sourceControlDiscovery.data),
         )
-      : currentView?.groups[0]?.value === "themes"
-        ? changeThemeItem.groups
-        : currentView?.groups[0]?.value === "appearance"
-          ? changeAppearanceItem.groups
-          : (currentView?.groups ?? rootGroups);
+      : currentView !== null && isQuickActionsView(currentView.groups)
+        ? quickActions.groups
+        : currentView?.groups[0]?.value === "themes"
+          ? changeThemeItem.groups
+          : currentView?.groups[0]?.value === "appearance"
+            ? changeAppearanceItem.groups
+            : (currentView?.groups ?? rootGroups);
 
   const filteredGroups = filterCommandPaletteGroups({
     activeGroups,
@@ -2335,6 +2462,7 @@ function OpenCommandPaletteDialog(props: {
     isInSubmenu: currentView !== null,
     projectSearchItems: projectSearchItems,
     settingsSearchItems,
+    ...(quickActionTarget !== null ? { quickActionSearchItems: quickActions.searchItems } : {}),
     threadSearchItems:
       linkedThreadSearch?.linkedThreads && deferredQuery === linkedThreadSearch.query
         ? buildLinkedThreadActionItems({
@@ -2397,6 +2525,11 @@ function OpenCommandPaletteDialog(props: {
 
       const cwd = resolveProjectPathForDispatch(rawCwd, input.currentProjectCwd);
       if (cwd.length === 0) return;
+      if (folderPick) {
+        setOpen(false);
+        folderPick.onPick(cwd);
+        return;
+      }
 
       const existing = findProjectByPath(
         projects.filter((project) => project.environmentId === input.environmentId),
@@ -2480,6 +2613,7 @@ function OpenCommandPaletteDialog(props: {
       handleNewThread,
       createProject,
       environments,
+      folderPick,
       navigate,
       primaryEnvironmentId,
       projects,
@@ -2954,6 +3088,39 @@ function OpenCommandPaletteDialog(props: {
   } else if (isBrowsing) {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
+  const multiSelect = currentView?.multiSelect;
+  const selectableItems = multiSelect
+    ? activeGroups.flatMap((group) => group.items).filter((item) => !item.disabled)
+    : [];
+  const selectedValues = selectableItems
+    .filter((item) => selectedItemValues.has(item.value))
+    .map((item) => item.value);
+  if (multiSelect) {
+    displayedGroups = displayedGroups.map((group) => ({
+      ...group,
+      items: group.items.map((item) => ({ ...item, checked: selectedItemValues.has(item.value) })),
+    }));
+  }
+  const visibleSelectableValues = multiSelect
+    ? displayedGroups
+        .flatMap((group) => group.items)
+        .filter((item) => !item.disabled)
+        .map((item) => item.value)
+    : [];
+  const allVisibleSelected =
+    visibleSelectableValues.length > 0 &&
+    visibleSelectableValues.every((value) => selectedItemValues.has(value));
+  function submitSelectedItems() {
+    if (!multiSelect || selectedValues.length === 0) return;
+    if (!multiSelect.keepOpen) setOpen(false);
+    void multiSelect.run(selectedValues).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to run command",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    });
+  }
   const resultRows = buildCommandPaletteRows(displayedGroups);
   const autoHighlightsFirstRow =
     !isBrowsing && !isRemoteProjectCloneFlow && newProjectFlow === null;
@@ -2978,13 +3145,15 @@ function OpenCommandPaletteDialog(props: {
   const useMetaForMod = isMacPlatform(navigator.platform);
   const submitModifierLabel = useMetaForMod ? "\u2318" : "Ctrl";
   const isCloneDestinationStep = addProjectCloneFlow?.step === "confirm";
-  const submitActionLabel = isCloneDestinationStep
-    ? willCreateProjectPath
-      ? "Create & Clone"
-      : "Clone"
-    : willCreateProjectPath
-      ? "Create & Add"
-      : "Add";
+  const submitActionLabel = folderPick
+    ? folderPick.submitLabel
+    : isCloneDestinationStep
+      ? willCreateProjectPath
+        ? "Create & Clone"
+        : "Clone"
+      : willCreateProjectPath
+        ? "Create & Add"
+        : "Add";
   const addShortcutLabel = hasHighlightedBrowseItem ? `${submitModifierLabel} Enter` : "Enter";
   const remoteProjectButtonLabel = addProjectCloneFlow
     ? addProjectCloneFlow.source === "url"
@@ -3039,6 +3208,19 @@ function OpenCommandPaletteDialog(props: {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (
+      multiSelect &&
+      event.key === "Enter" &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      (event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+      event.preventDefault();
+      event.stopPropagation();
+      submitSelectedItems();
+      return;
+    }
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
       context: { modelPickerOpen: false },
@@ -3144,6 +3326,16 @@ function OpenCommandPaletteDialog(props: {
 
   function executeItem(item: CommandPaletteActionItem | CommandPaletteSubmenuItem): void {
     if (item.disabled) {
+      return;
+    }
+
+    if (multiSelect) {
+      setSelectedItemValues((previous) => {
+        const next = new Set(previous);
+        if (next.has(item.value)) next.delete(item.value);
+        else next.add(item.value);
+        return next;
+      });
       return;
     }
 
@@ -3406,7 +3598,7 @@ function OpenCommandPaletteDialog(props: {
       key={`${viewStack.length}-${browseGeneration}-${isBrowsing}-${newProjectFlow ? "new-project" : (addProjectCloneFlow?.step ?? "none")}`}
       aria-label="Command palette"
       autoHighlight={autoHighlightsFirstRow ? "always" : false}
-      footerActionLabel={footerActionLabel}
+      footerActionLabel={multiSelect ? "Toggle" : footerActionLabel}
       footerTrailing={footerTrailing}
       inputAccessory={inputAccessory}
       inputProps={{
@@ -3486,6 +3678,32 @@ function OpenCommandPaletteDialog(props: {
               </span>
             </span>
           </div>
+        </div>
+      ) : null}
+      {multiSelect ? (
+        <div className="flex items-center justify-between gap-2 px-4 py-2">
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={visibleSelectableValues.length === 0}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setSelectedItemValues((previous) => {
+                const next = new Set(previous);
+                for (const value of visibleSelectableValues) {
+                  if (allVisibleSelected) next.delete(value);
+                  else next.add(value);
+                }
+                return next;
+              });
+            }}
+          >
+            {allVisibleSelected ? "Deselect all" : "Select all"}
+          </Button>
+          <Button size="xs" disabled={selectedValues.length === 0} onClick={submitSelectedItems}>
+            {multiSelect.actionLabel} ({selectedValues.length})
+            <Kbd>{submitModifierLabel} Enter</Kbd>
+          </Button>
         </div>
       ) : null}
       <CommandPaletteVirtualizedResults

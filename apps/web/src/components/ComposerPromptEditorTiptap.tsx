@@ -1,3 +1,4 @@
+import { runAtomicEditorEdit } from "~/composer-undo-grouping";
 import { Extension, Node, wrappingInputRule, type JSONContent } from "@tiptap/core";
 import { TaskList } from "@tiptap/extension-task-list";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
@@ -90,6 +91,7 @@ export interface ComposerPromptEditorHandle {
   focus: () => void;
   focusAt: (cursor: number) => void;
   focusAtEnd: () => void;
+  beginAtomicEdit?: (active?: boolean) => void;
   readSelectionRange: () => { start: number; end: number };
   requestCitationComment: (request: ComposerCitationCommentRequest) => void;
   readSnapshot: () => {
@@ -700,6 +702,7 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
   const selectionRangeRef = useRef({ start: initialExpandedCursor, end: initialExpandedCursor });
   const isApplyingControlledUpdateRef = useRef(false);
   const hasAppliedControlledSelectionRef = useRef(false);
+  const atomicExternalEditRef = useRef(false);
   const citationRequestRef = useRef<ComposerCitationCommentRequest | null>(null);
   const [openCitation, setOpenCitation] = useState<OpenCitationComment | null>(null);
   const [isEmpty, setIsEmpty] = useState(value.length === 0);
@@ -1174,9 +1177,13 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
     const pendingCitation =
       citationRequestRef.current?.value === value ? citationRequestRef.current : null;
     if (previousSnapshot.value !== value) {
-      editor.commands.setContent(buildDocJson(value, skillLabelFor, { styling: richText }), {
-        emitUpdate: false,
-      });
+      const update = () =>
+        editor.commands.setContent(buildDocJson(value, skillLabelFor, { styling: richText }), {
+          emitUpdate: false,
+        });
+      if (atomicExternalEditRef.current) runAtomicEditorEdit(editor.view, update);
+      else update();
+      atomicExternalEditRef.current = false;
     }
     const map = serializeEditorDoc(editor.state.doc);
     const flat = collapsedToFlat(map, normalizedCursor);
@@ -1256,6 +1263,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
             snapshotRef.current.value.length,
           ),
         );
+      },
+      beginAtomicEdit: (active = true) => {
+        atomicExternalEditRef.current = active;
       },
       readSelectionRange: () => {
         readSnapshot();

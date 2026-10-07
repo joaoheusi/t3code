@@ -1051,6 +1051,71 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
+  it.effect("an open PR's base becomes the branch's Changes base", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "release/oct-12"]);
+      yield* runGit(repoDir, ["checkout", "-b", "fix/hand-made"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "main", "release/oct-12", "fix/hand-made"]);
+
+      const pr = {
+        number: 1090,
+        title: "Hand-made branch",
+        url: "https://github.com/pingdotgg/codething-mvp/pull/1090",
+        baseRefName: "release/oct-12",
+        headRefName: "fix/hand-made",
+        state: "OPEN",
+      };
+      const { manager } = yield* makeManager({
+        ghScenario: { prListSequence: [JSON.stringify([pr])] },
+      });
+
+      expect(yield* manager.localStatus({ cwd: repoDir })).toMatchObject({
+        branchChanges: { baseRef: "origin/main" },
+      });
+      yield* manager.remoteStatus({ cwd: repoDir }, { refreshUpstream: false });
+      expect(
+        yield* runGit(repoDir, ["config", "--get", "branch.fix/hand-made.gh-merge-base"]),
+      ).toMatchObject({ stdout: "release/oct-12\n" });
+      yield* manager.invalidateLocalStatus(repoDir);
+      expect(yield* manager.localStatus({ cwd: repoDir })).toMatchObject({
+        branchChanges: { baseRef: "origin/release/oct-12" },
+      });
+    }),
+  );
+
+  it.effect("a merged PR leaves the branch's Changes base alone", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, ["checkout", "-b", "fix/merged"]);
+      const remoteDir = yield* createBareRemote();
+      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+      yield* runGit(repoDir, ["push", "-u", "origin", "fix/merged"]);
+
+      const pr = {
+        number: 1091,
+        title: "Merged branch",
+        url: "https://github.com/pingdotgg/codething-mvp/pull/1091",
+        baseRefName: "release/old",
+        headRefName: "fix/merged",
+        state: "MERGED",
+      };
+      const { manager } = yield* makeManager({
+        ghScenario: { prListSequence: [JSON.stringify([pr])] },
+      });
+
+      const remote = yield* manager.remoteStatus({ cwd: repoDir }, { refreshUpstream: false });
+      expect(remote?.pr?.state).toBe("merged");
+      expect(
+        yield* runGit(repoDir, ["config", "--get", "branch.fix/merged.gh-merge-base"], true),
+      ).toMatchObject({ stdout: "" });
+    }),
+  );
+
   it.effect("a warm PR cache does not reread repository identity for status", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");

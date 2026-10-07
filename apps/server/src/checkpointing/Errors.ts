@@ -82,9 +82,19 @@ export class CheckpointRefUnavailableError extends Schema.TaggedError<Checkpoint
   }
 }
 
+export class MultiRepositoryCheckpointError extends Schema.TaggedError<MultiRepositoryCheckpointError>()(
+  "MultiRepositoryCheckpointError",
+  { threadId: ThreadId },
+) {
+  override get message() {
+    return "Whole-turn and whole-thread file diffs are unavailable for multi-repository workspaces. Use Repositories to inspect each binding. File restore is disabled; conversation-only rollback remains available.";
+  }
+}
+
 export type CheckpointStoreError = VcsError;
 
 export type CheckpointServiceError =
+  | MultiRepositoryCheckpointError
   | CheckpointStoreError
   | ProjectionRepositoryError
   | CheckpointDiffResultInvalidError

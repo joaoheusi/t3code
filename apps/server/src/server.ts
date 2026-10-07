@@ -1,3 +1,8 @@
+import * as ForkThreadCommandExecutor from "./orchestration-v2/ThreadCommandExecutor.ts";
+import * as ForkWorkspaceRepositories from "./workspace/WorkspaceRepositories.ts";
+import * as ForkWorkspaceApi from "./workspace/WorkspaceApi.ts";
+import * as ForkWorkspaceRepositorySync from "./workspace/WorkspaceRepositorySync.ts";
+import * as QuickActions from "./quickActions/QuickActions.ts";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
 import * as Random from "effect/Random";
@@ -491,6 +496,10 @@ const layerThreadPullRequestWorker = Layer.effectDiscard(
   ThreadPullRequestService.make.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerPullRequestService));
 
+const layerForkRepositorySyncWorker = Layer.effectDiscard(
+  ForkWorkspaceRepositorySync.make.pipe(Effect.flatMap((service) => service.start())),
+);
+
 const layerProviderInstallationRefresh = Layer.effectDiscard(
   Effect.gen(function* () {
     const antigravity = yield* AntigravityInstallation.AntigravityInstallation;
@@ -532,6 +541,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ProjectionStoreV2.layer),
   ),
   layerThreadPullRequestWorker,
+  layerForkRepositorySyncWorker,
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -559,6 +569,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ReplayMarkers.layer,
 ).pipe(
   // Core Services
+  Layer.provideMerge(ForkWorkspaceApi.layer.pipe(Layer.provide(layerPullRequestService))),
+  Layer.provideMerge(ForkThreadCommandExecutor.layer),
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
   Layer.provideMerge(Layer.merge(ProjectStore.layer, ThreadSearch.layer)),
@@ -573,7 +585,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // Both read a user-owned file out of the state directory and stream changes
   // to clients; neither depends on the other.
   Layer.provideMerge(
-    Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
+    Layer.mergeAll(
+      Keybindings.layer,
+      EnvironmentTheme.layer,
+      UsageLimitSources.layer,
+      QuickActions.layer.pipe(Layer.provide(layerPersistence)),
+    ),
   ),
   Layer.provideMerge(ProviderRegistry.layer),
   // The instance registry is the new routing keystone — text generation,
@@ -613,6 +630,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   // keeps a single Live for all opencode consumers.
   Layer.provideMerge(OpenCodeRuntime.layer.pipe(Layer.provide(OpenCodeServerLedger.layer))),
   Layer.provideMerge(layerWorkspace),
+  Layer.provideMerge(ForkWorkspaceRepositories.layer),
   Layer.provideMerge(ProjectEnrichmentService.layer),
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, layerProjectFaviconResolver)),
   Layer.provideMerge(layerRepositoryIdentityResolver),
@@ -671,7 +689,7 @@ const layerMakeRoutes = Layer.mergeAll(
     DeviceHubProxy.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
-    Ws.layer,
+    Ws.layer.pipe(Layer.provide(QuickActions.layer), Layer.provide(ForkWorkspaceApi.layer)),
   ),
   // The MCP session registry is provided globally (shared with V2 provider
   // sessions) rather than inline here. The orchestrator toolkit resolves

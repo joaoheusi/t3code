@@ -323,7 +323,10 @@ export function commandLabel(command: KeybindingCommand): string {
   const usagePeriod = WINDOW_OPTIONS.find((option) => option.command === command);
   if (usagePeriod) return `Usage: Period: ${usagePeriod.label}`;
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
+  if (command === "quickActions.toggle") return "Quick Actions: Open";
   const raw = String(command);
+  if (raw.startsWith("quickAction.") && raw.endsWith(".insert"))
+    return "Quick Actions: Insert Action";
   if (raw.startsWith("script.") && raw.endsWith(".run")) {
     return `Run Script: ${titleCaseCommandSegment(raw.slice("script.".length, -".run".length))}`;
   }

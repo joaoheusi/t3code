@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  CommandId,
   type ModelSelection,
   type OrchestrationV2AppThread,
   ProjectId,
@@ -152,5 +153,41 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       // A provider that advertises no restriction runs every mode as stored.
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
     }),
+  );
+});
+
+it("starts folder threads in their folder and grants only checkouts outside it", () => {
+  const binding = (id: string, checkoutPath: string) => ({
+    id,
+    label: id,
+    sourcePath: checkoutPath,
+    mode: "current" as const,
+    commonDir: `${checkoutPath}/.git`,
+    checkoutPath,
+    branch: "main",
+    head: "abc",
+    baseCommit: "abc",
+    state: "ready" as const,
+    owned: false,
+    error: null,
+  });
+  const workspace = {
+    schemaVersion: 1 as const,
+    revision: 1,
+    operationId: CommandId.make("op"),
+    state: "ready" as const,
+    primaryBindingId: "web",
+    bindings: [binding("web", "/org/web"), binding("api", "/org/api"), binding("x", "/org-x")],
+  };
+  assert.deepStrictEqual(RuntimePolicy.workspaceDirectories(workspace), {
+    cwd: "/org/web",
+    additionalDirectories: ["/org/api", "/org-x"],
+  });
+  assert.deepStrictEqual(
+    RuntimePolicy.workspaceDirectories({
+      ...workspace,
+      root: { sourcePath: "/org", mode: "current", checkoutPath: "/org" },
+    }),
+    { cwd: "/org", additionalDirectories: ["/org-x"] },
   );
 });

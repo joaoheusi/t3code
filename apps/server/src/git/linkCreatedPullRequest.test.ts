@@ -153,6 +153,7 @@ describe("linkCreatedPullRequest", () => {
       const { commands, dispatch } = yield* recordingDispatch();
       yield* linkCreatedPullRequest({
         threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
         result: prResult({
           status: "created",
           number: 42,
@@ -176,17 +177,73 @@ describe("linkCreatedPullRequest", () => {
     }),
   );
 
+  it.effect("links the pull request under the repository whose checkout the action ran in", () =>
+    Effect.gen(function* () {
+      const { commands, dispatch } = yield* recordingDispatch();
+      const binding = (id: string, checkoutPath: string) => ({
+        id,
+        label: id,
+        sourcePath: `/source/${id}`,
+        mode: "new-worktree" as const,
+        commonDir: `/source/${id}/.git`,
+        checkoutPath,
+        branch: `t3/${id}`,
+        head: "abc",
+        baseCommit: "abc",
+        state: "ready" as const,
+        owned: true,
+        error: null,
+      });
+      const layerDependencies = Layer.mergeAll(
+        Layer.mock(ProjectService.ProjectService)({
+          getShell: () => Effect.succeedSome(project),
+        }),
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadShell: () =>
+            Effect.succeed({
+              ...v2PullRequestThread(thread),
+              workspace: {
+                schemaVersion: 1 as const,
+                revision: 1,
+                operationId: CommandId.make("workspace-operation"),
+                state: "ready" as const,
+                primaryBindingId: "web",
+                bindings: [binding("web", "/worktrees/web"), binding("api", "/worktrees/api")],
+              },
+            }),
+          dispatch,
+        }),
+      );
+      yield* linkCreatedPullRequest({
+        threadId: THREAD_ID,
+        cwd: "/worktrees/api",
+        result: prResult({
+          status: "created",
+          number: 9,
+          url: "https://github.com/t3tools/api/pull/9",
+        }),
+        commandId,
+      }).pipe(Effect.provide(layerDependencies));
+
+      expect(yield* Ref.get(commands)).toMatchObject([
+        { type: "thread.pull-request.link", number: 9, bindingId: "api" },
+      ]);
+    }),
+  );
+
   it.effect("dispatches nothing when the action produced no pull request", () =>
     Effect.gen(function* () {
       const { commands, dispatch } = yield* recordingDispatch();
       const layerDependencies = layerDependenciesFor(dispatch);
       yield* linkCreatedPullRequest({
         threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
         result: prResult({ status: "skipped_not_requested" }),
         commandId,
       }).pipe(Effect.provide(layerDependencies));
       yield* linkCreatedPullRequest({
         threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
         result: prResult({ status: "created", url: "https://github.com/t3tools/t3code/pull/42" }),
         commandId,
       }).pipe(Effect.provide(layerDependencies));
@@ -210,14 +267,25 @@ describe("linkCreatedPullRequest", () => {
         number: 7,
         url: "https://github.com/t3tools/t3code/pull/7",
       });
-      yield* linkCreatedPullRequest({ threadId: THREAD_ID, result, commandId }).pipe(
-        Effect.provide(layerDependenciesFor(rejecting)),
-      );
-      yield* linkCreatedPullRequest({ threadId: THREAD_ID, result, commandId }).pipe(
-        Effect.provide(layerDependenciesFor(() => Effect.die(new Error("engine down")))),
-      );
+      yield* linkCreatedPullRequest({
+        threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
+        result,
+        commandId,
+      }).pipe(Effect.provide(layerDependenciesFor(rejecting)));
+      yield* linkCreatedPullRequest({
+        threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
+        result,
+        commandId,
+      }).pipe(Effect.provide(layerDependenciesFor(() => Effect.die(new Error("engine down")))));
       // A thread that vanished between the action and the link is not an error either.
-      yield* linkCreatedPullRequest({ threadId: THREAD_ID, result, commandId }).pipe(
+      yield* linkCreatedPullRequest({
+        threadId: THREAD_ID,
+        cwd: project.workspaceRoot,
+        result,
+        commandId,
+      }).pipe(
         Effect.provide(layerDependenciesFor(() => Effect.die(new Error("unreachable")), null)),
       );
     }),

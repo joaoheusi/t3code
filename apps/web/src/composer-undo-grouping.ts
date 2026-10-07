@@ -62,3 +62,16 @@ export function groupUndoByChangeKind(
   if (previous !== null && (kind !== previous || kind === "other")) closeHistory(tr);
   return kind;
 }
+
+/** Surround a controlled rewrite so one Undo removes only that insertion. */
+export function runAtomicEditorEdit(
+  view: {
+    readonly state: import("@tiptap/pm/state").EditorState;
+    dispatch: (transaction: Transaction) => void;
+  },
+  update: () => void,
+) {
+  view.dispatch(closeHistory(view.state.tr));
+  update();
+  view.dispatch(closeHistory(view.state.tr));
+}

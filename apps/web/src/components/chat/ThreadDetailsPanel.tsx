@@ -1,9 +1,9 @@
-import type {
-  EditorId,
-  EnvironmentId,
-  ProjectScript,
-  ResolvedKeybindingsConfig,
-  ThreadId,
+import {
+  type EditorId,
+  type EnvironmentId,
+  type ProjectScript,
+  type ResolvedKeybindingsConfig,
+  type ThreadId,
 } from "@t3tools/contracts";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 
@@ -28,6 +28,13 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  RepositoryBranchRow,
+  RepositoryPullRequestRows,
+  ThreadRepositoriesSection,
+  useActiveRepository,
+} from "../../workspace/ThreadRepositoriesSection";
 
 interface VersionMismatchIssue {
   readonly clientVersion: string;
@@ -78,6 +85,10 @@ export interface ThreadDetailsPanelProps extends Pick<
 }
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+  const threadRef = scopeThreadRef(props.environmentId, props.threadId);
+  // A multi-repository thread lists its repositories, and Git acts on the one picked there.
+  const activeRepository = useActiveRepository(props.draftId ? null : threadRef);
+  const gitCwd = activeRepository?.checkoutPath ?? props.gitCwd;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
     props.activeProjectScripts ? props.gitCwd : null,
@@ -164,7 +175,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 />
               ) : null}
 
-              {density === "full" ? (
+              {density === "full" && !activeRepository ? (
                 <BranchToolbar layout="panel" panelSection="workspace" {...branchToolbarProps} />
               ) : null}
 
@@ -173,7 +184,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   environmentId={props.environmentId}
                   keybindings={props.keybindings}
                   availableEditors={props.availableEditors}
-                  openInCwd={props.gitCwd}
+                  openInCwd={gitCwd}
                   displayMode="panel"
                 />
               ) : null}
@@ -194,7 +205,15 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             </div>
           </ThreadDetailsSection>
 
-          {props.gitCwd ? (
+          {activeRepository ? (
+            <ThreadRepositoriesSection
+              environmentId={props.environmentId}
+              threadId={props.threadId}
+              threadRef={threadRef}
+            />
+          ) : null}
+
+          {gitCwd ? (
             <ThreadDetailsSection
               headingId="thread-details-version-control-heading"
               title="Version Control"
@@ -202,14 +221,29 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               separated={density === "full"}
             >
               <div className="flex flex-col">
-                {props.isGitRepo ? (
+                {/* Each repository shows its own branch and pull requests. The server refuses
+                    branch moves on a repository set, so none of them offers the branch picker. */}
+                {activeRepository ? (
+                  <>
+                    <RepositoryBranchRow
+                      environmentId={props.environmentId}
+                      binding={activeRepository}
+                    />
+                    <RepositoryPullRequestRows
+                      environmentId={props.environmentId}
+                      threadRef={threadRef}
+                      binding={activeRepository}
+                    />
+                  </>
+                ) : props.isGitRepo ? (
                   <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
                 ) : null}
                 {props.activeProjectName ? (
                   <GitActionsControl
+                    key={gitCwd}
                     displayMode="panel"
                     compact={density !== "full"}
-                    gitCwd={props.gitCwd}
+                    gitCwd={gitCwd}
                     activeThreadRef={{
                       environmentId: props.environmentId,
                       threadId: props.threadId,
