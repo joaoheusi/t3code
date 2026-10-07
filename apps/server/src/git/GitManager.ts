@@ -1300,6 +1300,26 @@ export const make = Effect.gen(function* () {
       ),
     );
   });
+  // Branches created outside T3 have no recorded base, so Changes would compare with the default
+  // branch. An open PR's base is authoritative, so it overwrites the recorded base (a retargeted PR
+  // must follow), unlike pushCurrentBranch, which only fills an empty base from the upstream guess.
+  const recordPullRequestBase = (cwd: string, branch: string, baseBranch: string) => {
+    const key = `branch.${branch}.gh-merge-base`;
+    return gitCore.readConfigValue(cwd, key).pipe(
+      Effect.flatMap((recorded) =>
+        recorded === baseBranch ? Effect.void : gitCore.writeConfigValue(cwd, key, baseBranch),
+      ),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not record the pull request base branch.").pipe(
+          Effect.annotateLogs({
+            operation: "recordPullRequestBase",
+            branch,
+            detail: error.message,
+          }),
+        ),
+      ),
+    );
+  };
   const readRemoteStatus = Effect.fn("readRemoteStatus")(function* (
     cwd: string,
     options?: GitRemoteStatusOptions,
@@ -1324,6 +1344,9 @@ export const make = Effect.gen(function* () {
             options?.refreshMissingPullRequest,
           )
         : null;
+    if (pr?.state === "open" && details.branch !== null && !details.isDefaultBranch) {
+      yield* recordPullRequestBase(cwd, details.branch, pr.baseRef);
+    }
 
     return {
       hasUpstream: details.hasUpstream,

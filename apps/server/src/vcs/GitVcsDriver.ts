@@ -346,6 +346,11 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       key: string,
     ) => Effect.Effect<string | null, GitCommandError>;
+    readonly writeConfigValue: (
+      cwd: string,
+      key: string,
+      value: string,
+    ) => Effect.Effect<void, GitCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;

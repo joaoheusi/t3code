@@ -3045,6 +3045,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.map((trimmed) => (trimmed.length > 0 ? trimmed : null)),
     );
 
+  const writeConfigValue: GitVcsDriver.GitVcsDriver["Service"]["writeConfigValue"] = (
+    cwd,
+    key,
+    value,
+  ) => runGit("GitVcsDriver.writeConfigValue", cwd, ["config", key, value]);
+
   const readGitRefsSnapshot = Effect.fn("readGitRefsSnapshot")(function* (gitCommonDir: string) {
     const fetchCwd =
       path.basename(gitCommonDir) === ".git" ? path.dirname(gitCommonDir) : gitCommonDir;
@@ -4016,6 +4022,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getReviewDiffPreview,
     getReviewDiffFileContents,
     readConfigValue,
+    writeConfigValue,
     listRefs,
     createWorktree: (input, options) =>
       withListRefsInvalidation(input.cwd, createWorktree(input, options)),
