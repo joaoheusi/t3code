@@ -258,7 +258,7 @@ it("never suggests an official package runner for fork builds", () => {
     formatCliCommand({
       subcommand: "serve",
       entryPath: "/tmp/node_modules/t3/dist/bin.mjs",
-      version: "0.0.45-j4.2",
+      version: "0.0.45-j4.3",
     }),
     "j4code serve",
   );
