@@ -6,7 +6,12 @@ cd "$(dirname "$0")/.."
   apps/desktop/src/app/DesktopAppIdentity.test.ts \
   apps/desktop/src/app/DesktopEnvironment.test.ts \
   apps/desktop/src/app/DesktopEarlyElectronStartup.test.ts \
+  apps/desktop/src/app/DesktopClerk.test.ts \
+  apps/desktop/src/app/DesktopLinuxUrlHandler.test.ts \
+  apps/desktop/src/app/DesktopPreReadyFileSystem.test.ts \
+  apps/desktop/src/app/DesktopPreReadyPlatform.test.ts \
   packages/shared/src/cliRelease.test.ts \
+  packages/shared/src/providerAuthReturnUrl.test.ts \
   packages/shared/src/devHome.test.ts \
   packages/shared/src/quickActions.test.ts \
   packages/shared/src/actionContext.test.ts \

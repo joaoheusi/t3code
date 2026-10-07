@@ -1,11 +1,17 @@
+import { FORK_IDENTITY } from "./forkIdentity.ts";
 import { isLoopbackHost } from "./preview.ts";
+
+const DESKTOP_PROTOCOLS = [
+  `${FORK_IDENTITY.desktop.production.scheme}:`,
+  `${FORK_IDENTITY.desktop.development.scheme}:`,
+];
 
 /** Only return to a local client or the hosted T3 client, never an arbitrary OAuth-supplied URL. */
 export function providerAuthReturnUrl(value: string | undefined): string | undefined {
   if (!value) return undefined;
   try {
     const url = new URL(value);
-    const desktop = ["j4code:", "j4code-dev:"].includes(url.protocol) && url.host === "app";
+    const desktop = DESKTOP_PROTOCOLS.includes(url.protocol) && url.host === "app";
     const web =
       ["http:", "https:"].includes(url.protocol) &&
       (isLoopbackHost(url.hostname) || url.origin === "https://app.t3.codes");

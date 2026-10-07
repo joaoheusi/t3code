@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -51,6 +52,9 @@ vi.mock("node:fs", () => ({
 
 import * as DesktopPreReadyPlatform from "./DesktopPreReadyPlatform.ts";
 
+const { production } = FORK_IDENTITY.desktop;
+const productionIconPath = `/xdg/icons/${production.linuxDesktopEntryName}.png`;
+
 describe("DesktopPreReadyPlatform", () => {
   beforeEach(() => {
     appendSwitchMock.mockReset();
@@ -93,13 +97,13 @@ describe("DesktopPreReadyPlatform", () => {
     let desktopEntry = previousEntry;
     let iconInstalled = false;
     copyFileSyncMock.mockImplementation((_source: string, destination: string) => {
-      iconInstalled = destination === "/xdg/icons/com.t3tools.T3Code.desktop.png";
+      iconInstalled = destination === productionIconPath;
     });
     setDesktopNameMock.mockImplementation((name: string) => {
       desktopName = name;
     });
     writeFileSyncMock.mockImplementation((path: string, contents: string) => {
-      if (path === "/xdg/applications/com.t3tools.T3Code.desktop") desktopEntry = contents;
+      if (path === `/xdg/applications/${production.linuxDesktopEntryName}`) desktopEntry = contents;
     });
 
     return Effect.scoped(
@@ -115,14 +119,14 @@ describe("DesktopPreReadyPlatform", () => {
           ),
         );
         const identity = yield* Effect.promise(() => portalIdentity);
-        assert.equal(identity.desktopName, "com.t3tools.T3Code.desktop");
+        assert.equal(identity.desktopName, production.linuxDesktopEntryName);
         assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
-        assert.include(identity.desktopEntry ?? "", "Name=T3 Code (Alpha)");
-        assert.include(identity.desktopEntry ?? "", "MimeType=x-scheme-handler/t3code;");
+        assert.include(identity.desktopEntry ?? "", `Name=${FORK_IDENTITY.name} (Alpha)`);
         assert.include(
           identity.desktopEntry ?? "",
-          "Icon=/xdg/icons/com.t3tools.T3Code.desktop.png",
+          `MimeType=x-scheme-handler/${production.scheme};`,
         );
+        assert.include(identity.desktopEntry ?? "", `Icon=${productionIconPath}`);
         assert.isTrue(identity.iconInstalled);
       }),
     ).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())));
@@ -148,7 +152,7 @@ describe("DesktopPreReadyPlatform", () => {
     return Effect.gen(function* () {
       yield* DesktopPreReadyPlatform.make;
       const contents = writeFileSyncMock.mock.calls[0]?.[1];
-      assert.include(contents, "MimeType=x-scheme-handler/t3code;");
+      assert.include(contents, `MimeType=x-scheme-handler/${production.scheme};`);
       assert.include(contents, "Icon=");
       assert.equal(setDesktopNameMock.mock.calls.length, 1);
     }).pipe(Effect.provideService(HostProcessPlatform, "linux"));

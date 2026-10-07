@@ -1,3 +1,4 @@
+import { forkDesktopIdentity } from "@t3tools/shared/forkIdentity";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
@@ -38,6 +39,9 @@ export const resolveUserDataPath = Effect.fn("desktop.userData.resolveUserDataPa
   }) {
     const path = yield* Path.Path;
     // A fork never reads or copies the official Electron profile, including safeStorage keys.
-    return path.join(input.appDataDirectory, input.isDevelopment ? "j4code-dev" : "j4code");
+    return path.join(
+      input.appDataDirectory,
+      forkDesktopIdentity(input.isDevelopment).userDataDirectoryName,
+    );
   },
 );

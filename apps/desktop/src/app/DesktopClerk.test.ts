@@ -3,6 +3,7 @@ import * as NodeHttp from "node:http";
 import * as NodePath from "@effect/platform-node/NodePath";
 import { codexAuthHandoffUrl, readCodexAuthDelivery } from "@t3tools/shared/codexAuthHandoff";
 import { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 import { HostProcessArguments } from "@t3tools/shared/hostProcess";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -37,6 +38,8 @@ import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopPreReadyFileSystem from "./DesktopPreReadyFileSystem.ts";
+
+const { development, production } = FORK_IDENTITY.desktop;
 
 const layerDesktopClerk = (
   isDevelopment = true,
@@ -101,7 +104,7 @@ describe("DesktopClerk", () => {
           {
             storage: storageAdapter,
             passkeys: true,
-            renderer: { scheme: "t3code-dev", host: "app" },
+            renderer: { scheme: development.scheme, host: "app" },
           },
         ],
       ]);
@@ -109,7 +112,10 @@ describe("DesktopClerk", () => {
       // The bridge acquires Electron's single-instance lock at creation, and
       // the lock both lives in and creates the userData directory — so the
       // real path must be set before the bridge exists.
-      assert.deepEqual(events, ["setPath:userData:/tmp/app-data/t3code-dev", "createClerkBridge"]);
+      assert.deepEqual(events, [
+        `setPath:userData:/tmp/app-data/${development.userDataDirectoryName}`,
+        "createClerkBridge",
+      ]);
       storageMock.mockClear();
       createClerkBridgeMock.mockClear();
     });
@@ -120,13 +126,13 @@ describe("DesktopClerk", () => {
       name: "packaged Windows",
       isDevelopment: false,
       platform: "win32" as const,
-      userData: "/tmp/app-data/t3code-v2",
+      userData: `/tmp/app-data/${production.userDataDirectoryName}`,
     },
     {
       name: "development",
       isDevelopment: true,
       platform: "win32" as const,
-      userData: "/tmp/app-data/t3code-dev",
+      userData: `/tmp/app-data/${development.userDataDirectoryName}`,
     },
   ])(
     "creates the bridge before startup can yield to the event loop ($name)",
@@ -280,19 +286,22 @@ it.effect(
       const clerk = yield* DesktopClerk.DesktopClerk;
       yield* clerk.configure;
       const event = { preventDefault: vi.fn() };
-      listeners.get("open-url")!(event, "t3code-dev://app/auth/callback?code=clerk-code");
-      listeners.get("open-url")!(event, "t3code://app/welcome");
+      listeners.get("open-url")!(
+        event,
+        `${development.scheme}://app/auth/callback?code=clerk-code`,
+      );
+      listeners.get("open-url")!(event, `${production.scheme}://app/welcome`);
       assert.equal(loadURL.mock.calls.length, 0);
       assert.equal(event.preventDefault.mock.calls.length, 0);
       listeners.get("second-instance")!({}, [
         "t3",
-        "t3code-dev://app/settings/providers?instanceId=work&code=never-forward",
+        `${development.scheme}://app/settings/providers?instanceId=work&code=never-forward`,
       ]);
       yield* Effect.promise(() => revealed.promise);
       assert.deepEqual(loadURL.mock.calls, [
-        ["t3code-dev://app/settings/providers?instanceId=work"],
+        [`${development.scheme}://app/settings/providers?instanceId=work`],
       ]);
-      listeners.get("open-url")!(event, "t3code-dev://app/welcome#agents:machine-id");
+      listeners.get("open-url")!(event, `${development.scheme}://app/welcome#agents:machine-id`);
       assert.equal(event.preventDefault.mock.calls.length, 1);
     }).pipe(
       Effect.scoped,

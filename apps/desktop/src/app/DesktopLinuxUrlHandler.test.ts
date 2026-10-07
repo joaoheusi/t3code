@@ -11,10 +11,15 @@ import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import * as DesktopAssets from "./DesktopAssets.ts";
 import * as DesktopLinuxUrlHandler from "./DesktopLinuxUrlHandler.ts";
+
+const { development, production } = FORK_IDENTITY.desktop;
+const applicationsDir = "/home/alice/.local/share/applications";
+const productionIconPath = `/home/alice/.local/share/icons/${production.linuxDesktopEntryName}.png`;
 
 interface RecordedRegistration {
   readonly directories: string[];
@@ -28,10 +33,9 @@ const makeEnvironment = (path: Path.Path, overrides: Record<string, unknown> = {
     platform: "linux",
     isPackaged: true,
     isDevelopment: false,
-    displayName: "T3 Code (Alpha)",
-    linuxDesktopEntryName: "com.t3tools.T3Code.desktop",
-    linuxWmClass: "t3code",
-    linuxApplicationsDir: "/home/alice/.local/share/applications",
+    displayName: `${FORK_IDENTITY.name} (Alpha)`,
+    linuxDesktopEntryName: production.linuxDesktopEntryName,
+    linuxApplicationsDir: applicationsDir,
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
     path,
     ...overrides,
@@ -216,25 +220,32 @@ describe("DesktopLinuxUrlHandler", () => {
       return Effect.gen(function* () {
         yield* runRegister(recorded);
 
-        assert.deepEqual(recorded.directories, ["/home/alice/.local/share/applications"]);
+        assert.deepEqual(recorded.directories, [applicationsDir]);
         assert.equal(recorded.files.length, 1);
         assert.equal(
           recorded.files[0]?.path,
-          "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+          `${applicationsDir}/${production.linuxDesktopEntryName}`,
         );
         assert.include(
           recorded.files[0]?.content,
           'Exec="/home/alice/Applications/T3-Code.AppImage" %U',
         );
-        assert.include(recorded.files[0]?.content, "MimeType=x-scheme-handler/t3code;");
+        assert.include(
+          recorded.files[0]?.content,
+          `MimeType=x-scheme-handler/${production.scheme};`,
+        );
         assert.deepEqual(recorded.commands, [
           {
             command: "update-desktop-database",
-            args: ["/home/alice/.local/share/applications"],
+            args: [applicationsDir],
           },
           {
             command: "xdg-mime",
-            args: ["default", "com.t3tools.T3Code.desktop", "x-scheme-handler/t3code"],
+            args: [
+              "default",
+              production.linuxDesktopEntryName,
+              `x-scheme-handler/${production.scheme}`,
+            ],
           },
         ]);
       });
@@ -260,10 +271,10 @@ describe("DesktopLinuxUrlHandler", () => {
     return Effect.gen(function* () {
       yield* runRegister(recorded, {
         existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-          displayName: "T3 Code (Alpha)",
+          displayName: `${FORK_IDENTITY.name} (Alpha)`,
           execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
-          iconPath: "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png",
+          scheme: production.scheme,
+          iconPath: productionIconPath,
         }),
       });
 
@@ -272,11 +283,15 @@ describe("DesktopLinuxUrlHandler", () => {
       assert.deepEqual(recorded.commands, [
         {
           command: "update-desktop-database",
-          args: ["/home/alice/.local/share/applications"],
+          args: [applicationsDir],
         },
         {
           command: "xdg-mime",
-          args: ["default", "com.t3tools.T3Code.desktop", "x-scheme-handler/t3code"],
+          args: [
+            "default",
+            production.linuxDesktopEntryName,
+            `x-scheme-handler/${production.scheme}`,
+          ],
         },
       ]);
     });
@@ -284,14 +299,14 @@ describe("DesktopLinuxUrlHandler", () => {
 
   it.effect("installs a persistent icon even when the desktop entry is already current", () => {
     const recorded = emptyRecording();
-    const iconPath = "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png";
+    const iconPath = productionIconPath;
     return Effect.gen(function* () {
       yield* runRegister(recorded, {
         iconSource: "/tmp/.mount_T3/resources/icon.png",
         existingEntry: DesktopLinuxUrlHandler.renderUrlHandlerDesktopEntry({
-          displayName: "T3 Code (Alpha)",
+          displayName: `${FORK_IDENTITY.name} (Alpha)`,
           execTarget: "/home/alice/Applications/T3-Code.AppImage",
-          scheme: "t3code",
+          scheme: production.scheme,
           iconPath,
         }),
       });
@@ -332,14 +347,14 @@ describe("DesktopLinuxUrlHandler", () => {
       yield* runRegister(unpackaged, {
         environment: {
           isPackaged: false,
-          linuxDesktopEntryName: "com.t3tools.T3Code.Development.desktop",
+          linuxDesktopEntryName: development.linuxDesktopEntryName,
         },
       });
 
       assert.deepEqual(nonLinux.files, []);
       assert.equal(
         unpackaged.files[0]?.path,
-        "/home/alice/.local/share/applications/com.t3tools.T3Code.Development.desktop",
+        `${applicationsDir}/${development.linuxDesktopEntryName}`,
       );
       assert.deepEqual(unpackaged.commands, []);
     });
@@ -359,7 +374,7 @@ describe("DesktopLinuxUrlHandler", () => {
           module: "FileSystem",
           method: "writeFileString",
           description: "read-only filesystem",
-          pathOrDescriptor: "/home/alice/.local/share/applications/com.t3tools.T3Code.desktop",
+          pathOrDescriptor: `${applicationsDir}/${production.linuxDesktopEntryName}`,
         }),
       });
 

@@ -11,10 +11,11 @@ import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 
 import * as Electron from "electron";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 
 export const DESKTOP_HOST = "app";
-const DESKTOP_PRODUCTION_SCHEME = "j4code";
-const DESKTOP_DEVELOPMENT_SCHEME = "j4code-dev";
+const DESKTOP_PRODUCTION_SCHEME = FORK_IDENTITY.desktop.production.scheme;
+const DESKTOP_DEVELOPMENT_SCHEME = FORK_IDENTITY.desktop.development.scheme;
 
 export function getDesktopScheme(isDevelopment: boolean): string {
   return isDevelopment ? DESKTOP_DEVELOPMENT_SCHEME : DESKTOP_PRODUCTION_SCHEME;

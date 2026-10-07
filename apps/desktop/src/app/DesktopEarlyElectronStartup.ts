@@ -1,3 +1,4 @@
+import { forkDesktopIdentity } from "@t3tools/shared/forkIdentity";
 import { fromLenientJson } from "@t3tools/shared/schemaJson";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -32,7 +33,7 @@ export interface EarlyLinuxElectronOptions {
 }
 
 export const resolveLinuxDesktopEntryName = (isDevelopment: boolean): string =>
-  isDevelopment ? "dev.joaoheusi.J4Code.Development.desktop" : "dev.joaoheusi.J4Code.desktop";
+  forkDesktopIdentity(isDevelopment).linuxDesktopEntryName;
 
 const trimNonEmpty = (value: string | undefined): string | null => {
   const trimmed = value?.trim();

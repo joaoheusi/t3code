@@ -1,5 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -17,31 +18,39 @@ const resolveWindowsUserData = (appDataDirectory: string) =>
   }).pipe(Effect.provide(DesktopPreReadyFileSystem.layer));
 
 it.layer(NodeServices.layer)("DesktopPreReadyFileSystem", (it) => {
-  it.effect("migrates the legacy Windows profile state", () =>
+  it.effect("never migrates the official Windows profile state", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pre-ready-fs-" });
-      yield* fileSystem.makeDirectory(path.join(root, "T3 Code (Alpha)"));
-      yield* fileSystem.writeFileString(path.join(root, "T3 Code (Alpha)", "Local State"), "keys");
+      for (const official of ["T3 Code (Alpha)", "t3code", "t3code-v2"]) {
+        yield* fileSystem.makeDirectory(path.join(root, official));
+        yield* fileSystem.writeFileString(path.join(root, official, "Local State"), "keys");
+      }
 
       const userData = yield* resolveWindowsUserData(root);
 
-      assert.equal(userData, path.join(root, "t3code-v2"));
-      assert.equal(yield* fileSystem.readFileString(path.join(userData, "Local State")), "keys");
+      assert.equal(
+        userData,
+        path.join(root, FORK_IDENTITY.desktop.production.userDataDirectoryName),
+      );
+      assert.isFalse(yield* fileSystem.exists(userData));
     }),
   );
 
   it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32" || process.getuid?.() === 0)(
-    "fails instead of treating an unreadable profile as missing",
+    "fails instead of treating an unreadable path as missing",
     () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
         const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-pre-ready-fs-" });
         yield* fileSystem.chmod(root, 0o000);
         yield* Effect.addFinalizer(() => fileSystem.chmod(root, 0o700).pipe(Effect.orDie));
 
-        const exit = yield* Effect.exit(resolveWindowsUserData(root));
+        const exit = yield* Effect.exit(
+          DesktopPreReadyFileSystem.make.exists(path.join(root, "Local State")),
+        );
 
         assert.isTrue(Exit.isFailure(exit));
       }),
