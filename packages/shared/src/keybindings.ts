@@ -178,8 +178,6 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+x", command: "composer.workspace", when: "!terminalFocus" },
   { key: "mod+shift+g", command: "composer.branch", when: "!terminalFocus" },
   { key: "mod+shift+l", command: "composer.previousWorktree", when: "!terminalFocus" },
-  { key: "mod+alt+w", command: "composer.newWorktree", when: "!terminalFocus" },
-  { key: "mod+alt+c", command: "composer.currentCheckout", when: "!terminalFocus" },
   { key: "mod+shift+k", command: "pullRequest.copyNumber", when: "!terminalFocus" },
   { key: "mod+shift+arrowup", command: "modelPicker.previousProvider", when: "modelPickerOpen" },
   { key: "mod+shift+arrowdown", command: "modelPicker.nextProvider", when: "modelPickerOpen" },

@@ -547,7 +547,6 @@ import {
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerHandleContext } from "../composerHandleContext";
-import { useComposerWorkspaceControlStore } from "../composerWorkspaceControlStore";
 import { useRunQuickAction } from "../quickActions/useQuickActions";
 import { usePreparedTaskBannerItem } from "../quickActions/usePreparedTaskBannerItem";
 import {
@@ -8054,16 +8053,6 @@ export default function ChatView(props: ChatViewProps) {
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) branchToolbarRef.current?.usePreviousWorktree();
-        return;
-      }
-
-      if (command === "composer.newWorktree" || command === "composer.currentCheckout") {
-        const workspaceControl = useComposerWorkspaceControlStore.getState().control;
-        if (!workspaceControl) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (event.repeat) return;
-        workspaceControl.selectEnvMode(command === "composer.newWorktree" ? "worktree" : "local");
         return;
       }
 

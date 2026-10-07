@@ -30,8 +30,6 @@ describe("KeybindingsSettings.logic", () => {
       "composer.workspace",
       "composer.branch",
       "composer.previousWorktree",
-      "composer.newWorktree",
-      "composer.currentCheckout",
       "modelPicker.previousProvider",
       "modelPicker.nextProvider",
       "thread.copyReference",

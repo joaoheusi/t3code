@@ -96,8 +96,6 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "composer.mode",
   "composer.workspace",
   "composer.previousWorktree",
-  "composer.newWorktree",
-  "composer.currentCheckout",
   "composer.branch",
   "chat.new",
   "chat.newLocal",
