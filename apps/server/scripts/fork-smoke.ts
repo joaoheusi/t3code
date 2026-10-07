@@ -364,44 +364,23 @@ try {
         expectedRevision: 0,
       }).pipe(Effect.result);
       assert.equal(stale._tag, "Failure");
-      for (const [bindingId, text] of [
-        ["api", "api\n"],
-        ["web", "web\n"],
-      ]) {
-        const file = yield* rpc[WS_METHODS.workspaceReadFile]({
-          threadId,
-          bindingId: bindingId!,
-          expectedRevision: 1,
-          relativePath: "shared.txt",
-        });
-        assert.equal(file.contents, text);
-      }
+      const context = yield* rpc[WS_METHODS.actionContext]({ projectId, threadId });
+      assert.equal(context.workspaceRevision, 1);
+      assert.deepEqual(
+        context.repositories.map((entry) => entry.id),
+        ["api", "web"],
+      );
+      for (const entry of context.repositories)
+        assert.equal(
+          NodeFS.readFileSync(join(entry.repository.path, "shared.txt"), "utf8"),
+          `${entry.id}\n`,
+        );
+      assert.notEqual(
+        context.repositories[1]!.repository.path,
+        web,
+        "A new-worktree binding must not resolve to its source checkout",
+      );
       const target = { threadId, bindingId: "web", expectedRevision: 1 };
-      yield* rpc[WS_METHODS.workspaceWriteFile]({
-        ...target,
-        relativePath: "shared.txt",
-        expectedContents: "web\n",
-        contents: "web edited\n",
-      });
-      const staleFile = yield* rpc[WS_METHODS.workspaceWriteFile]({
-        ...target,
-        relativePath: "shared.txt",
-        expectedContents: "web\n",
-        contents: "must not replace",
-      }).pipe(Effect.result);
-      assert.equal(staleFile._tag, "Failure");
-      const selected = yield* rpc[WS_METHODS.workspaceReadFile]({
-        ...target,
-        relativePath: "shared.txt",
-      });
-      assert.equal(selected.contents, "web edited\n");
-      const traversal = yield* rpc[WS_METHODS.workspaceReadFile]({
-        ...target,
-        relativePath: "../api/shared.txt",
-      }).pipe(Effect.result);
-      assert.equal(traversal._tag, "Failure");
-      const matches = yield* rpc[WS_METHODS.workspaceSearch]({ ...target, query: "shared" });
-      assert(matches.entries.some((entry) => entry.path === "shared.txt"));
       const legacy = yield* rpc[WS_METHODS.vcsSwitchRef]({ cwd: api, refName: "main" }).pipe(
         Effect.result,
       );
@@ -418,25 +397,6 @@ try {
       assert.equal(reopened.cwd, terminal.cwd);
       assert.notEqual(reopened.cwd, api);
       yield* rpc[WS_METHODS.terminalClose]({ threadId, terminalId: "repo:web:fixture" });
-      writeFileSync(join(api, "shared.txt"), "api changed\n");
-      const status = yield* rpc[WS_METHODS.workspaceStatus]({
-        threadId,
-        bindingId: "api",
-        expectedRevision: 1,
-      });
-      assert.equal(status.workingTree.files.length, 1);
-      const input = {
-        threadId,
-        bindingId: "api",
-        expectedRevision: 1,
-        actionId: "one-commit",
-        action: "commit" as const,
-        commitMessage: "Fixture commit",
-      };
-      const first = yield* rpc[WS_METHODS.workspaceGitAction](input);
-      const again = yield* rpc[WS_METHODS.workspaceGitAction](input);
-      assert.deepEqual(again, first);
-      assert.equal(git(api, "rev-list", "--count", "HEAD"), "2");
     }),
   );
   if (liveClaude) await liveTurn("first");
@@ -460,7 +420,7 @@ try {
       "PASS: live Claude edited both actual checkouts and resumed the same native session after a server restart (full-access mode).\n",
     );
   process.stdout.write(
-    "PASS: isolated HTTP/auth, matching protocol/frontend, two RPC clients, action revisions, durable mixed checkout preparation, per-repo files/status/search, stale-save and traversal rejection, scoped terminal reopen, legacy Git guard, Git idempotence, restart identity and persistence.\n",
+    "PASS: isolated HTTP/auth, matching protocol/frontend, two RPC clients, action revisions, durable mixed checkout preparation, per-repo action context, scoped terminal reopen, legacy Git guard, restart identity and persistence.\n",
   );
 } finally {
   await stop();

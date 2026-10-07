@@ -1,9 +1,6 @@
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { resolveWorkspaceTerminal } from "@t3tools/shared/workspaceTerminal";
-import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as Identity from "../project/RepositoryIdentityResolver.ts";
-import * as Operations from "./WorkspaceOperations.ts";
-import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import { ThreadId, type ActionContextInput, type ActionContextResult } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -14,26 +11,13 @@ import * as Schema from "effect/Schema";
 import {
   WorkspaceError,
   type WorkspaceBindingTarget,
-  type WorkspaceWriteFileInput,
-  type ProjectWriteFileResult,
-  type ProjectSearchEntriesResult,
-  type WorkspaceGitActionInput,
-  type ForkWorkspaceStatus,
-  type ReviewDiffPreviewResult,
-  type ProjectReadFileResult,
   type TerminalSessionSnapshot,
-  type GitRunStackedActionResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Path from "effect/Path";
-import * as Semaphore from "effect/Semaphore";
 import * as WorkspaceRepositories from "./WorkspaceRepositories.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
-import * as GitWorkflow from "../git/GitWorkflowService.ts";
-import * as ReviewService from "../review/ReviewService.ts";
-import * as WorkspaceFileSystem from "./WorkspaceFileSystem.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 
 const isWorkspaceError = Schema.is(WorkspaceError);
@@ -54,51 +38,22 @@ export class WorkspaceApi extends Context.Service<
     readonly context: (
       input: ActionContextInput,
     ) => Effect.Effect<ActionContextResult, WorkspaceError>;
-    readonly status: (
-      input: WorkspaceBindingTarget,
-    ) => Effect.Effect<ForkWorkspaceStatus, WorkspaceError>;
-    readonly diff: (
-      input: WorkspaceBindingTarget & { baseRef?: string | undefined },
-    ) => Effect.Effect<ReviewDiffPreviewResult, WorkspaceError>;
-    readonly writeFile: (
-      input: WorkspaceWriteFileInput,
-    ) => Effect.Effect<ProjectWriteFileResult, WorkspaceError>;
-    readonly search: (
-      input: WorkspaceBindingTarget & { query: string },
-    ) => Effect.Effect<ProjectSearchEntriesResult, WorkspaceError>;
-    readonly readFile: (
-      input: WorkspaceBindingTarget & { relativePath: string },
-    ) => Effect.Effect<ProjectReadFileResult, WorkspaceError>;
     readonly terminal: (
       input: WorkspaceBindingTarget & { terminalId: string },
     ) => Effect.Effect<TerminalSessionSnapshot, WorkspaceError>;
-    readonly gitAction: (
-      input: typeof WorkspaceGitActionInput.Type,
-    ) => Effect.Effect<GitRunStackedActionResult, WorkspaceError>;
   }
 >()("t3/workspace/WorkspaceApi") {}
 const make = Effect.gen(function* () {
-  const queries = yield* Semaphore.make(4);
   const projections = yield* ProjectionStore.ProjectionStoreV2;
-  const operations = yield* Operations.WorkspaceOperations;
-  const commands = yield* ThreadCommandExecutor.ThreadCommandExecutor;
   const identities = yield* Identity.RepositoryIdentityResolver;
   const projects = yield* ProjectService.ProjectService;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const repositories = yield* WorkspaceRepositories.WorkspaceRepositories;
   const threads = yield* ThreadManagement.ThreadManagementService;
-  const git = yield* GitWorkflow.GitWorkflowService;
-  const review = yield* ReviewService.ReviewService;
-  const entries = yield* WorkspaceEntries.WorkspaceEntries;
-  const files = yield* WorkspaceFileSystem.WorkspaceFileSystem;
   const terminals = yield* TerminalManager.TerminalManager;
-  const path = yield* Path.Path;
-  const resolve = Effect.fn("WorkspaceApi.resolve")(function* (
-    input: WorkspaceBindingTarget,
-    mutating = false,
-  ) {
+  const resolve = Effect.fn("WorkspaceApi.resolve")(function* (input: WorkspaceBindingTarget) {
     const projection = yield* threads
-      .getThreadRecords(input.threadId, ["runs"])
+      .getThreadRecords(input.threadId, [])
       .pipe(Effect.mapError(failure));
     const workspace = projection.thread.workspace;
     if (
@@ -113,19 +68,7 @@ const make = Effect.gen(function* () {
     const actual = yield* repositories.inspect(binding.checkoutPath);
     if (actual.path !== binding.checkoutPath || actual.commonDir !== binding.commonDir)
       return yield* failure("The recorded checkout is unavailable or its Git identity changed.");
-    if (
-      mutating &&
-      (projection.thread.archivedAt !== null ||
-        actual.branch !== binding.branch ||
-        actual.operation !== null ||
-        projection.runs.some((run) =>
-          ["queued", "preparing", "running", "blocked"].includes(run.status),
-        ))
-    )
-      return yield* failure(
-        "This checkout changed branches, has an active Git operation, or its provider is busy. Finish that work before changing Git state.",
-      );
-    return { ...binding, repository: actual };
+    return binding;
   });
   const context = Effect.fn("WorkspaceApi.context")(function* (input: ActionContextInput) {
     const project = yield* projects.getShell(input.projectId).pipe(Effect.mapError(failure));
@@ -258,81 +201,6 @@ const make = Effect.gen(function* () {
         return { cwd: binding.checkoutPath, worktreePath: null };
       }),
     context,
-    status: (input) =>
-      resolve(input).pipe(
-        Effect.flatMap((binding) =>
-          git
-            .status({ cwd: binding.checkoutPath })
-            .pipe(Effect.map((status) => ({ ...status, repository: binding.repository }))),
-        ),
-        queries.withPermit,
-        Effect.mapError(failure),
-      ),
-    diff: (input) =>
-      resolve(input).pipe(
-        Effect.flatMap((binding) =>
-          review.getDiffPreview({
-            cwd: binding.checkoutPath,
-            ...(input.baseRef === undefined ? {} : { baseRef: input.baseRef }),
-          }),
-        ),
-        queries.withPermit,
-        Effect.mapError(failure),
-      ),
-    search: (input) =>
-      resolve(input).pipe(
-        Effect.flatMap((binding) =>
-          entries.search({
-            cwd: binding.checkoutPath,
-            query: input.query,
-            limit: 50,
-            kind: "file",
-          }),
-        ),
-        Effect.mapError(failure),
-      ),
-    writeFile: (input) =>
-      commands.withLock(
-        input.threadId,
-        Effect.gen(function* () {
-          const binding = yield* resolve(input, true);
-          const normalized = path.normalize(input.relativePath);
-          if (
-            path.isAbsolute(normalized) ||
-            normalized === ".." ||
-            normalized.startsWith(".." + path.sep)
-          )
-            return yield* failure("Select a relative file within this repository.");
-          const previous = yield* files
-            .readFile({ cwd: binding.checkoutPath, relativePath: normalized })
-            .pipe(Effect.mapError(failure));
-          if (previous.truncated || previous.contents !== input.expectedContents)
-            return yield* failure(
-              "This file changed since it was opened or is too large to edit. Reload before saving.",
-            );
-          return yield* files
-            .writeFile({
-              cwd: binding.checkoutPath,
-              relativePath: normalized,
-              contents: input.contents,
-            })
-            .pipe(Effect.mapError(failure));
-        }),
-      ),
-    readFile: (input) =>
-      Effect.gen(function* () {
-        const binding = yield* resolve(input);
-        const normalized = path.normalize(input.relativePath);
-        if (
-          path.isAbsolute(normalized) ||
-          normalized === ".." ||
-          normalized.startsWith(".." + path.sep)
-        )
-          return yield* failure("Select a relative file within this repository.");
-        return yield* files
-          .readFile({ cwd: binding.checkoutPath, relativePath: normalized })
-          .pipe(Effect.mapError(failure));
-      }),
     terminal: (input) =>
       resolve(input).pipe(
         Effect.tap((binding) =>
@@ -349,31 +217,6 @@ const make = Effect.gen(function* () {
         ),
         Effect.mapError(failure),
       ),
-    gitAction: (input) =>
-      commands.withLock(
-        input.threadId,
-        operations.run(
-          input,
-          resolve(input, true).pipe(
-            Effect.flatMap((binding) =>
-              git.runStackedAction({
-                actionId: input.actionId,
-                cwd: binding.checkoutPath,
-                action: input.action,
-                ...(input.commitMessage === undefined
-                  ? {}
-                  : { commitMessage: input.commitMessage }),
-                threadId: input.threadId,
-                featureBranch: false,
-              }),
-            ),
-            Effect.mapError(failure),
-          ),
-        ),
-      ),
   });
 });
-export const layer = Layer.effect(WorkspaceApi, make).pipe(
-  Layer.provide(Operations.layer),
-  Layer.provide(ProjectionStore.layer),
-);
+export const layer = Layer.effect(WorkspaceApi, make).pipe(Layer.provide(ProjectionStore.layer));

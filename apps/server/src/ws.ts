@@ -2576,26 +2576,7 @@ const layerWsRpc = (
         [WS_METHODS.workspaceInspect]: (input) => workspaceRepositories.inspect(input.path),
         [WS_METHODS.workspaceDiscover]: (input) =>
           workspaceRepositories.discover(input.root, input.depth),
-        [WS_METHODS.workspaceStatus]: workspaceApi.status,
-        [WS_METHODS.workspaceDiff]: workspaceApi.diff,
-        [WS_METHODS.workspaceWriteFile]: workspaceApi.writeFile,
-        [WS_METHODS.workspaceSearch]: workspaceApi.search,
-        [WS_METHODS.workspaceReadFile]: workspaceApi.readFile,
         [WS_METHODS.workspaceTerminal]: workspaceApi.terminal,
-        [WS_METHODS.workspaceGitAction]: (input) =>
-          workspaceApi.gitAction(input).pipe(
-            Effect.tap((result) =>
-              linkCreatedPullRequest({
-                threadId: input.threadId,
-                bindingId: input.bindingId,
-                result,
-                commandId: serverCommandId("workspace-pr-created-link"),
-              }).pipe(
-                Effect.provideService(Orchestrator.OrchestratorV2, orchestrationEngine),
-                Effect.provideService(ProjectService.ProjectService, projectService),
-              ),
-            ),
-          ),
         [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
         [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
         [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),

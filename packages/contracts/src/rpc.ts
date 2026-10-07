@@ -1,19 +1,11 @@
 import { ActionContextInput, ActionContextResult } from "./forkWorkspace.ts";
-import { GitRunStackedActionResult } from "./git.ts";
 import {
   WorkspaceInspectInput,
   WorkspaceRepository,
-  ForkWorkspaceStatus,
   WorkspaceDiscoverInput,
   WorkspaceDiscoverResult,
   WorkspaceError,
-  WorkspaceBindingTarget,
-  WorkspaceDiffInput,
-  WorkspaceFileInput,
-  WorkspaceWriteFileInput,
-  WorkspaceSearchInput,
   WorkspaceTerminalInput,
-  WorkspaceGitActionInput,
 } from "./forkWorkspace.ts";
 import {
   QuickActionImportInput,
@@ -368,13 +360,7 @@ export const WS_METHODS = {
   actionContext: "fork.actions.context",
   workspaceInspect: "fork.workspace.inspect",
   workspaceDiscover: "fork.workspace.discover",
-  workspaceStatus: "fork.workspace.status",
-  workspaceDiff: "fork.workspace.diff",
-  workspaceWriteFile: "fork.workspace.writeFile",
-  workspaceSearch: "fork.workspace.search",
-  workspaceReadFile: "fork.workspace.readFile",
   workspaceTerminal: "fork.workspace.terminal",
-  workspaceGitAction: "fork.workspace.gitAction",
   quickActionsList: "fork.quickActions.list",
   quickActionsSave: "fork.quickActions.save",
   quickActionsDelete: "fork.quickActions.delete",
@@ -1786,39 +1772,9 @@ export const WsRpcGroup = RpcGroup.make(
     success: WorkspaceDiscoverResult,
     error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
   }),
-  Rpc.make(WS_METHODS.workspaceStatus, {
-    payload: WorkspaceBindingTarget,
-    success: ForkWorkspaceStatus,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
-  Rpc.make(WS_METHODS.workspaceDiff, {
-    payload: WorkspaceDiffInput,
-    success: ReviewDiffPreviewResult,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
-  Rpc.make(WS_METHODS.workspaceReadFile, {
-    payload: WorkspaceFileInput,
-    success: ProjectReadFileResult,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
-  Rpc.make(WS_METHODS.workspaceWriteFile, {
-    payload: WorkspaceWriteFileInput,
-    success: ProjectWriteFileResult,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
-  Rpc.make(WS_METHODS.workspaceSearch, {
-    payload: WorkspaceSearchInput,
-    success: ProjectSearchEntriesResult,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
   Rpc.make(WS_METHODS.workspaceTerminal, {
     payload: WorkspaceTerminalInput,
     success: TerminalSessionSnapshot,
-    error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
-  }),
-  Rpc.make(WS_METHODS.workspaceGitAction, {
-    payload: WorkspaceGitActionInput,
-    success: GitRunStackedActionResult,
     error: Schema.Union([WorkspaceError, EnvironmentAuthorizationError]),
   }),
   Rpc.make(WS_METHODS.quickActionsList, {

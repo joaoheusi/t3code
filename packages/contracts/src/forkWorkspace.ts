@@ -1,4 +1,3 @@
-import { VcsStatusResult } from "./git.ts";
 import { PullRequestRef } from "./pullRequest.ts";
 import * as Schema from "effect/Schema";
 import {
@@ -97,23 +96,9 @@ export class WorkspaceError extends Schema.TaggedError<WorkspaceError>()("Worksp
   }
 }
 export type WorkspaceBindingTarget = typeof WorkspaceBindingTarget.Type;
-export const WorkspaceDiffInput = Schema.Struct({
-  ...WorkspaceBindingTarget.fields,
-  baseRef: Schema.optional(PathText),
-});
-export const WorkspaceFileInput = Schema.Struct({
-  ...WorkspaceBindingTarget.fields,
-  relativePath: PathText,
-});
 export const WorkspaceTerminalInput = Schema.Struct({
   ...WorkspaceBindingTarget.fields,
   terminalId: TrimmedNonEmptyString,
-});
-export const WorkspaceGitActionInput = Schema.Struct({
-  ...WorkspaceBindingTarget.fields,
-  actionId: TrimmedNonEmptyString,
-  action: Schema.Literals(["commit", "push", "create_pr"]),
-  commitMessage: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(10000))),
 });
 
 export const ActionContextInput = Schema.Struct({
@@ -147,20 +132,3 @@ export const ActionContextResult = Schema.Struct({
   notices: Schema.Array(Schema.String),
 });
 export type ActionContextResult = typeof ActionContextResult.Type;
-
-export const WorkspaceWriteFileInput = Schema.Struct({
-  ...WorkspaceFileInput.fields,
-  expectedContents: Schema.String.check(Schema.isMaxLength(1048576)),
-  contents: Schema.String.check(Schema.isMaxLength(1048576)),
-});
-export type WorkspaceWriteFileInput = typeof WorkspaceWriteFileInput.Type;
-export const WorkspaceSearchInput = Schema.Struct({
-  ...WorkspaceBindingTarget.fields,
-  query: Schema.String.check(Schema.isMaxLength(256)),
-});
-
-export const ForkWorkspaceStatus = Schema.Struct({
-  ...VcsStatusResult.fields,
-  repository: WorkspaceRepository,
-});
-export type ForkWorkspaceStatus = typeof ForkWorkspaceStatus.Type;
