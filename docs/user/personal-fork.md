@@ -12,7 +12,9 @@ Keep the official application available while testing this build. To return to i
 
 ## Quick actions
 
-Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first.
+Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. For actions that target pull requests or several repositories, select one or more items, then choose **Insert selected**. Pull request choices show CI and conflict status.
+
+The quick action menu also offers **Merge pull requests**. Select the PRs, choose a merge method allowed by every selected repository, and confirm. This runs the merge command directly.
 
 Manage the library in **Settings → Quick actions**: create, edit, duplicate, favorite, disable, delete, import, and export. Give an action its own shortcut in its editor. Actions belong to one machine and can be limited to one project there. Anyone who can read that machine's settings can read them, so keep secrets out of templates.
 

@@ -894,6 +894,9 @@ function OpenCommandPaletteDialog(props: {
   }, [environments, primaryEnvironmentId, providers]);
   const [viewStack, setViewStack] = useState<CommandPaletteView[]>([]);
   const currentView = viewStack.at(-1) ?? null;
+  const [selectedItemValues, setSelectedItemValues] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const environmentIds = useMemo(
     () =>
       environments
@@ -1531,11 +1534,13 @@ function OpenCommandPaletteDialog(props: {
   const pushPaletteView = useCallback(
     (view: CommandPaletteView): void => {
       browseNavigation.invalidate();
+      setSelectedItemValues(new Set());
       setViewStack((previousViews) => [
         ...previousViews,
         {
           addonIcon: view.addonIcon,
           groups: view.groups,
+          ...(view.multiSelect ? { multiSelect: view.multiSelect } : {}),
           ...(view.initialQuery ? { initialQuery: view.initialQuery } : {}),
         },
       ]);
@@ -1550,11 +1555,13 @@ function OpenCommandPaletteDialog(props: {
     pushPaletteView({
       addonIcon: item.addonIcon,
       groups: item.groups,
+      ...(item.multiSelect ? { multiSelect: item.multiSelect } : {}),
       ...(item.initialQuery ? { initialQuery: item.initialQuery } : {}),
     });
   }
 
   function popView(): void {
+    setSelectedItemValues(new Set());
     browseNavigation.invalidate();
     setAddProjectCloneFlow(null);
     setNewProjectFlow(null);
@@ -3081,6 +3088,39 @@ function OpenCommandPaletteDialog(props: {
   } else if (isBrowsing) {
     displayedGroups = relativePathNeedsActiveProject ? [] : browseGroups;
   }
+  const multiSelect = currentView?.multiSelect;
+  const selectableItems = multiSelect
+    ? activeGroups.flatMap((group) => group.items).filter((item) => !item.disabled)
+    : [];
+  const selectedValues = selectableItems
+    .filter((item) => selectedItemValues.has(item.value))
+    .map((item) => item.value);
+  if (multiSelect) {
+    displayedGroups = displayedGroups.map((group) => ({
+      ...group,
+      items: group.items.map((item) => ({ ...item, checked: selectedItemValues.has(item.value) })),
+    }));
+  }
+  const visibleSelectableValues = multiSelect
+    ? displayedGroups
+        .flatMap((group) => group.items)
+        .filter((item) => !item.disabled)
+        .map((item) => item.value)
+    : [];
+  const allVisibleSelected =
+    visibleSelectableValues.length > 0 &&
+    visibleSelectableValues.every((value) => selectedItemValues.has(value));
+  function submitSelectedItems() {
+    if (!multiSelect || selectedValues.length === 0) return;
+    if (!multiSelect.keepOpen) setOpen(false);
+    void multiSelect.run(selectedValues).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Unable to run command",
+        description: error instanceof Error ? error.message : "Try again.",
+      });
+    });
+  }
   const resultRows = buildCommandPaletteRows(displayedGroups);
   const autoHighlightsFirstRow =
     !isBrowsing && !isRemoteProjectCloneFlow && newProjectFlow === null;
@@ -3168,6 +3208,19 @@ function OpenCommandPaletteDialog(props: {
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (
+      multiSelect &&
+      event.key === "Enter" &&
+      (event.metaKey || event.ctrlKey) &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      (event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.();
+      event.preventDefault();
+      event.stopPropagation();
+      submitSelectedItems();
+      return;
+    }
     const command = resolveShortcutCommand(event, keybindings, {
       platform: navigator.platform,
       context: { modelPickerOpen: false },
@@ -3273,6 +3326,16 @@ function OpenCommandPaletteDialog(props: {
 
   function executeItem(item: CommandPaletteActionItem | CommandPaletteSubmenuItem): void {
     if (item.disabled) {
+      return;
+    }
+
+    if (multiSelect) {
+      setSelectedItemValues((previous) => {
+        const next = new Set(previous);
+        if (next.has(item.value)) next.delete(item.value);
+        else next.add(item.value);
+        return next;
+      });
       return;
     }
 
@@ -3535,7 +3598,7 @@ function OpenCommandPaletteDialog(props: {
       key={`${viewStack.length}-${browseGeneration}-${isBrowsing}-${newProjectFlow ? "new-project" : (addProjectCloneFlow?.step ?? "none")}`}
       aria-label="Command palette"
       autoHighlight={autoHighlightsFirstRow ? "always" : false}
-      footerActionLabel={footerActionLabel}
+      footerActionLabel={multiSelect ? "Toggle" : footerActionLabel}
       footerTrailing={footerTrailing}
       inputAccessory={inputAccessory}
       inputProps={{
@@ -3615,6 +3678,32 @@ function OpenCommandPaletteDialog(props: {
               </span>
             </span>
           </div>
+        </div>
+      ) : null}
+      {multiSelect ? (
+        <div className="flex items-center justify-between gap-2 px-4 py-2">
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={visibleSelectableValues.length === 0}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setSelectedItemValues((previous) => {
+                const next = new Set(previous);
+                for (const value of visibleSelectableValues) {
+                  if (allVisibleSelected) next.delete(value);
+                  else next.add(value);
+                }
+                return next;
+              });
+            }}
+          >
+            {allVisibleSelected ? "Deselect all" : "Select all"}
+          </Button>
+          <Button size="xs" disabled={selectedValues.length === 0} onClick={submitSelectedItems}>
+            {multiSelect.actionLabel} ({selectedValues.length})
+            <Kbd>{submitModifierLabel} Enter</Kbd>
+          </Button>
         </div>
       ) : null}
       <CommandPaletteVirtualizedResults

@@ -16,7 +16,7 @@ import {
   captureQuickActionInvocation,
   insertQuickActionText,
   quickActionTargets,
-  renderQuickActionText,
+  renderQuickActionSelection,
   type QuickActionChoice,
   type QuickActionScope,
 } from "./quickActionRunner";
@@ -91,7 +91,7 @@ export function useRunQuickAction() {
       readonly scope: QuickActionScope;
       readonly target: ComposerThreadTarget;
       readonly invocation: ActionInvocation | null;
-      readonly choose: (action: QuickAction) => QuickActionChoice | "deferred";
+      readonly choose: (action: QuickAction) => readonly QuickActionChoice[] | "deferred";
       readonly showProgress: boolean;
     }) => {
       // Only environment reads are slow enough to need a progress toast.
@@ -106,10 +106,10 @@ export function useRunQuickAction() {
           if (loading) toastManager.close(loading);
           return;
         }
-        const rendered = await renderQuickActionText({
+        const rendered = await renderQuickActionSelection({
           action,
           scope: input.scope,
-          choice,
+          choices: choice,
           resolveContext,
         });
         if (loading) toastManager.close(loading);
@@ -137,12 +137,16 @@ export function useRunQuickAction() {
 
   /** Runs a chosen action and target, as the palette does. */
   const run = useCallback(
-    (input: {
-      readonly action: QuickAction;
-      readonly choice: QuickActionChoice;
-      readonly scope: QuickActionScope;
-      readonly target: ComposerThreadTarget;
-    }) =>
+    (
+      input: {
+        readonly action: QuickAction;
+        readonly scope: QuickActionScope;
+        readonly target: ComposerThreadTarget;
+      } & (
+        | { readonly choice: QuickActionChoice }
+        | { readonly choices: readonly QuickActionChoice[] }
+      ),
+    ) =>
       execute({
         name: input.action.name,
         actionId: input.action.id,
@@ -150,7 +154,7 @@ export function useRunQuickAction() {
         target: input.target,
         // Capture before any await so a later focus change cannot redirect the text.
         invocation: captureQuickActionInvocation(input.target, input.action),
-        choose: () => input.choice,
+        choose: () => ("choices" in input ? input.choices : [input.choice]),
         showProgress: quickActionRequirements(input.action.template).host,
       }),
     [execute],
@@ -173,7 +177,7 @@ export function useRunQuickAction() {
           const targets = quickActionTargets(action, input.scope);
           if (targets.kind === "unavailable") throw new Error(`${action.name}: ${targets.reason}.`);
           const [only, ...others] = targets.variants;
-          if (only && others.length === 0) return only.choice;
+          if (only && others.length === 0) return [only.choice];
           openCommandPalette({ open: "quick-actions", actionId: action.id });
           return "deferred";
         },

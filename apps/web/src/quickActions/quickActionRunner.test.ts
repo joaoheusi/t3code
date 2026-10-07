@@ -1,5 +1,7 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import type {
+  ActionContextInput,
+  ActionContextResult,
   EnvironmentId,
   ProjectId,
   QuickAction,
@@ -7,7 +9,14 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
-import { quickActionTargets } from "./quickActionRunner";
+import {
+  quickActionTargets,
+  renderQuickActionSelection,
+  insertQuickActionText,
+} from "./quickActionRunner";
+
+import { DraftId } from "../composerDraftStore";
+import { readPreparedTask, dismissPreparedTask } from "./preparedTasks";
 
 const action = (template: string): QuickAction => ({
   id: "action",
@@ -104,5 +113,99 @@ describe("quickActionTargets", () => {
     expect(
       bound.kind === "ready" && bound.variants.map((variant) => variant.choice.bindingId),
     ).toEqual(["api"]);
+  });
+});
+
+describe("selected quick action targets", () => {
+  const choices = [1, 2].map((number) => ({
+    pullRequest: { host: "github.com", repository: "acme/web", number },
+  }));
+  const contextFor = (input: ActionContextInput): ActionContextResult => ({
+    threadTitle: "Fix both PRs",
+    workspaceRevision: null,
+    repositories: [],
+    pullRequest: {
+      url: `https://github.com/acme/web/pull/${input.pullRequest!.number}`,
+      headSha: `head-${input.pullRequest!.number}`,
+      observedAt: "2026-10-07T12:00:00.000Z",
+      failures: `Failed check for PR ${input.pullRequest!.number}`,
+      conflicts: "No conflicts",
+    },
+    notices: [],
+  });
+
+  it("prepares one ordered draft and preserves each environment and PR head", async () => {
+    const requests: Array<[EnvironmentId, ActionContextInput]> = [];
+    const rendered = await renderQuickActionSelection({
+      action: action("Fix {{pr.url}}\n{{ci.failures}}"),
+      scope: scope(thread([])),
+      choices,
+      resolveContext: async (environmentId, request) => {
+        requests.push([environmentId, request]);
+        return contextFor(request);
+      },
+    });
+    expect(rendered.text).toBe(
+      "Fix https://github.com/acme/web/pull/1\nFailed check for PR 1\n\n---\n\nFix https://github.com/acme/web/pull/2\nFailed check for PR 2",
+    );
+    expect(rendered.append).toBe(true);
+    expect(
+      requests.map(([environmentId, request]) => [environmentId, request.pullRequest?.number]),
+    ).toEqual([
+      ["env", 1],
+      ["env", 2],
+    ]);
+    expect(rendered.contexts.map((context) => context.expectedHeadSha)).toEqual([
+      "head-1",
+      "head-2",
+    ]);
+
+    // A composer that went away gets one complete task, with both validations.
+    const target = DraftId.make("batch-test-draft");
+    expect(
+      insertQuickActionText({
+        target,
+        invocation: null,
+        action: action("{{ci.failures}}"),
+        rendered,
+        environmentId: scope(null).environmentId,
+        projectId: scope(null).projectId,
+      }),
+    ).toBe(false);
+    const prepared = readPreparedTask(target);
+    expect(prepared?.prompt).toBe(rendered.text);
+    expect(prepared?.validation?.contexts).toEqual(rendered.contexts);
+    dismissPreparedTask(target, prepared!.id);
+  });
+
+  it("rejects the entire selection if one context fails", async () => {
+    await expect(
+      renderQuickActionSelection({
+        action: action("{{ci.failures}}"),
+        scope: scope(thread([])),
+        choices,
+        resolveContext: async (_environmentId, request) => {
+          if (request.pullRequest?.number === 2) throw new Error("PR head changed");
+          return contextFor(request);
+        },
+      }),
+    ).rejects.toThrow("PR head changed");
+  });
+
+  it("enforces the size limit on the combined text", async () => {
+    await expect(
+      renderQuickActionSelection({
+        action: action("{{ci.failures}}"),
+        scope: scope(thread([])),
+        choices,
+        resolveContext: async (_environmentId, request) => {
+          const context = contextFor(request);
+          return {
+            ...context,
+            pullRequest: { ...context.pullRequest!, failures: "x".repeat(70_000) },
+          };
+        },
+      }),
+    ).rejects.toThrow("Select fewer targets");
   });
 });

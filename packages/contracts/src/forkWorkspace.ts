@@ -14,6 +14,8 @@ export const WorkspaceBindingRequest = Schema.Struct({
   label: TrimmedNonEmptyString.check(Schema.isMaxLength(120)),
   sourcePath: PathText,
   mode: Schema.Literals(["current", "existing-worktree", "new-worktree"]),
+  /** New worktrees fetch the matching origin branch unless explicitly disabled. */
+  startFromOrigin: Schema.optional(Schema.Boolean),
   baseRef: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
   branch: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
 });

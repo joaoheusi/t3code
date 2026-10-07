@@ -9081,6 +9081,10 @@ export default function ChatView(props: ChatViewProps) {
                   mode: envMode === "worktree" ? "mirror" : "current",
                 },
                 repositories: pendingRepositories,
+                startFromOrigin:
+                  sendEnvMode === "worktree"
+                    ? startFromOrigin
+                    : activeProjectSettings.settings.newWorktreesStartFromOrigin,
                 expectedRevision: 0,
               }
             : {
@@ -9092,6 +9096,10 @@ export default function ChatView(props: ChatViewProps) {
                   branch: activeThreadBranch,
                 }),
                 repositories: pendingRepositories,
+                startFromOrigin:
+                  sendEnvMode === "worktree"
+                    ? startFromOrigin
+                    : activeProjectSettings.settings.newWorktreesStartFromOrigin,
                 expectedRevision: 0,
               },
         ),

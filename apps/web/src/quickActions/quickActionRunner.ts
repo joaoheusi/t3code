@@ -38,6 +38,7 @@ export interface QuickActionVariant {
   readonly key: string;
   readonly label: string | null;
   readonly choice: QuickActionChoice;
+  readonly snapshot?: ThreadPullRequestLink["snapshot"];
 }
 
 export type QuickActionTargets =
@@ -54,7 +55,7 @@ const openPullRequests = (thread: EnvironmentThreadShell | null) =>
  * candidates become several variants so nothing is guessed on the user's behalf.
  */
 export function quickActionTargets(
-  action: QuickAction,
+  action: Pick<QuickAction, "template">,
   scope: QuickActionScope,
 ): QuickActionTargets {
   const needs = quickActionRequirements(action.template);
@@ -93,6 +94,7 @@ export function quickActionTargets(
           "|",
         ),
         label: [bindingLabel, prLabel].filter(Boolean).join(" · ") || null,
+        ...(link ? { snapshot: link.snapshot } : {}),
         choice: {
           ...(bindingId ? { bindingId } : {}),
           ...(link
@@ -112,7 +114,7 @@ export interface RenderedQuickAction {
   /** Evidence actions append as a separate block instead of replacing the selection. */
   readonly append: boolean;
   /** Present when the text depends on a PR head; insertion later must re-check it. */
-  readonly context: ActionContextInput | null;
+  readonly contexts: readonly ActionContextInput[];
 }
 
 /**
@@ -146,7 +148,7 @@ export async function renderQuickActionText(input: {
     if (!clipboard) throw new Error("Your clipboard is empty. Copy some text and try again.");
     values.clipboard = clipboard;
   }
-  let context: RenderedQuickAction["context"] = null;
+  let context: ActionContextInput | null = null;
   if (needs.host) {
     if (scope.projectId === null) throw new Error("This action needs a project.");
     const pullRequest: PullRequestRef | undefined = choice.pullRequest
@@ -186,7 +188,33 @@ export async function renderQuickActionText(input: {
       };
     }
   }
-  return { text: renderQuickAction(action.template, values), append: needs.evidence, context };
+  return {
+    text: renderQuickAction(action.template, values),
+    append: needs.evidence,
+    contexts: context ? [context] : [],
+  };
+}
+
+/** Resolve every selection before changing the draft, preserving every PR head for delayed insertion. */
+export async function renderQuickActionSelection(
+  input: Omit<Parameters<typeof renderQuickActionText>[0], "choice"> & {
+    readonly choices: readonly QuickActionChoice[];
+  },
+): Promise<RenderedQuickAction> {
+  if (input.choices.length === 0) throw new Error("Select at least one target.");
+  const now = input.now ?? new Date();
+  const rendered: RenderedQuickAction[] = [];
+  for (const choice of input.choices) {
+    rendered.push(await renderQuickActionText({ ...input, now, choice }));
+  }
+  const text = rendered.map((entry) => entry.text).join("\n\n---\n\n");
+  if (new TextEncoder().encode(text).byteLength > 131072)
+    throw new Error("Selected actions exceed 128 KiB. Select fewer targets.");
+  return {
+    text,
+    append: rendered.some((entry) => entry.append),
+    contexts: rendered.flatMap((entry) => entry.contexts),
+  };
 }
 
 const recentIds: string[] = [];
@@ -224,8 +252,8 @@ export function insertQuickActionText(input: {
     title: action.name,
     prompt: rendered.text,
     ...(input.reviewComments ? { reviewComments: input.reviewComments } : {}),
-    ...(rendered.context && input.projectId
-      ? { validation: { environmentId: input.environmentId, context: rendered.context } }
+    ...(rendered.contexts.length > 0 && input.projectId
+      ? { validation: { environmentId: input.environmentId, contexts: rendered.contexts } }
       : {}),
   });
   toastManager.add({

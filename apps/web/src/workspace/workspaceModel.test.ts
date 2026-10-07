@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { WorkspaceRepository } from "@t3tools/contracts";
 
 import {
+  draftRepositoryFromBinding,
   primaryBindingRequest,
   repositoriesSummary,
   topLevelRepositories,
@@ -34,6 +35,55 @@ describe("workspace configuration", () => {
     expect(fresh.branch).toMatch(/^t3\/[0-9a-f]{8}$/);
   });
 
+  it.each([true, false])(
+    "carries the origin preference %s to new worktrees only",
+    (startFromOrigin) => {
+      const configuration = workspaceConfiguration({
+        primary: primaryBindingRequest({
+          label: "web",
+          workspaceRoot: "/repos/web",
+          branch: "main",
+          envMode: "worktree",
+          worktreePath: null,
+        }),
+        repositories: [repository("api", "new-worktree"), repository("local", "current")],
+        expectedRevision: 0,
+        startFromOrigin,
+      });
+      expect(configuration.bindings.map((binding) => binding.startFromOrigin)).toEqual([
+        startFromOrigin,
+        startFromOrigin,
+        undefined,
+      ]);
+    },
+  );
+
+  it("preserves an explicit local base when reconfiguring a recorded workspace", () => {
+    const recorded = draftRepositoryFromBinding({
+      id: "api",
+      label: "api",
+      sourcePath: "/repos/api",
+      commonDir: "/repos/api/.git",
+      checkoutPath: "/wt/api",
+      mode: "new-worktree",
+      branch: "task/api",
+      baseRef: "main",
+      baseCommit: "abc",
+      head: "abc",
+      state: "failed",
+      owned: true,
+      error: "failed",
+      startFromOrigin: false,
+    });
+    const configuration = workspaceConfiguration({
+      primary: null,
+      repositories: [recorded],
+      expectedRevision: 1,
+      startFromOrigin: true,
+    });
+    expect(configuration.bindings[0]?.startFromOrigin).toBe(false);
+  });
+
   it("names bindings after their repositories so worktree folders stay readable", () => {
     const configuration = workspaceConfiguration({
       primary: primaryBindingRequest({
@@ -53,7 +103,11 @@ describe("workspace configuration", () => {
       "api",
       "api-2",
     ]);
-    expect(configuration.bindings[1]).toMatchObject({ mode: "new-worktree", baseRef: "main" });
+    expect(configuration.bindings[1]).toMatchObject({
+      mode: "new-worktree",
+      baseRef: "main",
+      startFromOrigin: true,
+    });
   });
 
   it("gives a folder's mode to the repositories inside it and keeps the mirror's name free", () => {

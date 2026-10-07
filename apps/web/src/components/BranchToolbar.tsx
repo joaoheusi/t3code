@@ -739,6 +739,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           isGitRepo={showGitControls}
           envMode={effectiveEnvMode}
           onEnvModeChange={onEnvModeChange}
+          startFromOrigin={startFromOrigin}
           worktreePath={activeWorktreePath}
           branch={activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null}
         />

@@ -32,6 +32,36 @@ const init = (path: string) => {
   git(path, "commit", "-m", "base");
   return path;
 };
+const advanceOrigin = () => {
+  const remote = join(root, "remote.git");
+  git(root, "init", "--bare", remote);
+  git(repo, "remote", "add", "origin", remote);
+  git(repo, "push", "-u", "origin", "main");
+  const localHead = git(repo, "rev-parse", "main");
+  const peer = join(root, "peer");
+  git(root, "clone", "--branch", "main", remote, peer);
+  git(peer, "config", "user.email", "test@example.invalid");
+  git(peer, "config", "user.name", "Workspace tests");
+  writeFileSync(join(peer, "remote.txt"), "latest remote commit\n");
+  git(peer, "add", ".");
+  git(peer, "commit", "-m", "advance remote main");
+  git(peer, "push", "origin", "main");
+  return { remote, peer, localHead, remoteHead: git(peer, "rev-parse", "HEAD") };
+};
+const newWorktreeConfiguration = (options: { baseRef?: string; startFromOrigin?: boolean }) => ({
+  expectedRevision: 0,
+  primaryBindingId: "repo",
+  bindings: [
+    {
+      id: "repo",
+      label: "repo",
+      sourcePath: repo,
+      mode: "new-worktree" as const,
+      branch: "task/fresh",
+      ...options,
+    },
+  ],
+});
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), "j4-workspaces-")));
   repo = init(join(root, "repo"));
@@ -154,6 +184,99 @@ describe("host workspace identity and preparation", () => {
           }),
         );
       }),
+  );
+  it.effect.each(["main", "origin/main", undefined])(
+    "starts a new worktree from fresh origin using base %s without moving local main",
+    (baseRef) =>
+      Effect.gen(function* () {
+        const { remoteHead, localHead } = advanceOrigin();
+        writeFileSync(join(repo, "file.txt"), "local edits\n");
+        yield* run((service) =>
+          Effect.gen(function* () {
+            const plan = yield* service.plan(
+              newWorktreeConfiguration(baseRef ? { baseRef } : {}),
+              CommandId.make("fresh-origin"),
+            );
+            const ready = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+            expect(git(ready.checkoutPath, "rev-parse", "HEAD")).toBe(remoteHead);
+            expect(git(repo, "rev-parse", "main")).toBe(localHead);
+            expect(readFileSync(join(repo, "file.txt"), "utf8")).toBe("local edits\n");
+          }),
+        );
+      }),
+  );
+  it.effect("honors an explicit local base even when origin is unavailable", () =>
+    Effect.gen(function* () {
+      const { localHead, remote } = advanceOrigin();
+      rmSync(remote, { recursive: true, force: true });
+      yield* run((service) =>
+        Effect.gen(function* () {
+          const plan = yield* service.plan(
+            newWorktreeConfiguration({ baseRef: "main", startFromOrigin: false }),
+            CommandId.make("local-base"),
+          );
+          const ready = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+          expect(git(ready.checkoutPath, "rev-parse", "HEAD")).toBe(localHead);
+        }),
+      );
+    }),
+  );
+  it.effect(
+    "fails preparation instead of silently using a stale base when origin cannot be fetched",
+    () =>
+      Effect.gen(function* () {
+        const { remote, localHead } = advanceOrigin();
+        rmSync(remote, { recursive: true, force: true });
+        yield* run((service) =>
+          Effect.gen(function* () {
+            const error = yield* service
+              .plan(newWorktreeConfiguration({ baseRef: "main" }), CommandId.make("offline"))
+              .pipe(Effect.flip);
+            expect(error.message).toContain("Git");
+            expect(git(repo, "rev-parse", "main")).toBe(localHead);
+            expect(git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(
+              1,
+            );
+            expect(git(repo, "branch", "--list", "task/fresh")).toBe("");
+          }),
+        );
+      }),
+  );
+  it.effect("keeps local-only branches usable when origin has no matching branch", () =>
+    Effect.gen(function* () {
+      const { localHead } = advanceOrigin();
+      git(repo, "branch", "local-only");
+      yield* run((service) =>
+        Effect.gen(function* () {
+          const plan = yield* service.plan(
+            newWorktreeConfiguration({ baseRef: "local-only" }),
+            CommandId.make("local-only"),
+          );
+          const ready = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+          expect(git(ready.checkoutPath, "rev-parse", "HEAD")).toBe(localHead);
+        }),
+      );
+    }),
+  );
+  it.effect("pins the fetched base across preparation retries after origin advances again", () =>
+    Effect.gen(function* () {
+      const { remoteHead, peer } = advanceOrigin();
+      yield* run((service) =>
+        Effect.gen(function* () {
+          const plan = yield* service.plan(
+            newWorktreeConfiguration({ baseRef: "main" }),
+            CommandId.make("retry"),
+          );
+          const first = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+          git(peer, "commit", "--allow-empty", "-m", "advance again");
+          git(peer, "push", "origin", "main");
+          git(repo, "fetch", "origin");
+          const retry = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+          expect(retry.checkoutPath).toBe(first.checkoutPath);
+          expect(git(retry.checkoutPath, "rev-parse", "HEAD")).toBe(remoteHead);
+        }),
+      );
+    }),
   );
   it.effect("never adopts or deletes an unknown directory at an expected worktree path", () =>
     Effect.gen(function* () {

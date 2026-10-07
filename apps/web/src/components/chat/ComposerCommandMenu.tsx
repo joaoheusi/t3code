@@ -84,7 +84,7 @@ export type ComposerCommandItem =
       type: "quick-action";
       action: QuickAction;
       /** Null when the thread lacks the PR or repository the template needs. */
-      variant: QuickActionVariant | null;
+      variant: QuickActionVariant | "choose" | null;
       label: string;
       description: string;
     };

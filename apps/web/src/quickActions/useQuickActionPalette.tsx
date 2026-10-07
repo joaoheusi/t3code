@@ -15,7 +15,10 @@ import {
   quickActionTargets,
   recentQuickActionIds,
   type QuickActionScope,
+  type QuickActionVariant,
 } from "./quickActionRunner";
+import { useQuickActionMerge } from "./useQuickActionMerge";
+import { QuickActionPullRequestStatus } from "./QuickActionPullRequestStatus";
 import { useQuickActionLibrary, useRunQuickAction } from "./useQuickActions";
 
 const QUICK_ACTIONS_GROUP = "quick-actions";
@@ -30,6 +33,35 @@ export const quickActionIdFromCommand = (command: string) =>
   /^quickAction\.(.+)\.insert$/.exec(command)?.[1] ?? null;
 
 type QuickActionPaletteItem = CommandPaletteActionItem | CommandPaletteSubmenuItem;
+
+function targetItems(
+  variants: readonly QuickActionVariant[],
+  prefix: string,
+  name: string,
+  scope: QuickActionScope,
+  run: (variant: QuickActionVariant) => Promise<void>,
+): CommandPaletteActionItem[] {
+  return variants.map((variant) => ({
+    kind: "action",
+    value: `${prefix}:${variant.key}`,
+    searchTerms: [variant.label ?? name, variant.choice.pullRequest?.repository ?? ""],
+    title: variant.label ?? name,
+    description:
+      variant.choice.pullRequest && scope.projectId ? (
+        <QuickActionPullRequestStatus
+          environmentId={scope.environmentId}
+          reference={{ ...variant.choice.pullRequest, projectId: scope.projectId }}
+          snapshot={variant.snapshot ?? null}
+        />
+      ) : undefined,
+    icon: variant.choice.pullRequest ? (
+      <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
+    ) : (
+      <FolderGit2Icon className={ITEM_ICON_CLASS} />
+    ),
+    run: () => run(variant),
+  }));
+}
 
 /**
  * Palette entries for the composer the palette was opened over. An action that
@@ -48,6 +80,7 @@ export function useQuickActionPalette(input: {
     true,
   );
   const { run } = useRunQuickAction();
+  const prepareMerge = useQuickActionMerge();
 
   const itemFor = (action: QuickAction): QuickActionPaletteItem => {
     const base = {
@@ -77,7 +110,7 @@ export function useQuickActionPalette(input: {
       };
     }
     const [only] = targets.variants;
-    if (targets.variants.length === 1 && only && target && scope) {
+    if (targets.variants.length === 1 && only && !only.choice.pullRequest && target && scope) {
       return {
         ...base,
         kind: "action",
@@ -90,28 +123,91 @@ export function useQuickActionPalette(input: {
       kind: "submenu",
       description: action.description || "Choose where it applies",
       addonIcon: <ZapIcon className={ADDON_ICON_CLASS} />,
+      multiSelect: {
+        actionLabel: "Insert selected",
+        run: (values) =>
+          run({
+            action,
+            choices: targets.variants
+              .filter((variant) => values.includes(`quick-action:${action.id}:${variant.key}`))
+              .map((variant) => variant.choice),
+            scope: scope!,
+            target: target!,
+          }),
+      },
       groups: [
         {
           value: `quick-action-targets:${action.id}`,
           label: action.name,
-          items: targets.variants.map((variant) => ({
-            kind: "action",
-            value: `quick-action:${action.id}:${variant.key}`,
-            searchTerms: [variant.label ?? action.name],
-            title: variant.label ?? action.name,
-            icon: variant.choice.pullRequest ? (
-              <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
-            ) : (
-              <FolderGit2Icon className={ITEM_ICON_CLASS} />
-            ),
-            run: () => run({ action, choice: variant.choice, scope: scope!, target: target! }),
-          })),
+          items: targetItems(
+            targets.variants,
+            `quick-action:${action.id}`,
+            action.name,
+            scope!,
+            (variant) => run({ action, choice: variant.choice, scope: scope!, target: target! }),
+          ),
         },
       ],
     };
   };
 
   const items = rankQuickActions(library.actions, "", recentQuickActionIds()).map(itemFor);
+  if (scope?.projectId && scope.thread) {
+    const mergeTargets = quickActionTargets({ template: "{{pr.url}}" }, scope);
+    const projectId = scope.projectId;
+    const mergeBase = {
+      value: "quick-action:merge",
+      title: "Merge pull requests",
+      searchTerms: ["merge", "pull requests", "squash", "rebase"],
+      icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
+    };
+    if (mergeTargets.kind === "ready") {
+      const prepare = (variants: readonly QuickActionVariant[]) =>
+        prepareMerge(
+          scope.environmentId,
+          variants.flatMap((variant) =>
+            variant.choice.pullRequest ? [{ ...variant.choice.pullRequest, projectId }] : [],
+          ),
+        );
+      items.push({
+        ...mergeBase,
+        kind: "submenu",
+        description: "Choose pull requests, a merge method, and confirm",
+        addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
+        multiSelect: {
+          actionLabel: "Continue",
+          keepOpen: true,
+          run: (values) =>
+            prepare(
+              mergeTargets.variants.filter((variant) =>
+                values.includes(`quick-action:merge:${variant.key}`),
+              ),
+            ),
+        },
+        groups: [
+          {
+            value: "quick-action-targets:merge",
+            label: "Merge pull requests",
+            items: targetItems(
+              mergeTargets.variants,
+              "quick-action:merge",
+              "Merge pull requests",
+              scope,
+              (variant) => prepare([variant]),
+            ),
+          },
+        ],
+      });
+    } else {
+      items.push({
+        ...mergeBase,
+        kind: "action",
+        description: mergeTargets.reason,
+        disabled: true,
+        run: async () => {},
+      });
+    }
+  }
   const libraryItems: CommandPaletteActionItem[] = [
     {
       kind: "action",

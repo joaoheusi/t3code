@@ -16,6 +16,7 @@ import {
   type ThreadWorkspace,
   type CommandId,
 } from "@t3tools/contracts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerConfig from "../config.ts";
 const excluded = new Set([
@@ -87,6 +88,7 @@ const make = Effect.gen(function* () {
   const permits = yield* Semaphore.make(4);
   const runner = yield* ProcessRunner.ProcessRunner;
   const config = yield* ServerConfig.ServerConfig;
+  const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const canonical = (input: string) =>
     Effect.gen(function* () {
       const path = expandHomePath(input);
@@ -293,11 +295,44 @@ const make = Effect.gen(function* () {
         if (request.mode === "new-worktree") {
           if (!request.branch) return yield* fail("A new worktree requires a branch.");
           yield* git(repository.path, ["check-ref-format", "--branch", request.branch]);
+          let startRef = request.baseRef ?? repository.branch ?? repository.head;
+          if (
+            request.startFromOrigin !== false &&
+            (yield* gitDriver
+              .remoteExists({ cwd: repository.path, remoteName: "origin" })
+              .pipe(Effect.mapError((cause) => fail(cause.message))))
+          ) {
+            yield* gitDriver
+              .fetchRemote({
+                cwd: repository.path,
+                remoteName: "origin",
+                refName: startRef,
+              })
+              .pipe(Effect.mapError((cause) => fail(cause.message)));
+            if (
+              yield* gitDriver
+                .remoteBranchExists({
+                  cwd: repository.path,
+                  remoteName: "origin",
+                  refName: startRef,
+                })
+                .pipe(Effect.mapError((cause) => fail(cause.message)))
+            ) {
+              startRef = (yield* gitDriver
+                .resolveRemoteTrackingCommit({
+                  cwd: repository.path,
+                  refName: startRef,
+                  fallbackRemoteName: "origin",
+                })
+                .pipe(Effect.mapError((cause) => fail(cause.message)))).commitSha;
+            }
+          }
+          // Persist the fetched commit so retries keep the same base even if origin moves.
           baseCommit = (yield* git(repository.path, [
             "rev-parse",
             "--verify",
             "--end-of-options",
-            `${request.baseRef ?? repository.branch ?? repository.head}^{commit}`,
+            `${startRef}^{commit}`,
           ])).trim();
           checkoutPath =
             mirrorPath && insideRoot
@@ -485,5 +520,5 @@ const make = Effect.gen(function* () {
 });
 import * as Schema from "effect/Schema";
 export const layer = Layer.effect(WorkspaceRepositories, make).pipe(
-  Layer.provide(ProcessRunner.layer),
+  Layer.provide(Layer.merge(ProcessRunner.layer, GitVcsDriver.layer)),
 );

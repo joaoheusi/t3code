@@ -171,6 +171,7 @@ export interface CommandPaletteItem {
   readonly searchRecency?: number;
   readonly icon: ReactNode;
   readonly disabled?: boolean;
+  readonly checked?: boolean;
   /** Optional content rendered inline before the title text. */
   readonly titleLeadingContent?: ReactNode;
   /** Optional content rendered inline after the title text (before the timestamp). */
@@ -186,11 +187,18 @@ export interface CommandPaletteActionItem extends CommandPaletteItem {
   readonly run: () => Promise<void>;
 }
 
+export interface CommandPaletteMultiSelect {
+  readonly keepOpen?: boolean;
+  readonly actionLabel: string;
+  readonly run: (values: readonly string[]) => Promise<void>;
+}
+
 export interface CommandPaletteSubmenuItem extends CommandPaletteItem {
   readonly kind: "submenu";
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+  readonly multiSelect?: CommandPaletteMultiSelect;
 }
 
 export interface CommandPaletteGroup {
@@ -203,6 +211,7 @@ export interface CommandPaletteView {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+  readonly multiSelect?: CommandPaletteMultiSelect;
 }
 
 export type CommandPaletteRow =

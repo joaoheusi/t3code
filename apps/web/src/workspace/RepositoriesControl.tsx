@@ -6,6 +6,7 @@ import {
   type ThreadId,
   type WorkspaceBinding,
 } from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
@@ -41,6 +42,7 @@ import { Spinner } from "../components/ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { toastManager } from "../components/ui/toast";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useEnvironmentSettings } from "../hooks/useSettings";
 import { cn, randomUUID } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useThreadShell } from "../state/entities";
@@ -83,6 +85,7 @@ interface RepositoriesControlProps {
   };
   readonly isGitRepo: boolean;
   readonly envMode: "local" | "worktree";
+  readonly startFromOrigin: boolean;
   readonly onEnvModeChange: (mode: "local" | "worktree") => void;
   readonly worktreePath: string | null;
   readonly branch: string | null;
@@ -222,6 +225,7 @@ function EditableRepositories(
 ) {
   const { environmentId, threadId, composerKey, project, selection, folder } = props;
   const workspace = useThreadShell(scopeThreadRef(environmentId, threadId))?.workspace;
+  const settings = useEnvironmentSettings(environmentId);
   const openAdd = useAddRepository({
     draftKey: composerKey,
     environmentId,
@@ -290,6 +294,10 @@ function EditableRepositories(
             : {}),
           repositories,
           expectedRevision: workspace.revision,
+          startFromOrigin:
+            props.envMode === "worktree"
+              ? props.startFromOrigin
+              : resolveProjectSettings(settings, project.id).settings.newWorktreesStartFromOrigin,
         }),
       },
     });

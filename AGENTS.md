@@ -1,5 +1,11 @@
 # T3 Code
 
+## Personal fork workflow
+
+This repository is the personal fork `joaoheusi/t3code`. Its `main` branch holds the integrated fork. Start new feature branches from the fork's current `main`. When asked to open a PR, target `joaoheusi/t3code:main` unless the developer explicitly requests an upstream contribution.
+
+`origin` is the fork. `upstream` is `pingdotgg/t3code`. Bring upstream updates into a separate branch, verify them with the fork's changes, then merge through a PR into the fork's `main`. Preserve published history; do not rebase or force-push `main`.
+
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
 
 You can think of T3 Code as an open source "bring-your-own-subscription" alternative to apps like Claude Desktop, Codex App, Cursor Glass and Conductor.

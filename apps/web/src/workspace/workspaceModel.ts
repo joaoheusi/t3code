@@ -23,6 +23,7 @@ export interface DraftRepository {
   /** Branch observed when the repository was added; the base for a new worktree. */
   readonly branch: string | null;
   readonly head: string;
+  readonly startFromOrigin?: boolean;
 }
 
 export const CHECKOUT_MODE_LABEL: Record<CheckoutMode, string> = {
@@ -138,6 +139,9 @@ export function draftBindingRequest(repository: DraftRepository): WorkspaceBindi
     mode: "new-worktree",
     ...(baseRef ? { baseRef } : {}),
     branch: temporaryBranch(),
+    ...(repository.startFromOrigin !== undefined
+      ? { startFromOrigin: repository.startFromOrigin }
+      : {}),
   };
 }
 
@@ -151,6 +155,7 @@ export function workspaceConfiguration(input: {
   readonly root?: WorkspaceRootRequest;
   readonly repositories: readonly DraftRepository[];
   readonly expectedRevision: number;
+  readonly startFromOrigin?: boolean;
 }): WorkspaceConfiguration {
   const { primary, root, expectedRevision } = input;
   const taken = new Set<string>();
@@ -183,7 +188,13 @@ export function workspaceConfiguration(input: {
       : repository,
   );
   const bindings = [...(primary ? [primary] : []), ...repositories.map(draftBindingRequest)].map(
-    (binding) => ({ ...binding, id: readableId(binding.label) }),
+    (binding) => ({
+      ...binding,
+      id: readableId(binding.label),
+      ...(binding.mode === "new-worktree"
+        ? { startFromOrigin: binding.startFromOrigin ?? input.startFromOrigin ?? true }
+        : {}),
+    }),
   );
   return {
     expectedRevision,
@@ -203,6 +214,7 @@ export function draftRepositoryFromBinding(binding: WorkspaceBinding): DraftRepo
     mode: binding.mode,
     branch: binding.mode === "new-worktree" ? (binding.baseRef ?? null) : binding.branch,
     head: binding.baseCommit,
+    ...(binding.startFromOrigin !== undefined ? { startFromOrigin: binding.startFromOrigin } : {}),
   };
 }
 

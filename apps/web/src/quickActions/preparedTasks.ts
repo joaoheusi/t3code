@@ -13,7 +13,7 @@ export interface PreparedTask {
   /** PR evidence is re-checked against the PR head before insertion. */
   readonly validation?: {
     readonly environmentId: EnvironmentId;
-    readonly context: ActionContextInput;
+    readonly contexts: readonly ActionContextInput[];
   };
   readonly createdAt: number;
 }

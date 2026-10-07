@@ -2,6 +2,7 @@ import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAc
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { quickActionRequirements, rankQuickActions } from "@t3tools/shared/quickActions";
 import { registerActionEditor } from "~/quickActions/dispatcher";
+import { openCommandPalette } from "../../commandPaletteBus";
 import { prepareTask } from "~/quickActions/preparedTasks";
 import {
   noteQuickActionUse,
@@ -2749,6 +2750,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             },
           ];
         }
+        if (targets.variants.length > 1) {
+          return [
+            {
+              id: `quick-action:${action.id}`,
+              type: "quick-action",
+              action,
+              variant: "choose",
+              label: action.name,
+              description: "Choose one or more pull requests or repositories",
+            },
+          ];
+        }
         return targets.variants.map((variant) => ({
           id: `quick-action:${action.id}:${variant.key}`,
           type: "quick-action",
@@ -3988,7 +4001,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const insertQuickActionAtCaret = useCallback(
     async (item: Extract<ComposerCommandItem, { type: "quick-action" }>, insertAt: number) => {
       const variant = item.variant;
-      if (!variant) return;
+      if (!variant || variant === "choose") return;
       const targetKey = composerDraftTargetKeyRef.current;
       const promptBefore = promptRef.current;
       const scope = { environmentId, projectId: activeProjectId, thread: actionThreadShell };
@@ -4014,7 +4027,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         prepareTask(composerDraftTarget, {
           title: item.action.name,
           prompt: rendered.text,
-          ...(rendered.context ? { validation: { environmentId, context: rendered.context } } : {}),
+          ...(rendered.contexts.length > 0
+            ? { validation: { environmentId, contexts: rendered.contexts } }
+            : {}),
         });
       } catch (error) {
         const failure = {
@@ -4058,10 +4073,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+          focusEditorAfterReplace: item.variant !== "choose",
         });
         if (applied) {
           setComposerHighlightedItemId(null);
-          void insertQuickActionAtCaret(item, trigger.rangeStart);
+          if (item.variant === "choose") {
+            openCommandPalette({ open: "quick-actions", actionId: item.action.id });
+          } else {
+            void insertQuickActionAtCaret(item, trigger.rangeStart);
+          }
         }
         return;
       }

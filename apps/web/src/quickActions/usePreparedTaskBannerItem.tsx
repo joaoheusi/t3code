@@ -23,8 +23,10 @@ export function usePreparedTaskBannerItem(
       setBusy(true);
       try {
         // PR evidence is only worth inserting while it still describes the PR head.
-        if (task.validation)
-          await resolveContext(task.validation.environmentId, task.validation.context);
+        if (task.validation) {
+          for (const context of task.validation.contexts)
+            await resolveContext(task.validation.environmentId, context);
+        }
         if (readPreparedTask(target)?.id !== task.id) return;
         const invocation = actionDispatcher.capture(actionTargetKey(target), "prepared-task", 0);
         const result = invocation
