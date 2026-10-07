@@ -1,6 +1,6 @@
 # Build and verify the personal fork
 
-Baseline: `pingdotgg/t3code` at `f4f148eb670622a049ae6561d7795011e383fc43` (upstream v0.0.45). Fork: `joaoheusi/t3code`, branch `feat/personal-workflows`, version `0.0.45-j4.1`. Wire protocol: 1002. Fork migrations: 059 (quick actions), 060 (Git operation receipts).
+Baseline: `pingdotgg/t3code` at `f4f148eb670622a049ae6561d7795011e383fc43` (upstream v0.0.45). Fork: `joaoheusi/t3code`, branch `feat/personal-workflows`, version `0.0.45-j4.2`. Wire protocol: 1002. Fork migrations: 059 (quick actions), 060 (Git operation receipts), 061 (starter action text).
 
 The initial target is macOS arm64 desktop plus its bundled responsive web client. Packaging is unsigned and updates are manual. Windows, Linux, native mobile, remote bootstrap archives, signing, notarization, and owned cloud services need their own release verification.
 
@@ -14,7 +14,7 @@ Build the desktop archive with:
 
 ```sh
 PATH="$PWD/node_modules/.bin:$PATH" node scripts/build-desktop-artifact.ts \
-  --platform mac --arch arm64 --target zip --output-dir /absolute/output-folder
+  --platform mac --arch arm64 --target dmg --output-dir /absolute/output-folder
 ```
 
 Then run the isolated integration fixture:
@@ -35,7 +35,7 @@ The [verification record](../fork/acceptance-status.json) distinguishes focused 
 
 ## Install the test archive
 
-Unzip `J4-Code-0.0.45-j4.1-arm64.zip`. Copy `J4 Code (Unofficial).app` to a separate folder or to Applications beside the official app. Do not overwrite T3 Code. This archive is unsigned and not notarized. macOS may require an explicit approval in Privacy & Security before it opens. No production profile migration happens automatically.
+Open `J4-Code-0.0.45-j4.2-arm64.dmg`, or unzip `J4-Code-0.0.45-j4.2-arm64.zip`. Copy `J4 Code (Unofficial).app` to a separate folder or to Applications beside the official app. Do not overwrite T3 Code. This archive is unsigned and not notarized. macOS may require an explicit approval in Privacy & Security before it opens. No production profile migration happens automatically.
 
 Start with a fresh fork profile. Check that the title identifies J4 Code and that the chosen execution environment points at the intended host. Configure provider and Git accounts on that host. Complete the open device and provider gates before using it for daily work.
 
