@@ -7,6 +7,7 @@ import {
 } from "../../pendingUserInput";
 import { CheckIcon } from "lucide-react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 
@@ -71,6 +72,8 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const activeQuestion = progress.activeQuestion;
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const onAdvanceRef = useRef(onAdvance);
+  const optionsRef = useRef<HTMLDivElement | null>(null);
+  const isMobileViewport = useMediaQuery("max-sm");
   const [optimisticSingleSelect, setOptimisticSingleSelect] = useState<{
     questionId: string;
     optionValue: string;
@@ -136,6 +139,26 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     },
     [activeQuestion, onToggleOption],
   );
+
+  // Move focus onto the first option when a question appears or advances. The
+  // digit shortcuts below ignore keys typed into editable fields, and the
+  // composer editor usually still holds focus from sending the prompt, so
+  // without this the digits land in the custom-answer draft instead. Focus is
+  // only taken from the composer itself or from nothing at all: a terminal, a
+  // dialog, or the sidebar search keeps the keyboard. Phones have no digit
+  // shortcuts and blurring their editor collapses the composer, so skip them.
+  const activeQuestionId = activeQuestion?.id ?? null;
+  useEffect(() => {
+    if (activeQuestionId === null || responseDisabled || isCollapsed || isMobileViewport) return;
+    const options = optionsRef.current;
+    const firstOption = options?.querySelector<HTMLButtonElement>("button");
+    if (!options || !firstOption) return;
+    const activeElement = document.activeElement;
+    const focusIsIdle = activeElement === null || activeElement === document.body;
+    const focusIsInComposer = options.closest("form")?.contains(activeElement) === true;
+    if (!focusIsIdle && !focusIsInComposer) return;
+    firstOption.focus({ preventScroll: true });
+  }, [activeQuestionId, isCollapsed, isMobileViewport, responseDisabled]);
 
   // Keyboard shortcut: number keys 1-9 select corresponding options when focus is
   // outside editable fields. Multi-select prompts toggle options in place; single-
@@ -237,7 +260,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
             {activeQuestion.multiSelect ? (
               <p className="mt-1 text-secondary-label text-xs">Select one or more options.</p>
             ) : null}
-            <div className="mt-2 space-y-0.5">
+            <div ref={optionsRef} className="mt-2 space-y-0.5">
               {activeQuestion.options.map((option, index) => {
                 const optionValue = option.value ?? option.label;
                 const isOptimisticallySelected =
