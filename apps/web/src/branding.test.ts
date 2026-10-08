@@ -72,6 +72,17 @@ describe("branding", () => {
 });
 
 describe("branding logic", () => {
+  it("uses Nightly for the personal fork server", () => {
+    expect(
+      resolveServerBackedAppDisplayName({
+        baseName: "J4 Code (Unofficial)",
+        fallbackDisplayName: "J4 Code (Unofficial) (Alpha)",
+        fallbackStageLabel: "Alpha",
+        primaryServerVersion: "0.0.45-j4.3",
+      }),
+    ).toBe("J4 Code (Unofficial) (Nightly)");
+  });
+
   it("returns Nightly for nightly primary server versions", () => {
     expect(
       resolveServerBackedAppStageLabel({

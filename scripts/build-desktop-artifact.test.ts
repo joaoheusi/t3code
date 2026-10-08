@@ -261,6 +261,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("resolves the dedicated nightly updater channel from nightly versions", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
+    assert.equal(resolveDesktopUpdateChannel("0.0.45-j4.3"), "latest");
   });
 
   it("switches desktop packaging product names to nightly for nightly builds", () => {
@@ -283,11 +284,16 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
       windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
     });
+    assert.deepStrictEqual(
+      resolveDesktopBuildIconAssets("0.0.45-j4.3"),
+      resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"),
+    );
   });
 
   it("switches the bundled splash and favicon branding for nightly versions", () => {
     assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
     assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.45-j4.3"), "nightly");
   });
 
   it.effect("resolves GitHub desktop publish config from Effect config", () =>
@@ -1999,6 +2005,30 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "dmg/dmg-background-nightly.png",
       );
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect(
+    "uses nightly fork artwork without changing installation identity or enabling updates",
+    () =>
+      Effect.gen(function* () {
+        const config = yield* createBuildConfig(
+          "mac",
+          "dmg",
+          "0.0.45-j4.3",
+          false,
+          false,
+          undefined,
+          undefined,
+        );
+        assert.equal(config.productName, "J4 Code (Unofficial)");
+        assert.equal((config.mac as Record<string, unknown>).identity, "-");
+        assert.equal((config.mac as Record<string, unknown>).hardenedRuntime, false);
+        assert.equal(
+          (config.dmg as Record<string, unknown>).background,
+          "dmg/dmg-background-nightly.png",
+        );
+        assert.isUndefined(config.publish);
+      }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
   it.effect("keeps executable resource editing enabled for unsigned Windows builds", () =>

@@ -1,3 +1,5 @@
+import { isNightlyAppVersion } from "@t3tools/shared/appBranding";
+
 export const BRAND_ASSET_PATHS = {
   developmentIconComposerProject: "assets/dev/app-icon.icon",
   developmentIosIconPng: "assets/dev/blueprint-ios-1024.png",
@@ -42,7 +44,7 @@ export function resolveWebAssetBrandForChannel(channel: WebAssetChannel): WebAss
 }
 
 export function resolveWebAssetBrandForPackageVersion(version: string): WebAssetBrand {
-  return /^[^-+]+-(?:nightly|preview)\./.test(version) ? "nightly" : "production";
+  return isNightlyAppVersion(version) ? "nightly" : "production";
 }
 
 export interface IconOverride {

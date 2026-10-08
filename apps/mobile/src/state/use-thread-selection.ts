@@ -157,14 +157,8 @@ function useResolvedThreadSelection(params: ThreadSelectionRouteParams | undefin
     const message = queued ?? outcome?.message ?? null;
     return message === null ? null : { message, outcome };
   }, [creationOutcome, queuedMessagesByThreadKey, selectedThreadKey]);
-  // Until the creation is delivered the server has no thread to subscribe
-  // to; subscribing anyway would retry "not found" for the whole setup.
-  const selectedThreadDetailRef =
-    selectedThreadShell !== null ||
-    pendingCreation === null ||
-    pendingCreation.outcome?.kind === "delivered"
-      ? selectedThreadRef
-      : null;
+  // The shared detail atom gates all readers while creation is still pending.
+  const selectedThreadDetailRef = selectedThreadRef;
   const [previousCreation, setPreviousCreation] = useState<PendingThreadCreation | null>(null);
   // Normal selection is shell-only. Detail readers subscribe separately; only
   // optimistic creation needs the projection here until its prompt arrives.

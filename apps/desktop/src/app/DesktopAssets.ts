@@ -72,6 +72,11 @@ const sourceTreeIconFileNames = {
     macPng: "black-macos-1024.png",
     universalPng: "black-universal-1024.png",
   },
+  nightly: {
+    ico: "nightly-windows.ico",
+    macPng: "nightly-macos-1024.png",
+    universalPng: "nightly-universal-1024.png",
+  },
 } as const;
 
 function resolveSourceTreeIconPath(
@@ -79,7 +84,11 @@ function resolveSourceTreeIconPath(
   ext: keyof DesktopIconPaths,
 ): string | undefined {
   if (environment.isPackaged || ext === "icns") return undefined;
-  const brand = environment.isDevelopment ? "dev" : "prod";
+  const brand = environment.isDevelopment
+    ? "dev"
+    : environment.branding.stageLabel === "Nightly"
+      ? "nightly"
+      : "prod";
   const fileNames = sourceTreeIconFileNames[brand];
   const fileName =
     ext === "ico"

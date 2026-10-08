@@ -1,4 +1,4 @@
-const NIGHTLY_SERVER_VERSION_PATTERN = /^[^-+]+-(?:nightly|preview)\.\d{8}\.\d+$/;
+import { isNightlyAppVersion } from "@t3tools/shared/appBranding";
 
 export function formatAppDisplayName(input: {
   readonly baseName: string;
@@ -15,8 +15,7 @@ export function resolveServerBackedAppStageLabel(input: {
   readonly primaryServerVersion: string | null | undefined;
   readonly fallbackStageLabel: string;
 }): string {
-  return input.primaryServerVersion &&
-    NIGHTLY_SERVER_VERSION_PATTERN.test(input.primaryServerVersion)
+  return input.primaryServerVersion && isNightlyAppVersion(input.primaryServerVersion)
     ? "Nightly"
     : input.fallbackStageLabel;
 }
