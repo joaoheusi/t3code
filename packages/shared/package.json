@@ -399,6 +399,10 @@
       "types": "./src/codexAuthHandoff.ts",
       "import": "./src/codexAuthHandoff.ts"
     },
+    "./appBranding": {
+      "types": "./src/appBranding.ts",
+      "import": "./src/appBranding.ts"
+    },
     "./forkIdentity": {
       "types": "./src/forkIdentity.ts",
       "import": "./src/forkIdentity.ts"
