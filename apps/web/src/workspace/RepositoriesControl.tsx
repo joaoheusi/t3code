@@ -448,7 +448,7 @@ function EditableRepositories(
       </div>
       <p className="mt-2 border-t px-1 pt-2 text-muted-foreground text-xs">
         {folder && props.envMode === "worktree"
-          ? `Each repository gets a new worktree at its place in a copy of ${basename(project.workspaceRoot)}. Files outside the repositories aren't copied.`
+          ? `Each repository gets a new worktree from its default branch at its place in a copy of ${basename(project.workspaceRoot)}. Files outside the repositories aren't copied.`
           : workspace
             ? "Each repository keeps its own branch. New worktrees start from the latest commit."
             : "Prepared when you send. New worktrees start from the latest commit; uncommitted changes stay where they are."}

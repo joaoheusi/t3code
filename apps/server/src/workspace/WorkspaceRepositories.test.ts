@@ -205,6 +205,28 @@ describe("host workspace identity and preparation", () => {
         );
       }),
   );
+  it.effect(
+    "starts from the default branch and records it when the checkout sits on a stale branch",
+    () =>
+      Effect.gen(function* () {
+        const { remoteHead } = advanceOrigin();
+        git(repo, "remote", "set-head", "origin", "main");
+        git(repo, "switch", "-c", "stale-feature");
+        git(repo, "commit", "--allow-empty", "-m", "unmerged work");
+        git(repo, "push", "origin", "stale-feature");
+        yield* run((service) =>
+          Effect.gen(function* () {
+            const plan = yield* service.plan(
+              newWorktreeConfiguration({}),
+              CommandId.make("default-base"),
+            );
+            const ready = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+            expect(git(ready.checkoutPath, "rev-parse", "HEAD")).toBe(remoteHead);
+            expect(git(repo, "config", "--get", "branch.task/fresh.gh-merge-base")).toBe("main");
+          }),
+        );
+      }),
+  );
   it.effect("honors an explicit local base even when origin is unavailable", () =>
     Effect.gen(function* () {
       const { localHead, remote } = advanceOrigin();

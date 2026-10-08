@@ -292,10 +292,18 @@ const make = Effect.gen(function* () {
         let checkoutPath = repository.path;
         let baseCommit = repository.head;
         let branch = repository.branch;
+        let baseBranch: string | null = null;
         if (request.mode === "new-worktree") {
           if (!request.branch) return yield* fail("A new worktree requires a branch.");
           yield* git(repository.path, ["check-ref-format", "--branch", request.branch]);
-          let startRef = request.baseRef ?? repository.branch ?? repository.head;
+          // Without a chosen base, start from the default branch: the source checkout may
+          // sit on a stale feature branch the user never sees in this flow.
+          const defaultBranch = request.baseRef
+            ? null
+            : yield* gitDriver
+                .resolveDefaultBranchName(repository.path, "origin")
+                .pipe(Effect.orElseSucceed(() => null));
+          let startRef = request.baseRef ?? defaultBranch ?? repository.branch ?? repository.head;
           if (
             request.startFromOrigin !== false &&
             (yield* gitDriver
@@ -318,6 +326,7 @@ const make = Effect.gen(function* () {
                 })
                 .pipe(Effect.mapError((cause) => fail(cause.message)))
             ) {
+              baseBranch = startRef;
               startRef = (yield* gitDriver
                 .resolveRemoteTrackingCommit({
                   cwd: repository.path,
@@ -327,6 +336,17 @@ const make = Effect.gen(function* () {
                 .pipe(Effect.mapError((cause) => fail(cause.message)))).commitSha;
             }
           }
+          baseBranch ??= (yield* git(repository.path, [
+            "show-ref",
+            "--verify",
+            "--quiet",
+            `refs/heads/${startRef}`,
+          ]).pipe(
+            Effect.as(true),
+            Effect.orElseSucceed(() => false),
+          ))
+            ? startRef
+            : null;
           // Persist the fetched commit so retries keep the same base even if origin moves.
           baseCommit = (yield* git(repository.path, [
             "rev-parse",
@@ -348,8 +368,11 @@ const make = Effect.gen(function* () {
             );
           branch = request.branch;
         }
+        const { baseRef: _requestedBase, ...rest } = request;
         bindings.push({
-          ...request,
+          ...rest,
+          // Only a branch name is kept, since preparation records it as the diff base.
+          ...(baseBranch ? { baseRef: baseBranch } : {}),
           sourcePath: repository.path,
           commonDir: repository.commonDir,
           checkoutPath,
@@ -482,6 +505,13 @@ const make = Effect.gen(function* () {
           binding.baseCommit,
         ]);
       }
+      // Like single-repository worktrees, so the changes count compares with this base.
+      if (binding.baseRef)
+        yield* git(source.path, [
+          "config",
+          `branch.${binding.branch!}.gh-merge-base`,
+          binding.baseRef,
+        ]);
     }
     const actual = yield* inspect(binding.checkoutPath);
     if (

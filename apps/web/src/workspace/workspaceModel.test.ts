@@ -126,7 +126,8 @@ describe("workspace configuration", () => {
       ["web", "new-worktree"],
       ["repos-2", "current"],
     ]);
-    expect(configuration.bindings[0]).toMatchObject({ baseRef: "main" });
+    // A mirrored repository starts from its default branch, not its checkout's branch.
+    expect(configuration.bindings[0]).not.toHaveProperty("baseRef");
   });
 
   it("lists a folder's top-level repositories once each", () => {

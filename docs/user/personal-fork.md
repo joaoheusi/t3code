@@ -35,7 +35,7 @@ To start every new thread in a project with the same repositories, choose **Save
 A project whose folder isn't a repository but holds repositories is a folder project. Its new threads start with every repository found up to three folders deep, at most 20; remove the ones you don't need. Repositories nested inside another one, and extra checkouts of the same repository, are left out. The folder row in the menu chooses where the agent works:
 
 - **Current folder** works in the folder itself.
-- **New worktrees** makes a copy of the folder's layout with a new worktree of each repository at the same place, so paths between them still work. Files outside the repositories, such as a shared script at the top of the folder, aren't copied.
+- **New worktrees** makes a copy of the folder's layout with a new worktree of each repository at the same place, so paths between them still work. Each worktree starts from its repository's default branch, such as `main`, whatever branch the original checkout is on. Files outside the repositories, such as a shared script at the top of the folder, aren't copied.
 
 The folder's mode also follows the project's default workspace setting. Repositories outside the folder can still be added with their own checkout.
 
