@@ -347,6 +347,11 @@ const make = Effect.gen(function* () {
           ))
             ? startRef
             : null;
+          // A default branch without a local copy still has the cached remote-tracking ref.
+          if (baseBranch === null && startRef === defaultBranch) {
+            baseBranch = defaultBranch;
+            startRef = `refs/remotes/origin/${defaultBranch}`;
+          }
           // Persist the fetched commit so retries keep the same base even if origin moves.
           baseCommit = (yield* git(repository.path, [
             "rev-parse",

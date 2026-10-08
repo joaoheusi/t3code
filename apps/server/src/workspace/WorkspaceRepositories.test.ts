@@ -227,6 +227,28 @@ describe("host workspace identity and preparation", () => {
         );
       }),
   );
+  it.effect(
+    "uses the cached default branch when origin fetching is off and no local copy exists",
+    () =>
+      Effect.gen(function* () {
+        const { localHead } = advanceOrigin();
+        git(repo, "remote", "set-head", "origin", "main");
+        git(repo, "switch", "-c", "stale-feature");
+        git(repo, "commit", "--allow-empty", "-m", "unmerged work");
+        git(repo, "branch", "-D", "main");
+        yield* run((service) =>
+          Effect.gen(function* () {
+            const plan = yield* service.plan(
+              newWorktreeConfiguration({ startFromOrigin: false }),
+              CommandId.make("cached-default"),
+            );
+            const ready = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+            expect(git(ready.checkoutPath, "rev-parse", "HEAD")).toBe(localHead);
+            expect(git(repo, "config", "--get", "branch.task/fresh.gh-merge-base")).toBe("main");
+          }),
+        );
+      }),
+  );
   it.effect("honors an explicit local base even when origin is unavailable", () =>
     Effect.gen(function* () {
       const { localHead, remote } = advanceOrigin();
