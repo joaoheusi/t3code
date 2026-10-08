@@ -14,17 +14,21 @@ Keep the official application available while testing this build. To return to i
 
 Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. For actions that target pull requests or several repositories, select one or more items, then choose **Insert selected**. Pull request choices show CI and conflict status.
 
+On mobile, choose **Quick actions** above the composer to insert an action. Open **Manage quick actions** there to create or edit actions, choose their project scope, or remove them.
+
 The quick action menu also offers **Merge pull requests**. Select the PRs, choose a merge method allowed by every selected repository, and confirm. This runs the merge command directly.
 
 Manage the library in **Settings → Quick actions**: create, edit, duplicate, favorite, disable, delete, import, and export. Give an action its own shortcut in its editor. Actions belong to one machine and can be limited to one project there. Anyone who can read that machine's settings can read them, so keep secrets out of templates.
 
 Templates can use variables. `{{date}}`, `{{time}}`, and `{{clipboard}}` come from your device. `{{thread.title}}`, `{{workspace.repositories}}`, `{{repo.name}}`, `{{repo.path}}`, `{{repo.branch}}`, `{{pr.url}}`, `{{ci.failures}}`, and `{{pr.conflicts}}` come from the thread's machine. An action that needs a pull request or repository asks which one when the thread has several, and explains what is missing when it has none. Write `\{{` for literal braces.
 
-If the draft changes while an action gathers context, or you move to another thread, the text waits in a notice above that thread's composer. Choose **Insert** to add it to the end of the draft.
+On web and desktop, if the draft changes while an action gathers context, or you move to another thread, the text waits in a notice above that thread's composer. Choose **Insert** to add it to the end of the draft. On mobile, a changed draft keeps its text and asks you to select the action again.
 
 Import accepts the Quick Actions app's JSON format. Imports are added as copies without shortcuts. Export skips actions that use thread, repository, or pull request variables, because only this app can fill them.
 
 ## Several repositories in one thread
+
+On mobile, choose **Repositories** in a new task to select repositories from the connected machine. Folder projects discover their repositories automatically, so they need a connection before you can send. You can choose current checkouts or new worktrees and save the selection as the project default. If setup fails, a notice above the thread's composer lets you retry or cancel it; the first message waits until setup succeeds. Repository choices are fixed after you queue the task.
 
 Before a thread's first message, choose its repositories with the repositories button next to the workspace and branch controls under the composer. Pick from this machine's projects, or browse to any folder; a folder that isn't a repository is searched for repositories inside it. Each added repository uses its **Current checkout** or a **New worktree** from its current branch. Adding a linked worktree folder uses that **Existing worktree**. The thread's own project follows the workspace and branch controls.
 

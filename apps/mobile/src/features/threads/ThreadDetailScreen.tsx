@@ -115,6 +115,7 @@ import type {
 } from "../../lib/threadActivity";
 import { PendingApprovalCard } from "./PendingApprovalCard";
 import { ComposerErrorNotice } from "./ComposerErrorNotice";
+import { MobileThreadWorkspaceNotice } from "./MobileRepositories";
 import { ComposerFeedback } from "./ComposerFeedback";
 import { ComposerUsageLimits } from "./ComposerUsageLimits";
 import { PendingUserInputCard } from "./PendingUserInputCard";
@@ -1255,6 +1256,13 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                       onDismiss={() => clearThreadComposerError(selectedThreadKey)}
                     />
                   </Animated.View>
+                ) : null}
+                {props.selectedThread.workspace ? (
+                  <MobileThreadWorkspaceNotice
+                    environmentId={props.environmentId}
+                    threadId={props.selectedThread.id}
+                    workspace={props.selectedThread.workspace}
+                  />
                 ) : null}
                 {usageLimitsReport && activeUserInputRequestId === null ? (
                   <Animated.View

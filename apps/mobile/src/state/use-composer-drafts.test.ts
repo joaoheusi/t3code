@@ -240,6 +240,27 @@ function contextDraft(start: number, count: number): ComposerDraft {
 }
 
 describe("mobile composer drafts", () => {
+  it("restores repository choices and clears them when the task is sent", () => {
+    const repositorySelection = {
+      folder: true,
+      repositories: [
+        { path: "/projects/api", commonDir: "/projects/api/.git", mode: "new-worktree" as const },
+      ],
+    };
+    const state = decodePersistedComposerState(
+      JSON.parse(
+        JSON.stringify({
+          schemaVersion: 1,
+          drafts: { task: { text: "", attachments: [], repositorySelection } },
+        }),
+      ),
+    );
+    expect(state.drafts.task?.repositorySelection).toEqual(repositorySelection);
+    expect(
+      clearComposerDraftContentState(state.drafts, "task", { clearWorkspaceSelection: true }).task,
+    ).toBeUndefined();
+  });
+
   it.each([false, true])(
     "restores visible file chips from legacy drafts (archived: %s)",
     async (archived) => {
@@ -1886,6 +1907,10 @@ describe("mobile composer drafts", () => {
         ...getComposerDraftSnapshot(key),
         runtimeMode: "approval-required",
         workspaceSelection: { mode: "worktree", branch: "feature/a", worktreePath: null },
+        repositorySelection: {
+          folder: false,
+          repositories: [{ path: "/api", commonDir: "/api/.git", mode: "current" }],
+        },
       },
     });
     const createdAt = getComposerDraftSnapshot(key).project?.createdAt;
@@ -1897,6 +1922,7 @@ describe("mobile composer drafts", () => {
     expect(moved.runtimeMode).toBe("approval-required");
     // Branch and worktree belong to the old repo.
     expect(moved.workspaceSelection).toBeUndefined();
+    expect(moved.repositorySelection).toBeUndefined();
     expect(moved.project).toEqual({ ...to, createdAt });
     expect(findNewTaskDraftKeys(appAtomRegistry.get(composerDraftsAtom), from)).toEqual([]);
     expect(findNewTaskDraftKeys(appAtomRegistry.get(composerDraftsAtom), to)).toEqual([key]);

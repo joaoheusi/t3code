@@ -8,6 +8,7 @@ import {
   type ProjectId,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type WorkspaceConfiguration,
 } from "@t3tools/contracts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -28,6 +29,7 @@ export interface ProjectThreadStartTurnSpec {
   readonly modelSelection: ModelSelection;
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
+  readonly workspaceConfiguration?: WorkspaceConfiguration;
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
@@ -59,29 +61,33 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
     titleSeed: title,
     runtimeMode: spec.runtimeMode,
     interactionMode: spec.interactionMode,
-    bootstrap: {
-      createThread: {
-        projectId: spec.projectId,
-        title,
-        modelSelection: spec.modelSelection,
-        runtimeMode: spec.runtimeMode,
-        interactionMode: spec.interactionMode,
-        branch: spec.branch,
-        worktreePath: isWorktree ? null : spec.worktreePath,
-        createdAt: spec.createdAt,
-      },
-      ...(isWorktree
-        ? {
-            prepareWorktree: {
-              projectCwd: spec.projectCwd,
-              baseBranch: spec.branch!,
-              branch: spec.worktreeBranchName,
-              ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
+    ...(!spec.workspaceConfiguration
+      ? {
+          bootstrap: {
+            createThread: {
+              projectId: spec.projectId,
+              title,
+              modelSelection: spec.modelSelection,
+              runtimeMode: spec.runtimeMode,
+              interactionMode: spec.interactionMode,
+              branch: spec.branch,
+              worktreePath: isWorktree ? null : spec.worktreePath,
+              createdAt: spec.createdAt,
             },
-            runSetupScript: true,
-          }
-        : {}),
-    },
+            ...(isWorktree
+              ? {
+                  prepareWorktree: {
+                    projectCwd: spec.projectCwd,
+                    baseBranch: spec.branch!,
+                    branch: spec.worktreeBranchName,
+                    ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
+                  },
+                  runSetupScript: true,
+                }
+              : {}),
+          },
+        }
+      : {}),
     createdAt: spec.createdAt,
   };
 }

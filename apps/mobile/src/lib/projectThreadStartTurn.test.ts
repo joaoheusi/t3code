@@ -14,6 +14,35 @@ import {
 } from "./projectThreadStartTurn";
 
 describe("project thread title", () => {
+  it("sends into the prepared multi-repository thread without preparing a second worktree", () => {
+    const input = buildProjectThreadStartTurnInput({
+      projectId: ProjectId.make("project"),
+      projectCwd: "/projects",
+      threadId: "thread",
+      commandId: "command",
+      messageId: "message",
+      createdAt: "2026-10-08T12:00:00.000Z",
+      text: "Update both",
+      uploadedAttachments: [],
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      workspaceMode: "worktree",
+      branch: null,
+      worktreePath: null,
+      startFromOrigin: true,
+      worktreeBranchName: "unused",
+      workspaceConfiguration: {
+        expectedRevision: 0,
+        primaryBindingId: "api",
+        bindings: [{ id: "api", label: "api", sourcePath: "/projects/api", mode: "current" }],
+      },
+    });
+    expect(input.bootstrap).toBeUndefined();
+    expect(input.message.text).toBe("Update both");
+    expect(input.threadId).toBe("thread");
+  });
+
   it("keeps ordinary titles and the empty-prompt fallback", () => {
     expect(deriveThreadTitleFromPrompt("  Fix\n the parser  ")).toBe("Fix the parser");
     expect(deriveThreadTitleFromPrompt(" \n ")).toBe("New thread");
@@ -49,7 +78,7 @@ describe("project thread title", () => {
     });
 
     expect(input.titleSeed).toBe("Image: photo.png");
-    expect(input.bootstrap.createThread.title).toBe(input.titleSeed);
+    expect(input.bootstrap?.createThread.title).toBe(input.titleSeed);
     expect(input.message.attachments).toEqual(uploadedAttachments);
   });
 
@@ -96,7 +125,7 @@ describe("project thread title", () => {
     });
 
     expect(input.titleSeed).toBe(title);
-    expect(input.bootstrap.createThread.title).toBe(input.titleSeed);
+    expect(input.bootstrap?.createThread.title).toBe(input.titleSeed);
     expect(input.message.text).toBe(text);
   });
 });
@@ -124,7 +153,7 @@ describe("new thread on an existing branch", () => {
         worktreeBranchName: "unused",
       });
 
-      expect(input.bootstrap.createThread).toMatchObject({
+      expect(input.bootstrap?.createThread).toMatchObject({
         projectId: "project",
         branch: "feature/existing",
         worktreePath,

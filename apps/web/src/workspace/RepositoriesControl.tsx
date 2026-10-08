@@ -69,6 +69,7 @@ import {
   repositoryDefaultFrom,
   workspaceConfiguration,
   workspaceProgress,
+  WORKSPACE_STATE_LABEL,
   type DraftRepository,
 } from "./workspaceModel";
 import { useWorkspaceUiStore } from "./workspaceStores";
@@ -491,14 +492,6 @@ function RepositoryRow(props: {
   );
 }
 
-const STATE_LABEL: Partial<Record<WorkspaceBinding["state"], string>> = {
-  planned: "Waiting",
-  validating: "Checking",
-  preparing: "Preparing",
-  failed: "Failed",
-  cancelled: "Cancelled",
-};
-
 /** A started thread's repositories with what can be done in each. */
 export function ThreadRepositories(props: {
   detail: string;
@@ -523,9 +516,9 @@ export function ThreadRepositories(props: {
             environmentId={props.environmentId}
             binding={binding}
             status={
-              STATE_LABEL[binding.state] ? (
+              WORKSPACE_STATE_LABEL[binding.state] ? (
                 <Badge variant={binding.state === "failed" ? "error" : "secondary"}>
-                  {STATE_LABEL[binding.state]}
+                  {WORKSPACE_STATE_LABEL[binding.state]}
                 </Badge>
               ) : null
             }

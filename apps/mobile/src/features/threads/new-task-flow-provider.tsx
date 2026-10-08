@@ -1,3 +1,9 @@
+import { randomHex } from "../../lib/uuid";
+import { useMobileRepositories } from "./useMobileRepositories";
+import {
+  workspaceConfiguration,
+  primaryBindingRequest,
+} from "@t3tools/client-runtime/workspaceModel";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 
@@ -167,6 +173,9 @@ type NewTaskFlowContextValue = {
   readonly workspaceMode: WorkspaceMode;
   /** False for threads without a project: their folder has no branch or worktree. */
   readonly canChooseWorkspace: boolean;
+  readonly repositoryFolder: boolean;
+  readonly workspaceSelectionLocked: boolean;
+  readonly repositorySendBlockedReason: string | null;
   readonly selectedBranchName: string | null;
   readonly selectedWorktreePath: string | null;
   readonly startFromOrigin: boolean;
@@ -480,6 +489,26 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     );
   }, [activeDraftKey, editingPendingTask, selectedProject]);
   const selectedProjectDraft = useComposerDraft(selectedProjectDraftKey);
+  const repositoryChoice = useMobileRepositories(selectedProject, selectedProjectDraftKey);
+  const workspaceSelectionLocked =
+    editingPendingTask?.creation?.workspaceConfiguration !== undefined;
+  const repositoryFolder =
+    (repositoryChoice.supported || selectedProjectDraft.repositorySelection !== undefined) &&
+    repositoryChoice.selection.folder;
+  // Only a folder project needs discovery to know its repositories. A repository project
+  // sends as itself, so it stays sendable offline and when discovery fails.
+  const repositorySendBlockedReason =
+    repositoryChoice.supported &&
+    !selectedProject?.repositoryIdentity &&
+    !selectedProjectDraft.repositorySelection &&
+    !repositoryChoice.discovery.data
+      ? (repositoryChoice.discovery.error ??
+        (repositoryChoice.discovery.isPending
+          ? "Finding this folder's repositories…"
+          : "Connect to this machine to find this folder's repositories."))
+      : repositoryFolder && repositoryChoice.repositories.length === 0
+        ? "Add at least one repository to this folder."
+        : null;
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
   // Default mode until the user picks one explicitly — same resolution web
@@ -1051,6 +1080,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         modelSelection: message.modelSelection,
         runtimeMode: message.runtimeMode,
         interactionMode: message.interactionMode,
+        ...(message.creation.repositorySelection
+          ? { repositorySelection: message.creation.repositorySelection }
+          : {}),
         workspaceSelection: {
           mode: message.creation.workspaceMode,
           branch: message.creation.branch,
@@ -1130,6 +1162,40 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           projectId: selectedProject.id,
           ...(projectTitle !== undefined ? { projectTitle } : {}),
           ...(projectCwd !== undefined ? { projectCwd } : {}),
+          ...(repositoryChoice.repositories.length > 0 &&
+          (repositoryChoice.supported || draft.repositorySelection)
+            ? {
+                repositorySelection: repositoryChoice.selection,
+                workspaceConfiguration:
+                  editingPendingTask?.creation?.workspaceConfiguration ??
+                  workspaceConfiguration({
+                    randomHex,
+                    primary: repositoryChoice.selection.folder
+                      ? null
+                      : primaryBindingRequest({
+                          randomHex,
+                          label: selectedProject.title,
+                          workspaceRoot: selectedProject.workspaceRoot,
+                          envMode: mode,
+                          // A new worktree never reuses a path kept from a local selection.
+                          worktreePath:
+                            mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
+                          branch: workspaceSelection?.branch ?? null,
+                        }),
+                    ...(repositoryChoice.selection.folder
+                      ? {
+                          root: {
+                            sourcePath: selectedProject.workspaceRoot,
+                            mode: mode === "worktree" ? ("mirror" as const) : ("current" as const),
+                          },
+                        }
+                      : {}),
+                    repositories: repositoryChoice.repositories,
+                    expectedRevision: 0,
+                    startFromOrigin: workspaceSelection?.startFromOrigin ?? startFromOrigin,
+                  }),
+              }
+            : {}),
           workspaceMode: mode,
           // An explicit picker choice wins. Otherwise only a task sending now
           // records the current checkout: a queued local task drains days
@@ -1153,6 +1219,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     },
     [
       canChooseWorkspace,
+      repositoryChoice,
       defaultRuntimeMode,
       editingPendingProject,
       editingPendingTask,
@@ -1277,6 +1344,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedModelKey,
       workspaceMode,
       canChooseWorkspace,
+      repositoryFolder,
+      workspaceSelectionLocked,
+      repositorySendBlockedReason,
       selectedBranchName,
       selectedWorktreePath,
       startFromOrigin,
@@ -1389,6 +1459,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       submitting,
       workspaceMode,
       canChooseWorkspace,
+      repositoryFolder,
+      workspaceSelectionLocked,
+      repositorySendBlockedReason,
       appendAttachments,
       clearAttachments,
       removeAttachment,
