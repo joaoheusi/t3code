@@ -1,3 +1,4 @@
+import { orchestrationEnvironment } from "./orchestration";
 import { useAtomValue } from "@effect/atom-react";
 import {
   threadRuntimeIsActive,
@@ -516,6 +517,9 @@ export async function restoreRejectedQueuedMessage(
       ...(queuedMessage.interactionMode ? { interactionMode: queuedMessage.interactionMode } : {}),
       ...(queuedMessage.creation
         ? {
+            ...(queuedMessage.creation.repositorySelection
+              ? { repositorySelection: queuedMessage.creation.repositorySelection }
+              : {}),
             workspaceSelection: {
               mode: queuedMessage.creation.workspaceMode,
               branch: queuedMessage.creation.branch,
@@ -652,6 +656,9 @@ async function preserveUploadedAttachmentsForEditor(
 }
 
 export function useThreadOutboxDrain(): void {
+  const workspaceDispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
+    reportFailure: false,
+  });
   const startTurn = useAtomCommand(threadEnvironment.startTurn, { reportFailure: false });
   const setThreadRuntimeMode = useAtomCommand(threadEnvironment.setRuntimeMode, {
     reportFailure: false,
@@ -975,6 +982,62 @@ export function useThreadOutboxDrain(): void {
           "Antigravity model unavailable. Set it up on web or desktop, or choose another model.",
         );
       }
+      if (creation.workspaceConfiguration) {
+        const requiredVersion = creation.workspaceConfiguration.root ? 2 : 1;
+        if ((serverConfig.environment.capabilities.forkMultiRepoVersion ?? 0) < requiredVersion) {
+          return restoreQueuedMessage(
+            queuedMessage,
+            "Update this machine's server to use the selected repositories.",
+          );
+        }
+        const thread = findThread(
+          appAtomRegistry.get(environmentThreadShells.threadShellsAtom),
+          queuedMessage,
+        );
+        const { reportFailure } = makeDeliveryHelpers(queuedMessage);
+        const dispatch = async (input: Parameters<typeof workspaceDispatch>[0]["input"]) => {
+          const result = await workspaceDispatch({
+            environmentId: queuedMessage.environmentId,
+            input,
+          });
+          const failure = reportFailure(result, "start-turn");
+          if (failure?.action === "restore")
+            await restoreQueuedMessage(queuedMessage, failure.message);
+          return result._tag !== "Failure";
+        };
+        if (!thread) {
+          if (
+            !(await dispatch({
+              type: "thread.create",
+              commandId: settingsCommandId(queuedMessage, "workspace-create"),
+              threadId: queuedMessage.threadId,
+              projectId: creation.projectId,
+              title: deriveThreadTitleSeed({ text: queuedMessage.text, attachments: [] }),
+              modelSelection,
+              runtimeMode: settings.runtimeMode,
+              interactionMode: settings.interactionMode,
+              branch: null,
+              worktreePath: null,
+              createdBy: "user",
+              creationSource: "mobile",
+            }))
+          )
+            return false;
+        }
+        if (!thread?.workspace) {
+          if (
+            !(await dispatch({
+              type: "thread.metadata.update",
+              commandId: settingsCommandId(queuedMessage, "workspace-configure"),
+              threadId: queuedMessage.threadId,
+              workspaceConfiguration: creation.workspaceConfiguration,
+            }))
+          )
+            return false;
+          return false;
+        }
+        if (thread.workspace.state !== "ready") return false;
+      }
       let prepared: PreparedTurnAttachments;
       let persistedMessage: QueuedThreadMessage;
       let deliveryRevision: number;
@@ -1046,6 +1109,7 @@ export function useThreadOutboxDrain(): void {
           modelSelection: sendSettings.modelSelection,
           runtimeMode: sendSettings.runtimeMode,
           interactionMode: sendSettings.interactionMode,
+          workspaceConfiguration: creation.workspaceConfiguration,
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,
@@ -1078,7 +1142,7 @@ export function useThreadOutboxDrain(): void {
       }
       return outcome === "removed";
     },
-    [makeDeliveryHelpers, restoreQueuedMessage, startTurn],
+    [makeDeliveryHelpers, restoreQueuedMessage, startTurn, workspaceDispatch],
   );
 
   // A creation outcome bridges setup until the server's shell has a turn.
@@ -1184,6 +1248,14 @@ export function useThreadOutboxDrain(): void {
       const deliveryAction = resolveThreadOutboxDeliveryAction({
         isCreation: creation !== undefined,
         threadExists: thread !== undefined,
+        ...(creation?.workspaceConfiguration
+          ? {
+              workspacePreparation: {
+                state: thread?.workspace?.state ?? null,
+                messageDelivered: thread?.latestRun != null,
+              },
+            }
+          : {}),
         shellStatus,
         environmentConnected: environment?.connectionState === "connected",
         threadBusy: threadRuntimeIsActive(thread?.runtime),
@@ -1296,6 +1368,14 @@ export function useThreadOutboxDrain(): void {
           const liveDeliveryAction = resolveThreadOutboxDeliveryAction({
             isCreation: creation !== undefined,
             threadExists: liveThread !== undefined,
+            ...(creation?.workspaceConfiguration
+              ? {
+                  workspacePreparation: {
+                    state: liveThread?.workspace?.state ?? null,
+                    messageDelivered: liveThread?.latestRun != null,
+                  },
+                }
+              : {}),
             shellStatus,
             environmentConnected: environment?.connectionState === "connected",
             threadBusy: liveThreadBusy,

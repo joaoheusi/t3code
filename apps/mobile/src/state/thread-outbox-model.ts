@@ -1,3 +1,5 @@
+import { MobileRepositorySelection } from "./mobile-repository-selection";
+import { WorkspaceConfiguration, type ThreadWorkspace } from "@t3tools/contracts";
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   clampFileAttachmentUploadBytes,
@@ -43,6 +45,8 @@ const QueuedThreadCreationSchema = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
+  workspaceConfiguration: Schema.optional(WorkspaceConfiguration),
+  repositorySelection: Schema.optional(MobileRepositorySelection),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -75,6 +79,8 @@ export interface QueuedThreadCreation {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
+  readonly workspaceConfiguration?: WorkspaceConfiguration;
+  readonly repositorySelection?: MobileRepositorySelection;
 }
 
 export interface QueuedThreadMessage {
@@ -181,12 +187,20 @@ export function resolveThreadOutboxDeliveryAction(input: {
   readonly shellStatus: EnvironmentShellStatus;
   readonly environmentConnected: boolean;
   readonly threadBusy: boolean;
+  /** Workspace setup creates the thread before delivering its first message. */
+  readonly workspacePreparation?: {
+    readonly state: ThreadWorkspace["state"] | null;
+    readonly messageDelivered: boolean;
+  };
 }): ThreadOutboxDeliveryAction {
   if (input.isCreation) {
     // A pending task creates its thread on delivery. If the thread already
     // exists the creation command went through and only cleanup remains.
     if (input.threadExists) {
-      return "remove";
+      if (!input.workspacePreparation || input.workspacePreparation.messageDelivered)
+        return "remove";
+      if (input.workspacePreparation.state !== null && input.workspacePreparation.state !== "ready")
+        return "wait";
     }
     // Wait for the shell to be live before sending: until the thread list has
     // synchronized, a previously delivered creation whose cleanup failed would
@@ -250,7 +264,11 @@ export function isQueuedThreadCreationSendable(message: QueuedThreadMessage): bo
   if (message.text.trim().length === 0 || message.modelSelection === undefined) {
     return false;
   }
-  return message.creation.workspaceMode !== "worktree" || Boolean(message.creation.branch);
+  return (
+    !!message.creation.workspaceConfiguration ||
+    message.creation.workspaceMode !== "worktree" ||
+    Boolean(message.creation.branch)
+  );
 }
 
 function errorMessage(error: unknown): string | null {

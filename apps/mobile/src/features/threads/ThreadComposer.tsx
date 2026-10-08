@@ -1,3 +1,5 @@
+import { MobileQuickActions } from "./MobileQuickActions";
+import { MobileThreadRepositories } from "./MobileRepositories";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -886,6 +888,25 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               className={isExpanded ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
               layout={COMPOSER_LAYOUT_TRANSITION}
             >
+              {isExpanded ? (
+                <View className="flex-row flex-wrap">
+                  {props.selectedThread.workspace ? (
+                    <MobileThreadRepositories
+                      environmentId={props.environmentId}
+                      threadId={props.selectedThread.id}
+                      workspace={props.selectedThread.workspace}
+                    />
+                  ) : null}
+                  <MobileQuickActions
+                    key={composerDraftKey}
+                    environmentId={props.environmentId}
+                    projectId={props.selectedThread.projectId}
+                    draftKey={composerDraftKey}
+                    thread={props.selectedThread}
+                    disabled={props.queuedEdit?.saving}
+                  />
+                </View>
+              ) : null}
               <ComposerEditor
                 draftKey={composerDraftKey}
                 environmentId={props.environmentId}

@@ -398,6 +398,14 @@
     "./state/forkWorkspace": {
       "types": "./src/state/forkWorkspace.ts",
       "default": "./src/state/forkWorkspace.ts"
+    },
+    "./workspaceModel": {
+      "types": "./src/workspaceModel.ts",
+      "default": "./src/workspaceModel.ts"
+    },
+    "./quickActionRunner": {
+      "types": "./src/quickActionRunner.ts",
+      "default": "./src/quickActionRunner.ts"
     }
   },
   "scripts": {
