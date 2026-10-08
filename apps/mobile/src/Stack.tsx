@@ -125,6 +125,11 @@ import { NATIVE_LIQUID_GLASS_SUPPORTED } from "./native/native-glass";
 import { deriveLayout } from "./lib/layout";
 import { nativeHeaderScrollEdgeEffects } from "./native/StackHeader";
 import { FORM_SHEET_PRESENTATION_OPTIONS } from "./native/sheet-surface";
+import { QuickActionsScreen } from "./features/threads/MobileQuickActions";
+import {
+  RepositoriesScreen,
+  ThreadRepositoriesScreen,
+} from "./features/threads/MobileRepositories";
 import { useThreadOutboxDrain } from "./state/use-thread-outbox-drain";
 import { useComposerAttachmentUploadWorker } from "./state/composer-attachment-uploads";
 
@@ -478,6 +483,16 @@ const NewTaskSheetStack = createNativeStackNavigator({
         title: "Branch",
       },
     }),
+    NewTaskRepositories: createNativeStackScreen({
+      screen: RepositoriesScreen,
+      linking: "draft/repositories",
+      options: { title: "Repositories" },
+    }),
+    NewTaskQuickActions: createNativeStackScreen({
+      screen: QuickActionsScreen,
+      linking: "draft/quick-actions",
+      options: { title: "Quick actions" },
+    }),
     // The same file view the thread composer pushes. A draft has no thread, so it names its
     // own workspace through route params instead of resolving one from a selected thread.
     NewTaskFile: createNativeStackScreen({
@@ -547,6 +562,8 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsSheet",
   "ThreadAgents",
   "ThreadQueue",
+  "ThreadQuickActions",
+  "ThreadRepositories",
   "ThreadReviewComment",
   "ThreadDevicePreview",
   "ThreadBrowserPreview",
@@ -770,6 +787,37 @@ const RootStackConfig = createNativeStackNavigator({
           : {
               ...FORM_SHEET_PRESENTATION_OPTIONS,
               sheetAllowedDetents: [1],
+              sheetGrabberVisible: true,
+            }),
+      },
+    }),
+    // Like ThreadSettingsSheet, these carry a draft key no URL should reconstruct.
+    ThreadRepositories: createNativeStackScreen({
+      screen: ThreadRepositoriesScreen,
+      options: {
+        ...SHEET_SOLID_HEADER_OPTIONS,
+        title: "Repositories",
+        gestureEnabled: true,
+        ...(Platform.OS === "android"
+          ? { presentation: "card" as const, headerShown: false }
+          : {
+              ...FORM_SHEET_PRESENTATION_OPTIONS,
+              sheetAllowedDetents: [0.55, 0.92],
+              sheetGrabberVisible: true,
+            }),
+      },
+    }),
+    ThreadQuickActions: createNativeStackScreen({
+      screen: QuickActionsScreen,
+      options: {
+        ...SHEET_SOLID_HEADER_OPTIONS,
+        title: "Quick actions",
+        gestureEnabled: true,
+        ...(Platform.OS === "android"
+          ? { presentation: "card" as const, headerShown: false }
+          : {
+              ...FORM_SHEET_PRESENTATION_OPTIONS,
+              sheetAllowedDetents: [0.65, 0.95],
               sheetGrabberVisible: true,
             }),
       },

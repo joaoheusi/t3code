@@ -1,4 +1,3 @@
-import { MaterialListRow } from "../../components/MaterialListRow";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -9,7 +8,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,10 +22,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
-import { ThemedSwitch } from "../../components/ThemedSwitch";
+import { PickerRow, PickerSurface, PickerToggleRow } from "../../components/PickerList";
 import { cn } from "../../lib/cn";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useServerConfigs } from "../../state/entities";
@@ -39,115 +37,6 @@ import {
 } from "../layout/native-mail-search-toolbar";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
-
-function SelectionRow(props: {
-  readonly icon?: "arrow.triangle.branch" | ReactNode;
-  readonly onPress: () => void;
-  readonly disabled?: boolean;
-  readonly selected: boolean;
-  readonly isLast?: boolean;
-  readonly subtitle?: string;
-  readonly title: string;
-}) {
-  if (Platform.OS === "android") {
-    return (
-      <MaterialListRow
-        className="bg-grouped-card"
-        title={props.title}
-        subtitle={props.subtitle}
-        leading={
-          props.icon === "arrow.triangle.branch" ? (
-            <SymbolView
-              name="arrow.triangle.branch"
-              size={24}
-              tintColorClassName="accent-icon-muted"
-            />
-          ) : (
-            props.icon
-          )
-        }
-        trailing={
-          props.selected ? (
-            <SymbolView name="checkmark" size={20} tintColorClassName="accent-focus" />
-          ) : null
-        }
-        accessibilityRole="radio"
-        accessibilityState={{ checked: props.selected }}
-        disabled={props.disabled}
-        onPress={props.onPress}
-      />
-    );
-  }
-  return (
-    <Pressable
-      accessibilityLabel={[props.title, props.subtitle].filter(Boolean).join(", ")}
-      accessibilityRole="radio"
-      accessibilityState={{ checked: props.selected }}
-      className={cn(
-        "min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle",
-        !props.isLast && "border-b border-border-subtle",
-      )}
-      disabled={props.disabled}
-      onPress={props.onPress}
-      style={{ opacity: props.disabled ? 0.45 : 1 }}
-    >
-      {props.icon === "arrow.triangle.branch" ? (
-        <SymbolView
-          name="arrow.triangle.branch"
-          size={17}
-          tintColorClassName="accent-icon-muted"
-          type="monochrome"
-        />
-      ) : (
-        (props.icon ?? null)
-      )}
-      <View className="min-w-0 flex-1 gap-0.5">
-        <Text className="text-base font-t3-medium text-foreground" numberOfLines={1}>
-          {props.title}
-        </Text>
-        {props.subtitle ? (
-          <Text className="text-xs text-foreground-muted" numberOfLines={1}>
-            {props.subtitle}
-          </Text>
-        ) : null}
-      </View>
-      {props.selected ? (
-        <SymbolView
-          name="checkmark"
-          size={16}
-          tintColorClassName="accent-icon"
-          type="monochrome"
-          weight="semibold"
-        />
-      ) : null}
-    </Pressable>
-  );
-}
-
-function ToggleRow(props: {
-  readonly title: string;
-  readonly value: boolean;
-  readonly onValueChange: (value: boolean) => void;
-}) {
-  return (
-    <View className="min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3">
-      <Text
-        className={cn(
-          "min-w-0 flex-1 text-base text-foreground",
-          Platform.OS !== "android" && "font-t3-medium",
-        )}
-        numberOfLines={1}
-      >
-        {props.title}
-      </Text>
-      <ThemedSwitch
-        accessibilityLabel={props.title}
-        onValueChange={props.onValueChange}
-        value={props.value}
-      />
-    </View>
-  );
-}
 
 function BranchSelectionRow(props: {
   readonly badge: string | null;
@@ -173,8 +62,8 @@ function BranchSelectionRow(props: {
             : "overflow-hidden rounded-b-2xl"),
       )}
     >
-      <SelectionRow
-        icon="arrow.triangle.branch"
+      <PickerRow
+        symbol="arrow.triangle.branch"
         disabled={props.disabled}
         isLast={props.isLast}
         onPress={onPress}
@@ -182,20 +71,6 @@ function BranchSelectionRow(props: {
         subtitle={props.badge ? props.badge.toUpperCase() : undefined}
         title={props.branch.name}
       />
-    </View>
-  );
-}
-
-function PickerSurface(props: { readonly children: ReactNode }) {
-  return (
-    <View
-      className={
-        Platform.OS === "android"
-          ? "overflow-hidden rounded-[28px] bg-grouped-card"
-          : "overflow-hidden rounded-2xl bg-grouped-card"
-      }
-    >
-      {props.children}
     </View>
   );
 }
@@ -232,9 +107,9 @@ export function NewTaskEnvironmentPickerRouteScreen() {
         >
           <PickerSurface>
             {flow.environments.map((environment, index) => (
-              <SelectionRow
+              <PickerRow
                 key={String(environment.environmentId)}
-                icon={
+                leading={
                   <EnvironmentMachineSymbol
                     kind={resolveEnvironmentMachineKind(
                       serverConfigs.get(environment.environmentId) ?? null,
@@ -448,7 +323,8 @@ export function BranchPickerScreen(props: {
         Platform.OS === "android" ? "rounded-[28px]" : "rounded-2xl",
       )}
     >
-      <ToggleRow
+      <PickerToggleRow
+        isLast
         onValueChange={props.worktree.onChangeStartFromOrigin}
         title="Start from origin"
         value={props.worktree.startFromOrigin}

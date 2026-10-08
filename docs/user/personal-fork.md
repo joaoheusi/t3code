@@ -14,7 +14,7 @@ Keep the official application available while testing this build. To return to i
 
 Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. For actions that target pull requests or several repositories, select one or more items, then choose **Insert selected**. Pull request choices show CI and conflict status.
 
-On mobile, choose **Quick actions** above the composer to insert an action. Open **Manage quick actions** there to create or edit actions, choose their project scope, or remove them.
+On mobile, choose **Actions** next to the composer controls to insert an action. Use **+** there to create one, and long press an action to edit, favorite, disable, or delete it.
 
 The quick action menu also offers **Merge pull requests**. Select the PRs, choose a merge method allowed by every selected repository, and confirm. This runs the merge command directly.
 
@@ -28,7 +28,7 @@ Import accepts the Quick Actions app's JSON format. Imports are added as copies 
 
 ## Several repositories in one thread
 
-On mobile, choose **Repositories** in a new task to select repositories from the connected machine. Folder projects discover their repositories automatically, so they need a connection before you can send. You can choose current checkouts or new worktrees and save the selection as the project default. If setup fails, a notice above the thread's composer lets you retry or cancel it; the first message waits until setup succeeds. Repository choices are fixed after you queue the task.
+On mobile, choose **Repositories** in a new task to select repositories from the connected machine. Folder projects discover their repositories automatically, so they need a connection before you can send. Tap a repository to choose its current checkout or a new worktree, or to remove it. You can save the selection as the project default. If setup fails, a notice above the thread's composer lets you retry or cancel it; the first message waits until setup succeeds. Repository choices are fixed after you queue the task.
 
 Before a thread's first message, choose its repositories with the repositories button next to the workspace and branch controls under the composer. Pick from this machine's projects, or browse to any folder; a folder that isn't a repository is searched for repositories inside it. Each added repository uses its **Current checkout** or a **New worktree** from its current branch. Adding a linked worktree folder uses that **Existing worktree**. The thread's own project follows the workspace and branch controls.
 

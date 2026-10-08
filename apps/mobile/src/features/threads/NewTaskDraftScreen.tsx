@@ -1,5 +1,5 @@
-import { MobileQuickActions } from "./MobileQuickActions";
-import { MobileRepositories } from "./MobileRepositories";
+import { QuickActionsControl } from "./MobileQuickActions";
+import { RepositoriesControl } from "./MobileRepositories";
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
@@ -1581,32 +1581,56 @@ export function NewTaskDraftScreen(props: {
     </View>
   );
 
-  const workspaceControls = (
-    <View className="flex-row items-center gap-1 px-2">
-      <ComposerInlineControl
-        accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
-        accessibilityLabel={workspaceLabel}
-        disabled={isComposerInteractionLocked || voiceInput.isBusy || flow.workspaceSelectionLocked}
-        renderIcon={(size) => (
-          <NewTaskWorkspaceIcon
-            workspaceMode={flow.workspaceMode}
-            worktreePath={flow.selectedWorktreePath}
-            size={size}
-          />
-        )}
-        label={
-          flow.repositoryFolder
-            ? flow.workspaceMode === "local"
-              ? "Current folder"
-              : "New worktrees"
-            : workspaceLabel
-        }
-        maxWidth={flow.workspaceMode === "local" ? 220 : 148}
-        onPress={() => flow.setWorkspaceMode(flow.workspaceMode === "local" ? "worktree" : "local")}
-        showChevron={false}
-      />
+  const pushForkScreen = (routeName: "NewTaskRepositories" | "NewTaskQuickActions") => {
+    if (isComposerInteractionLocked || !flow.draftKey || !selectedProject) return;
+    promptInputRef.current?.blur();
+    void KeyboardController.dismiss({ animated: true });
+    navigation.dispatch(
+      StackActions.push(routeName, {
+        environmentId: selectedProject.environmentId,
+        projectId: selectedProject.id,
+        draftKey: flow.draftKey,
+      }),
+    );
+  };
 
-      {!flow.repositoryFolder ? (
+  const workspaceControls = (
+    <ScrollView
+      horizontal
+      keyboardShouldPersistTaps="handled"
+      showsHorizontalScrollIndicator={false}
+      contentContainerClassName="items-center gap-1 px-2"
+    >
+      {flow.canChooseWorkspace ? (
+        <ComposerInlineControl
+          accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
+          accessibilityLabel={workspaceLabel}
+          disabled={
+            isComposerInteractionLocked || voiceInput.isBusy || flow.workspaceSelectionLocked
+          }
+          renderIcon={(size) => (
+            <NewTaskWorkspaceIcon
+              workspaceMode={flow.workspaceMode}
+              worktreePath={flow.selectedWorktreePath}
+              size={size}
+            />
+          )}
+          label={
+            flow.repositoryFolder
+              ? flow.workspaceMode === "local"
+                ? "Current folder"
+                : "New worktrees"
+              : workspaceLabel
+          }
+          maxWidth={flow.workspaceMode === "local" ? 220 : 148}
+          onPress={() =>
+            flow.setWorkspaceMode(flow.workspaceMode === "local" ? "worktree" : "local")
+          }
+          showChevron={false}
+        />
+      ) : null}
+
+      {flow.canChooseWorkspace && !flow.repositoryFolder ? (
         <ComposerInlineControl
           accessibilityLabel={`${flow.workspaceMode === "worktree" ? "Base branch" : "Branch"}: ${selectedBranchLabel}`}
           chevronDirection="right"
@@ -1617,7 +1641,23 @@ export function NewTaskDraftScreen(props: {
           onPress={() => openContextPicker("NewTaskBranch")}
         />
       ) : null}
-    </View>
+      {flow.draftKey && selectedProject ? (
+        <RepositoriesControl
+          key={`${flow.draftKey}:${selectedProject.environmentId}:${selectedProject.id}`}
+          project={selectedProject}
+          draftKey={flow.draftKey}
+          disabled={isComposerInteractionLocked || flow.workspaceSelectionLocked}
+          onOpen={() => pushForkScreen("NewTaskRepositories")}
+        />
+      ) : null}
+      {flow.draftKey && selectedProject ? (
+        <QuickActionsControl
+          environmentId={selectedProject.environmentId}
+          disabled={isComposerInteractionLocked}
+          onOpen={() => pushForkScreen("NewTaskQuickActions")}
+        />
+      ) : null}
+    </ScrollView>
   );
 
   const composerDock = (
@@ -1666,37 +1706,11 @@ export function NewTaskDraftScreen(props: {
           />
         </View>
       ) : null}
-      {flow.canChooseWorkspace ? <View className="pb-1">{workspaceControls}</View> : null}
-      {flow.workspaceSelectionLocked ? (
-        <Text className="px-2 text-sm text-foreground-muted">
-          Repository choices are fixed for this queued task.
+      <View className="pb-1">{workspaceControls}</View>
+      {flow.workspaceSelectionLocked || flow.repositorySendBlockedReason ? (
+        <Text className="px-4 pb-1 text-xs text-foreground-muted">
+          {flow.repositorySendBlockedReason ?? "Repository choices are fixed for this queued task."}
         </Text>
-      ) : null}
-      {flow.repositorySendBlockedReason ? (
-        <Text className="px-2 text-sm text-foreground-muted">
-          {flow.repositorySendBlockedReason}
-        </Text>
-      ) : null}
-      {flow.draftKey ? (
-        <ScrollView
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
-        >
-          <MobileRepositories
-            key={`${flow.draftKey}:${selectedProject.environmentId}:${selectedProject.id}`}
-            project={selectedProject}
-            draftKey={flow.draftKey}
-            disabled={isComposerInteractionLocked || flow.workspaceSelectionLocked}
-          />
-          <MobileQuickActions
-            key={`actions:${flow.draftKey}:${selectedProject.environmentId}:${selectedProject.id}`}
-            environmentId={selectedProject.environmentId}
-            projectId={selectedProject.id}
-            draftKey={flow.draftKey}
-            disabled={isComposerInteractionLocked}
-          />
-        </ScrollView>
       ) : null}
 
       {modelUnavailable ? (
