@@ -1012,7 +1012,10 @@ export function useThreadOutboxDrain(): void {
               commandId: settingsCommandId(queuedMessage, "workspace-create"),
               threadId: queuedMessage.threadId,
               projectId: creation.projectId,
-              title: deriveThreadTitleSeed({ text: queuedMessage.text, attachments: [] }),
+              title: deriveThreadTitleSeed({
+                text: queuedMessage.text,
+                attachments: queuedMessage.attachments,
+              }),
               modelSelection,
               runtimeMode: settings.runtimeMode,
               interactionMode: settings.interactionMode,
@@ -1037,6 +1040,38 @@ export function useThreadOutboxDrain(): void {
           return false;
         }
         if (thread.workspace.state !== "ready") return false;
+        // The thread was created before setup finished, and turn start does not change
+        // its modes. Apply any edit made to the queued task while it waited.
+        if (settings.runtimeMode !== thread.runtimeMode) {
+          const result = await setThreadRuntimeMode({
+            environmentId: queuedMessage.environmentId,
+            input: {
+              commandId: settingsCommandId(queuedMessage, "runtime-mode"),
+              threadId: queuedMessage.threadId,
+              runtimeMode: settings.runtimeMode,
+              createdAt: queuedMessage.createdAt,
+            },
+          });
+          if (AsyncResult.isFailure(result)) {
+            reportFailure(result, "settings-sync");
+            return false;
+          }
+        }
+        if (settings.interactionMode !== thread.interactionMode) {
+          const result = await setThreadInteractionMode({
+            environmentId: queuedMessage.environmentId,
+            input: {
+              commandId: settingsCommandId(queuedMessage, "interaction-mode"),
+              threadId: queuedMessage.threadId,
+              interactionMode: settings.interactionMode,
+              createdAt: queuedMessage.createdAt,
+            },
+          });
+          if (AsyncResult.isFailure(result)) {
+            reportFailure(result, "settings-sync");
+            return false;
+          }
+        }
       }
       let prepared: PreparedTurnAttachments;
       let persistedMessage: QueuedThreadMessage;
@@ -1142,7 +1177,14 @@ export function useThreadOutboxDrain(): void {
       }
       return outcome === "removed";
     },
-    [makeDeliveryHelpers, restoreQueuedMessage, startTurn, workspaceDispatch],
+    [
+      makeDeliveryHelpers,
+      restoreQueuedMessage,
+      setThreadInteractionMode,
+      setThreadRuntimeMode,
+      startTurn,
+      workspaceDispatch,
+    ],
   );
 
   // A creation outcome bridges setup until the server's shell has a turn.

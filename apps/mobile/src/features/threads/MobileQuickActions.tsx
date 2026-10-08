@@ -297,7 +297,14 @@ export function MobileQuickActions(props: {
           {error || library.error ? (
             <>
               <Text className="text-danger">{error ?? library.error}</Text>
-              <ForkSheetButton label="Refresh" onPress={library.refresh} />
+              <ForkSheetButton
+                label="Refresh"
+                disabled={busy}
+                onPress={() => {
+                  setError(null);
+                  library.refresh();
+                }}
+              />
             </>
           ) : null}
           {!library.isPending && !library.error && library.data?.length === 0 ? (

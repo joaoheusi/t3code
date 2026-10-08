@@ -1177,7 +1177,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
                           label: selectedProject.title,
                           workspaceRoot: selectedProject.workspaceRoot,
                           envMode: mode,
-                          worktreePath: workspaceSelection?.worktreePath ?? null,
+                          // A new worktree never reuses a path kept from a local selection.
+                          worktreePath:
+                            mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
                           branch: workspaceSelection?.branch ?? null,
                         }),
                     ...(repositoryChoice.selection.folder
