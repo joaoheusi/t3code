@@ -282,13 +282,15 @@ export function MobileQuickActions(props: {
               )}
             </>
           ) : null}
-          <TextInput
-            accessibilityLabel="Search quick actions"
-            placeholder="Search quick actions"
-            value={query}
-            onChangeText={setQuery}
-            className="rounded-xl bg-subtle p-3 text-foreground"
-          />
+          {!managing ? (
+            <TextInput
+              accessibilityLabel="Search quick actions"
+              placeholder="Search quick actions"
+              value={query}
+              onChangeText={setQuery}
+              className="rounded-xl bg-subtle p-3 text-foreground"
+            />
+          ) : null}
           {library.isPending || busy ? (
             <Text className="text-foreground-muted">{busy ? "Preparing action…" : "Loading…"}</Text>
           ) : null}

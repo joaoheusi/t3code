@@ -495,11 +495,17 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const repositoryFolder =
     (repositoryChoice.supported || selectedProjectDraft.repositorySelection !== undefined) &&
     repositoryChoice.selection.folder;
+  // Only a folder project needs discovery to know its repositories. A repository project
+  // sends as itself, so it stays sendable offline and when discovery fails.
   const repositorySendBlockedReason =
     repositoryChoice.supported &&
+    !selectedProject?.repositoryIdentity &&
     !selectedProjectDraft.repositorySelection &&
     !repositoryChoice.discovery.data
-      ? (repositoryChoice.discovery.error ?? "Discovering repositories…")
+      ? (repositoryChoice.discovery.error ??
+        (repositoryChoice.discovery.isPending
+          ? "Finding this folder's repositories…"
+          : "Connect to this machine to find this folder's repositories."))
       : repositoryFolder && repositoryChoice.repositories.length === 0
         ? "Add at least one repository to this folder."
         : null;

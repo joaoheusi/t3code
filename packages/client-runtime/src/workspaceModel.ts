@@ -30,6 +30,15 @@ export const CHECKOUT_MODE_LABEL: Record<CheckoutMode, string> = {
   "new-worktree": "New worktree",
 };
 
+/** Readable preparation states; a ready repository needs no label. */
+export const WORKSPACE_STATE_LABEL: Partial<Record<WorkspaceBinding["state"], string>> = {
+  planned: "Waiting",
+  validating: "Checking",
+  preparing: "Preparing",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
 export const basename = (path: string) => path.split(/[\\/]/).findLast(Boolean) ?? path;
 
 /** A thread holds at most this many repositories. */

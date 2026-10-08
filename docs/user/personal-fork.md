@@ -28,7 +28,7 @@ Import accepts the Quick Actions app's JSON format. Imports are added as copies 
 
 ## Several repositories in one thread
 
-On mobile, use **Add folders** in a new task to select repositories from the connected machine. Folder projects discover their repositories automatically. You can choose current checkouts or new worktrees and save the selection as the project default. An existing thread’s repository list shows preparation progress and lets you retry failed setup. Repository choices are fixed after you queue the task.
+On mobile, choose **Repositories** in a new task to select repositories from the connected machine. Folder projects discover their repositories automatically, so they need a connection before you can send. You can choose current checkouts or new worktrees and save the selection as the project default. If setup fails, a notice above the thread's composer lets you retry or cancel it; the first message waits until setup succeeds. Repository choices are fixed after you queue the task.
 
 Before a thread's first message, choose its repositories with the repositories button next to the workspace and branch controls under the composer. Pick from this machine's projects, or browse to any folder; a folder that isn't a repository is searched for repositories inside it. Each added repository uses its **Current checkout** or a **New worktree** from its current branch. Adding a linked worktree folder uses that **Existing worktree**. The thread's own project follows the workspace and branch controls.
 

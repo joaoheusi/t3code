@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TextInput, View } from "react-native";
+import { Pressable, TextInput, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import {
   CommandId,
@@ -12,6 +12,7 @@ import {
   draftRepositoryFrom,
   repositoryDefaultFrom,
   CHECKOUT_MODE_LABEL,
+  WORKSPACE_STATE_LABEL,
   workspaceConfiguration,
   draftRepositoryFromBinding,
   isInsideFolder,
@@ -19,6 +20,8 @@ import {
 import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import { ThemedSwitch } from "../../components/ThemedSwitch";
+import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
@@ -42,11 +45,17 @@ export function MobileRepositories(props: {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { repositories, selection } = choice;
+  const hasSavedDefault =
+    (config?.settings.projectSettingsOverrides[props.project.id]?.workspaceRepositories?.length ??
+      0) > 0;
+  const total = repositories.length + (selection.folder ? 0 : 1);
   const add = async (repositoryPath = path) => {
     setBusy(true);
     setError(null);
+    setNotice(null);
     try {
       const result = await inspect({
         environmentId: props.project.environmentId,
@@ -85,6 +94,7 @@ export function MobileRepositories(props: {
     if (!config) return;
     setBusy(true);
     setError(null);
+    setNotice(null);
     const result = await save({
       environmentId: props.project.environmentId,
       input: {
@@ -103,6 +113,7 @@ export function MobileRepositories(props: {
       },
     });
     if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
+    else setNotice(clear ? "Project default cleared." : "Saved as the project default.");
     setBusy(false);
   };
   if (!choice.supported) return null;
@@ -112,9 +123,11 @@ export function MobileRepositories(props: {
         label={
           choice.discovery.isPending
             ? "Loading folders…"
-            : repositories.length
-              ? `${repositories.length + (selection.folder ? 0 : 1)} repositories`
-              : "Add folders"
+            : total > 1
+              ? `${total} repositories`
+              : total === 1 && selection.folder
+                ? "1 repository"
+                : "Repositories"
         }
         icon="folder"
         disabled={props.disabled}
@@ -142,40 +155,65 @@ export function MobileRepositories(props: {
           ) : null}
           {repositories.map((repository) => (
             <View key={repository.path} className="gap-2 rounded-xl border border-border p-3">
-              <Text className="text-foreground">{repository.label}</Text>
-              <Text selectable className="text-foreground-muted">
-                {repository.path}
-              </Text>
-              <ForkSheetButton
-                label={CHECKOUT_MODE_LABEL[repository.mode]}
-                disabled={
-                  busy ||
-                  repository.mode === "existing-worktree" ||
-                  (selection.folder && isInsideFolder(props.project.workspaceRoot, repository.path))
-                }
-                onPress={() =>
-                  choice.setSelection({
-                    ...selection,
-                    repositories: selection.repositories.map((entry) =>
-                      entry.path === repository.path
-                        ? { ...entry, mode: entry.mode === "current" ? "new-worktree" : "current" }
-                        : entry,
-                    ),
-                  })
-                }
-              />
-              <ForkSheetButton
-                label={`Remove ${repository.label}`}
-                disabled={busy}
-                onPress={() =>
-                  choice.setSelection({
-                    ...selection,
-                    repositories: selection.repositories.filter(
-                      (entry) => entry.path !== repository.path,
-                    ),
-                  })
-                }
-              />
+              <View className="flex-row items-start gap-2">
+                <View className="min-w-0 flex-1">
+                  <Text className="text-foreground">{repository.label}</Text>
+                  <Text selectable className="text-foreground-muted">
+                    {repository.path}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityLabel={`Remove ${repository.label}`}
+                  accessibilityRole="button"
+                  disabled={busy}
+                  hitSlop={12}
+                  className="p-1 active:opacity-60"
+                  onPress={() =>
+                    choice.setSelection({
+                      ...selection,
+                      repositories: selection.repositories.filter(
+                        (entry) => entry.path !== repository.path,
+                      ),
+                    })
+                  }
+                >
+                  <SymbolView
+                    name="xmark"
+                    size={14}
+                    tintColorClassName="accent-icon-muted"
+                    type="monochrome"
+                  />
+                </Pressable>
+              </View>
+              {repository.mode === "existing-worktree" ? (
+                <Text className="text-foreground-muted">
+                  {CHECKOUT_MODE_LABEL[repository.mode]} · used as it is
+                </Text>
+              ) : selection.folder &&
+                isInsideFolder(props.project.workspaceRoot, repository.path) ? (
+                <Text className="text-foreground-muted">
+                  {CHECKOUT_MODE_LABEL[repository.mode]} · follows the folder setting
+                </Text>
+              ) : (
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-foreground">New worktree</Text>
+                  <ThemedSwitch
+                    accessibilityLabel={`New worktree for ${repository.label}`}
+                    disabled={busy}
+                    value={repository.mode === "new-worktree"}
+                    onValueChange={(newWorktree) =>
+                      choice.setSelection({
+                        ...selection,
+                        repositories: selection.repositories.map((entry) =>
+                          entry.path === repository.path
+                            ? { ...entry, mode: newWorktree ? "new-worktree" : "current" }
+                            : entry,
+                        ),
+                      })
+                    }
+                  />
+                </View>
+              )}
             </View>
           ))}
           {selection.folder ? (
@@ -221,12 +259,14 @@ export function MobileRepositories(props: {
           />
           <ForkSheetButton
             label="Clear project default"
-            disabled={busy}
+            disabled={busy || !hasSavedDefault}
             onPress={() => void saveDefault(true)}
           />
-          {error || choice.discovery.error ? (
+          {notice ? <Text className="text-foreground-muted">{notice}</Text> : null}
+          {error ? <Text className="text-danger">{error}</Text> : null}
+          {choice.discovery.error ? (
             <>
-              <Text className="text-danger">{error ?? choice.discovery.error}</Text>
+              <Text className="text-danger">{choice.discovery.error}</Text>
               <ForkSheetButton label="Retry discovery" onPress={choice.discovery.refresh} />
             </>
           ) : null}
@@ -236,12 +276,14 @@ export function MobileRepositories(props: {
   );
 }
 
-export function MobileThreadRepositories(props: {
+type ThreadWorkspaceProps = {
   environmentId: EnvironmentId;
   threadId: ThreadId;
   workspace: ThreadWorkspace;
-}) {
-  const [open, setOpen] = useState(false);
+};
+
+/** Retry or cancel a thread's repository preparation. */
+function useThreadWorkspaceControl(props: ThreadWorkspaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
@@ -278,11 +320,65 @@ export function MobileThreadRepositories(props: {
     setError(result._tag === "Failure" ? String(squashAtomCommandFailure(result)) : null);
     setBusy(false);
   };
+  return {
+    error,
+    busy,
+    canRetry: props.workspace.state === "failed" || props.workspace.state === "cancelled",
+    canCancel: ["planned", "validating", "preparing", "failed"].includes(props.workspace.state),
+    retry: () => void control("retry"),
+    cancel: () => void control("cancel"),
+  };
+}
+
+const repositoryCount = (count: number) =>
+  `${count} ${count === 1 ? "repository" : "repositories"}`;
+
+/**
+ * Shown above the composer when preparation stopped. The first message stays queued until
+ * the repositories are ready, so this is the way forward.
+ */
+export function MobileThreadWorkspaceNotice(props: ThreadWorkspaceProps) {
+  const control = useThreadWorkspaceControl(props);
+  if (!control.canRetry) return null;
+  const failed = props.workspace.bindings.find((binding) => binding.error)?.error;
+  return (
+    <View className="px-4 pb-3">
+      <View className="gap-2 rounded-[20px] border-continuous bg-card p-4">
+        <Text accessibilityLiveRegion="polite" className="text-sm text-foreground">
+          {props.workspace.state === "failed"
+            ? "Repository setup failed. Messages wait until it succeeds."
+            : "Repository setup was cancelled. Messages wait until it is retried."}
+        </Text>
+        {failed ? (
+          <Text selectable className="text-sm text-foreground-muted">
+            {failed}
+          </Text>
+        ) : null}
+        {control.error ? <Text className="text-sm text-danger">{control.error}</Text> : null}
+        <View className="flex-row gap-2">
+          <ForkSheetButton label="Retry setup" disabled={control.busy} onPress={control.retry} />
+          {control.canCancel ? (
+            <ForkSheetButton
+              label="Cancel setup"
+              disabled={control.busy}
+              onPress={control.cancel}
+            />
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+export function MobileThreadRepositories(props: ThreadWorkspaceProps) {
+  const [open, setOpen] = useState(false);
+  const control = useThreadWorkspaceControl(props);
+  const stateLabel = WORKSPACE_STATE_LABEL[props.workspace.state];
   return (
     <>
       <ComposerInlineControl
         icon="folder"
-        label={`${props.workspace.bindings.length} repositories · ${props.workspace.state}`}
+        label={`${repositoryCount(props.workspace.bindings.length)}${stateLabel ? ` · ${stateLabel}` : ""}`}
         onPress={() => setOpen(true)}
       />
       {open ? (
@@ -290,7 +386,10 @@ export function MobileThreadRepositories(props: {
           {props.workspace.bindings.map((binding) => (
             <View key={binding.id} className="gap-2 p-2">
               <Text className="text-foreground">
-                {binding.label} · {binding.state}
+                {binding.label}
+                {WORKSPACE_STATE_LABEL[binding.state]
+                  ? ` · ${WORKSPACE_STATE_LABEL[binding.state]}`
+                  : ""}
               </Text>
               <Text selectable className="text-foreground-muted">
                 {binding.checkoutPath}
@@ -305,21 +404,21 @@ export function MobileThreadRepositories(props: {
               />
             </View>
           ))}
-          {props.workspace.state === "failed" || props.workspace.state === "cancelled" ? (
+          {control.canRetry ? (
             <ForkSheetButton
               label="Retry preparation"
-              disabled={busy}
-              onPress={() => void control("retry")}
+              disabled={control.busy}
+              onPress={control.retry}
             />
           ) : null}
-          {["planned", "validating", "preparing", "failed"].includes(props.workspace.state) ? (
+          {control.canCancel ? (
             <ForkSheetButton
               label="Cancel preparation"
-              disabled={busy}
-              onPress={() => void control("cancel")}
+              disabled={control.busy}
+              onPress={control.cancel}
             />
           ) : null}
-          {error ? <Text className="text-danger">{error}</Text> : null}
+          {control.error ? <Text className="text-danger">{control.error}</Text> : null}
         </ForkComposerSheet>
       ) : null}
     </>

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Modal, Pressable, ScrollView, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/AppText";
 
@@ -10,10 +10,19 @@ export function ForkComposerSheet(props: {
 }) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal animationType="slide" presentationStyle="pageSheet" onRequestClose={props.onClose}>
+    <Modal
+      animationType="slide"
+      presentationStyle="pageSheet"
+      allowSwipeDismissal
+      onRequestClose={props.onClose}
+    >
+      {/* An iOS page sheet already sits below the status bar; Android shows full screen. */}
       <View
-        className="flex-1 bg-background"
-        style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
+        className="flex-1 bg-sheet-solid"
+        style={{
+          paddingTop: Platform.OS === "android" ? insets.top : 0,
+          paddingBottom: insets.bottom,
+        }}
       >
         <View className="flex-row items-center justify-between p-4">
           <Text className="text-lg text-foreground font-t3-bold">{props.title}</Text>
