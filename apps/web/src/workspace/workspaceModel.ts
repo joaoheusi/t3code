@@ -130,7 +130,7 @@ export function draftBindingRequest(repository: DraftRepository): WorkspaceBindi
       sourcePath: repository.path,
       mode: repository.mode,
     };
-  // Without a known branch the server starts the worktree from the repository's current one.
+  // Without a known branch the server starts the worktree from the repository's default one.
   const baseRef = repository.branch ?? (repository.head || null);
   return {
     id: repository.id,
@@ -173,18 +173,17 @@ export function workspaceConfiguration(input: {
   };
   // The mirror folder sits beside worktrees named by these IDs, so its name is taken.
   if (root?.mode === "mirror") readableId(basename(root.sourcePath));
-  // A folder's mode applies to every repository inside it.
+  // A folder's mode applies to every repository inside it. A mirror shows no base per
+  // repository, so each one starts from its default branch rather than whatever its
+  // checkout happens to be on.
   const repositories = input.repositories.map((repository) =>
     root && isInsideFolder(root.sourcePath, repository.path)
-      ? {
-          ...repository,
-          mode:
-            root.mode === "mirror"
-              ? ("new-worktree" as const)
-              : repository.mode === "existing-worktree"
-                ? repository.mode
-                : ("current" as const),
-        }
+      ? root.mode === "mirror"
+        ? { ...repository, mode: "new-worktree" as const, branch: null, head: "" }
+        : {
+            ...repository,
+            mode: repository.mode === "existing-worktree" ? repository.mode : ("current" as const),
+          }
       : repository,
   );
   const bindings = [...(primary ? [primary] : []), ...repositories.map(draftBindingRequest)].map(
