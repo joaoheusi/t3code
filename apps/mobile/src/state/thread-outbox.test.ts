@@ -1390,6 +1390,96 @@ describe("thread outbox", () => {
     ).toBe("remove");
   });
 
+  it.each(["planned", "validating", "preparing", "failed", "cancelled"] as const)(
+    "keeps the first message queued while workspace setup is %s",
+    (state) => {
+      expect(
+        resolveThreadOutboxDeliveryAction({
+          isCreation: true,
+          threadExists: true,
+          shellStatus: "live",
+          environmentConnected: true,
+          threadBusy: false,
+          workspacePreparation: { state, messageDelivered: false },
+        }),
+      ).toBe("wait");
+    },
+  );
+
+  it("resumes interrupted workspace setup and only removes a creation after its first run", () => {
+    const input = {
+      isCreation: true,
+      threadExists: true,
+      shellStatus: "live" as const,
+      environmentConnected: true,
+      threadBusy: false,
+    };
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        ...input,
+        workspacePreparation: { state: null, messageDelivered: false },
+      }),
+    ).toBe("send");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        ...input,
+        workspacePreparation: { state: "ready", messageDelivered: false },
+      }),
+    ).toBe("send");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        ...input,
+        environmentConnected: false,
+        workspacePreparation: { state: "ready", messageDelivered: false },
+      }),
+    ).toBe("wait");
+    expect(
+      resolveThreadOutboxDeliveryAction({
+        ...input,
+        workspacePreparation: { state: "ready", messageDelivered: true },
+      }),
+    ).toBe("remove");
+  });
+
+  it("preserves folder worktrees and their branch names through an offline queue round trip", () => {
+    const message: QueuedThreadMessage = {
+      ...queuedMessage({ messageId: "folders", createdAt: "2026-10-08T12:00:00.000Z" }),
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+      creation: {
+        projectId: ProjectId.make("project"),
+        workspaceMode: "worktree",
+        branch: null,
+        worktreePath: null,
+        repositorySelection: {
+          folder: true,
+          repositories: [
+            { path: "/projects/api", commonDir: "/projects/api/.git", mode: "current" },
+          ],
+        },
+        workspaceConfiguration: {
+          expectedRevision: 0,
+          root: { sourcePath: "/projects", mode: "mirror" },
+          primaryBindingId: "api",
+          bindings: [
+            {
+              id: "api",
+              label: "api",
+              sourcePath: "/projects/api",
+              mode: "new-worktree",
+              branch: "t3-12345678",
+              startFromOrigin: false,
+            },
+          ],
+        },
+      },
+    };
+    const restored = decodeQueuedThreadMessage(
+      JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message))),
+    );
+    expect(restored).toEqual(message);
+    expect(isQueuedThreadCreationSendable(restored)).toBe(true);
+  });
+
   it("round-trips queued creations and gates incomplete ones from sending", () => {
     const base = queuedMessage({
       messageId: "message-1",
