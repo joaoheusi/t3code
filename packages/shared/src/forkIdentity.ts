@@ -2,7 +2,7 @@
 export const FORK_IDENTITY = {
   name: "J4 Code (Unofficial)",
   repository: "joaoheusi/t3code",
-  upstreamCommit: "f4f148eb670622a049ae6561d7795011e383fc43",
+  upstreamCommit: "b707eeb052782cfd8b1ff0445f84b2aaf01da38b",
   version: "0.0.45-j4.7",
   /** Desktop OS identity, distinct from upstream so both apps install side by side. */
   desktop: {

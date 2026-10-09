@@ -1,5 +1,10 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
-import { hasRepositorySet, type GitStackedAction } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  AuthSourceControlWriteScope,
+  hasRepositorySet,
+  type GitStackedAction,
+} from "@t3tools/contracts";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Atom, AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
@@ -18,6 +23,7 @@ import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
 import { getChangeRequestTerminology } from "../sourceControlPresentation";
 import { threadEnvironment } from "../state/threads";
+import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { vcsActionManager, vcsEnvironment } from "../state/vcs";
@@ -35,6 +41,11 @@ export function useQuickActionGit(
   close: () => void,
 ) {
   const registry = useContext(RegistryContext);
+  const canWrite = useEnvironmentScope(scope?.environmentId ?? null, AuthSourceControlWriteScope);
+  const canOperate = useEnvironmentScope(
+    scope?.environmentId ?? null,
+    AuthOrchestrationOperateScope,
+  );
   const targets = useMemo(
     () => quickActionGitTargets(scope?.thread?.workspace, cwd),
     [scope?.thread?.workspace, cwd],
@@ -83,6 +94,10 @@ export function useQuickActionGit(
         const target = { environmentId, cwd: repository.cwd };
         const value = `quick-action:git:${repository.cwd}`;
         const action = repository.action;
+        const assertWriteAccess = () => {
+          if (!readEnvironmentScope(environmentId, AuthSourceControlWriteScope))
+            throw new Error("This connection cannot change source control.");
+        };
         const icon =
           action.kind === "run_pull" ? (
             <CloudDownloadIcon className={ITEM_ICON_CLASS} />
@@ -93,8 +108,10 @@ export function useQuickActionGit(
           );
 
         const readCurrentAction = async () => {
+          assertWriteAccess();
           const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
           if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
+          assertWriteAccess();
           const current = resolveQuickActionGit(
             fresh.value,
             registry.get(vcsActionManager.stateAtom(target)).isRunning,
@@ -122,6 +139,13 @@ export function useQuickActionGit(
           if (started) return;
           started = true;
           if (recheck) await readCurrentAction();
+          assertWriteAccess();
+          if (
+            featureBranch &&
+            thread &&
+            !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+          )
+            throw new Error("This connection cannot change the thread's branch.");
           close();
           const progress = toastManager.add({
             type: "loading",
@@ -156,7 +180,12 @@ export function useQuickActionGit(
               );
               if (result._tag === "Failure") throw squashAtomCommandFailure(result);
               const branch = resolveThreadBranchUpdate(result.value);
-              if (thread && branch && !hasRepositorySet(thread.workspace)) {
+              if (
+                thread &&
+                branch &&
+                !hasRepositorySet(thread.workspace) &&
+                readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+              ) {
                 const updated = await updateMetadata({
                   environmentId,
                   input: {
@@ -225,6 +254,7 @@ export function useQuickActionGit(
                           title: "Create feature ref and continue",
                           description: repository.label,
                           searchTerms: ["feature", "branch"],
+                          disabled: !!thread && !canOperate,
                           icon,
                           run: () => execute(kind, true, true),
                         },
@@ -253,10 +283,11 @@ export function useQuickActionGit(
           icon,
           keepOpen: true,
           title: repositories.length > 1 ? `${action.label} · ${repository.label}` : action.label,
-          description:
-            repository.unavailable ??
-            action.hint ??
-            `${repository.label} · ${repository.status?.refName ?? "Checking status…"}`,
+          description: !canWrite
+            ? "This connection cannot change source control."
+            : (repository.unavailable ??
+              action.hint ??
+              `${repository.label} · ${repository.status?.refName ?? "Checking status…"}`),
           searchTerms: [
             "git",
             "commit",
@@ -267,7 +298,7 @@ export function useQuickActionGit(
             action.label,
             repository.label,
           ],
-          disabled: !!repository.unavailable || action.disabled,
+          disabled: !canWrite || !!repository.unavailable || action.disabled,
           run,
         };
       })

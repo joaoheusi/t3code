@@ -19,7 +19,7 @@ import * as Projections from "../orchestration-v2/ProjectionStore.ts";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as Locks from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as Registry from "../orchestration-v2/ProviderAdapterRegistry.ts";
-import type { ProviderAdapterV2Shape } from "../orchestration-v2/ProviderAdapter.ts";
+import type { ProviderAdapterV2Shape } from "@t3tools/provider-core/server/ProviderAdapter";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as Harness from "../orchestration-v2/testkit/ProviderReplayHarness.ts";
 import * as Repositories from "./WorkspaceRepositories.ts";

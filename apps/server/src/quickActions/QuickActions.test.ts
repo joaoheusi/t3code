@@ -6,7 +6,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import { QUICK_ACTION_STARTERS, QUICK_ACTION_STARTER_IDS } from "@t3tools/shared/quickActions";
 import migration from "../persistence/Migrations/059_ForkQuickActions.ts";
 import starterUpgrade from "../persistence/Migrations/061_ForkQuickActionStarters.ts";
-import reviewThreadsStarter from "../persistence/Migrations/063_AddressReviewThreadsQuickAction.ts";
+import reviewThreadsStarter from "../persistence/Migrations/065_AddressReviewThreadsQuickAction.ts";
 import * as QuickActions from "./QuickActions.ts";
 
 const database = NodeSqliteClient.layer({ filename: ":memory:" });

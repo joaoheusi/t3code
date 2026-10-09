@@ -1,5 +1,12 @@
 import { RegistryContext } from "@effect/atom-react";
-import { EnvironmentId, ProjectId, ThreadId, type VcsStatusResult } from "@t3tools/contracts";
+import {
+  AuthOrchestrationOperateScope,
+  AuthSourceControlWriteScope,
+  EnvironmentId,
+  ProjectId,
+  ThreadId,
+  type VcsStatusResult,
+} from "@t3tools/contracts";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
@@ -16,6 +23,11 @@ const mocks = vi.hoisted(() => ({
   update: vi.fn(),
   open: vi.fn(),
   close: vi.fn(),
+  permission: vi.fn(),
+}));
+vi.mock("../state/session", () => ({
+  useEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
+  readEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
 }));
 vi.mock("../state/vcs", () => ({
   vcsEnvironment: { status: mocks.status, pull: "pull" },
@@ -91,6 +103,7 @@ const item = (name: string) =>
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
+  mocks.permission.mockReturnValue(true);
   registry = AtomRegistry.make();
   statuses = new Map([
     ["/worktrees/web", Atom.make(AsyncResult.success(status({ hasWorkingTreeChanges: true })))],
@@ -119,6 +132,62 @@ afterEach(() => {
 });
 
 describe("Git palette actions", () => {
+  it("disables writes for a read-only connection", async () => {
+    mocks.permission.mockImplementation(
+      (_environment, permission) => permission !== AuthSourceControlWriteScope,
+    );
+    act(() =>
+      renderer.update(
+        <RegistryContext value={registry}>
+          <Surface />
+        </RegistryContext>,
+      ),
+    );
+    expect(item("web").disabled).toBe(true);
+    expect(item("api").disabled).toBe(true);
+    await expect(item("api").run()).rejects.toThrow("cannot change source control");
+    expect(mocks.pull).not.toHaveBeenCalled();
+  });
+
+  it("rejects a write if permission is revoked during the status refresh", async () => {
+    mocks.load.mockImplementation(async ({ input }) => {
+      mocks.permission.mockReturnValue(false);
+      return registry.get(statuses.get(input.cwd)!);
+    });
+    await expect(item("web").run()).rejects.toThrow("cannot change source control");
+    expect(mocks.stacked).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "rechecks thread permission before creating a feature branch (initially allowed: %s)",
+    async (initiallyAllowed) => {
+      mocks.permission.mockImplementation(
+        (_environment, permission) =>
+          initiallyAllowed || permission !== AuthOrchestrationOperateScope,
+      );
+      await act(async () =>
+        registry.set(
+          statuses.get("/worktrees/web")!,
+          AsyncResult.success(
+            status({ refName: "main", isDefaultRef: true, hasWorkingTreeChanges: true }),
+          ),
+        ),
+      );
+      await item("web").run();
+      const confirmation = (mocks.open.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
+      const feature = confirmation.groups[0]!.items.find((entry) =>
+        entry.value.endsWith(":feature"),
+      )!;
+      expect(feature.disabled).toBe(!initiallyAllowed);
+      mocks.permission.mockImplementation(
+        (_environment, permission) => permission !== AuthOrchestrationOperateScope,
+      );
+      if (feature.kind !== "action") throw new Error("Expected an action");
+      await expect(feature.run()).rejects.toThrow("cannot change the thread's branch");
+      expect(mocks.stacked).not.toHaveBeenCalled();
+    },
+  );
+
   it("runs each repository's displayed action against its own remote environment checkout", async () => {
     expect(item("web").title).toBe("Commit, push & PR · web");
     expect(item("api").title).toBe("Pull · api");

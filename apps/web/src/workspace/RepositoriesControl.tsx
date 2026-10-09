@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import {
   CommandId,
   hasRepositorySet,
@@ -544,7 +545,7 @@ export function ThreadRepositories(props: {
                     Show changes
                   </MenuItem>
                   <MenuItem
-                    disabled={binding.state !== "ready"}
+                    disabled={binding.state !== "ready" || !actions.canOpenTerminal}
                     onClick={() => void actions.openTerminal(binding)}
                   >
                     <SquareTerminalIcon />
@@ -587,10 +588,12 @@ export function useRepositoryActions(
   threadId: ThreadId,
   workspaceRevision: number,
 ) {
+  const canOpenTerminal = useAtomValue(forkWorkspace.terminal.permissionAtom(environmentId));
   const openTerminal = useAtomCommand(forkWorkspace.terminal, { reportFailure: false });
   const threadRef = scopeThreadRef(environmentId, threadId);
   const threadKey = scopedThreadKey(threadRef);
   return {
+    canOpenTerminal,
     showChanges: (binding: WorkspaceBinding) => {
       useWorkspaceUiStore.getState().setActiveRepository(threadKey, binding.id);
       useRightPanelStore.getState().open(threadRef, "diff");

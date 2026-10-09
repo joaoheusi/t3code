@@ -99,7 +99,24 @@ export function quickActionTargets(
       });
     }
   }
-  return { kind: "ready", variants };
+  const applicable = variants.filter(
+    (variant) => quickActionTargetNeedsAction(action, variant) !== false,
+  );
+  if (applicable.length === 0) {
+    const used = templateVariables(action.template);
+    const ci = used.includes("ci.failures");
+    const conflicts = used.includes("pr.conflicts");
+    return {
+      kind: "unavailable",
+      reason:
+        ci && conflicts
+          ? "No failing CI checks or merge conflicts"
+          : ci
+            ? "No failing CI checks"
+            : "No merge conflicts",
+    };
+  }
+  return { kind: "ready", variants: applicable };
 }
 
 /** CI and conflict state from a synced PR snapshot, worded like the desktop palette. */
@@ -125,7 +142,8 @@ export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot
 
 /**
  * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
- * conflicts for `{{pr.conflicts}}`. Null when the action reads neither or the PR is unsynced.
+ * conflicts for `{{pr.conflicts}}`. Null when the action reads neither or the relevant state
+ * is unknown, so incomplete snapshots do not prevent inspecting a PR.
  */
 export function quickActionTargetNeedsAction(
   action: Pick<QuickAction, "template">,
@@ -135,10 +153,18 @@ export function quickActionTargetNeedsAction(
   const ci = used.includes("ci.failures");
   const conflicts = used.includes("pr.conflicts");
   if ((!ci && !conflicts) || !variant.snapshot) return null;
-  return (
-    (ci && variant.snapshot.checksState === "failing") ||
-    (conflicts && variant.snapshot.mergeability === "conflicting")
-  );
+  const needs: Array<boolean | null> = [];
+  if (ci)
+    needs.push(
+      variant.snapshot.checksState == null ? null : variant.snapshot.checksState === "failing",
+    );
+  if (conflicts)
+    needs.push(
+      variant.snapshot.mergeability == null || variant.snapshot.mergeability === "unknown"
+        ? null
+        : variant.snapshot.mergeability === "conflicting",
+    );
+  return needs.includes(true) ? true : needs.includes(null) ? null : false;
 }
 
 /** "2 of 3 pull requests need this", or just the target count when need is unknown. */

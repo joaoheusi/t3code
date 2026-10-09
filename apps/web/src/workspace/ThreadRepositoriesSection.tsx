@@ -24,7 +24,7 @@ import { ThreadDetailsPrRows } from "../components/chat/ThreadDetailsPrRows";
 import { ThreadDetailsSection } from "../components/chat/ThreadDetailsSection";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
-  THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS,
+  THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS,
   THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
 } from "../components/chat/threadDetailsPanelStyles";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
@@ -174,12 +174,12 @@ function RepositorySectionRow(props: {
   const status = useRepositoryStatus(props.environmentId, binding);
   const pullRequest = useRepositoryPullRequest(props.threadRef, binding, status);
   return (
-    <div key={binding.id} className={THREAD_DETAILS_PANEL_LINK_SPLIT_GROUP_CLASS}>
+    <div key={binding.id} className={THREAD_DETAILS_PANEL_SPLIT_GROUP_CLASS}>
       <Tooltip>
         <TooltipTrigger
           render={
             <ThreadDetailsControl
-              part="link-primary"
+              part="primary"
               aria-current={props.active || undefined}
               data-pressed={props.active ? "" : undefined}
               onClick={props.onSelect}
@@ -240,7 +240,10 @@ function RepositorySectionRow(props: {
             <FileDiffIcon />
             Show changes
           </MenuItem>
-          <MenuItem disabled={!ready} onClick={() => void actions.openTerminal(binding)}>
+          <MenuItem
+            disabled={!ready || !actions.canOpenTerminal}
+            onClick={() => void actions.openTerminal(binding)}
+          >
             <SquareTerminalIcon />
             Open terminal here
           </MenuItem>

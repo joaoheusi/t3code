@@ -43,7 +43,9 @@ describe("V2 preview upgrade", () => {
         [60, "ForkWorkspaceOperations"],
         [61, "ForkQuickActionStarters"],
         [62, "DropForkWorkspaceOperations"],
-        [63, "AddressReviewThreadsQuickAction"],
+        [63, "McpAppModelContext"],
+        [64, "ThreadSnapshotWindowIndexes"],
+        [65, "AddressReviewThreadsQuickAction"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -129,7 +131,9 @@ describe("V2 preview upgrade", () => {
         [60, "ForkWorkspaceOperations"],
         [61, "ForkQuickActionStarters"],
         [62, "DropForkWorkspaceOperations"],
-        [63, "AddressReviewThreadsQuickAction"],
+        [63, "McpAppModelContext"],
+        [64, "ThreadSnapshotWindowIndexes"],
+        [65, "AddressReviewThreadsQuickAction"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
