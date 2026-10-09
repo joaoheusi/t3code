@@ -76,6 +76,8 @@ import Migration0059 from "./Migrations/059_ForkQuickActions.ts";
 import Migration0061 from "./Migrations/061_ForkQuickActionStarters.ts";
 import Migration0062 from "./Migrations/062_DropForkWorkspaceOperations.ts";
 import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
+import Migration0063 from "./Migrations/063_McpAppModelContext.ts";
+import Migration0064 from "./Migrations/064_ThreadSnapshotWindowIndexes.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -152,6 +154,9 @@ export const migrationEntries = [
   [60, "ForkWorkspaceOperations", Migration0060],
   [61, "ForkQuickActionStarters", Migration0061],
   [62, "DropForkWorkspaceOperations", Migration0062],
+  // Fork releases already recorded 59–62. Append upstream migrations without replaying them.
+  [63, "McpAppModelContext", Migration0063],
+  [64, "ThreadSnapshotWindowIndexes", Migration0064],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

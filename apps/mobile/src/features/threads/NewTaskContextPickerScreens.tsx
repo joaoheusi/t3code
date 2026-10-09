@@ -1,6 +1,7 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { shouldCheckoutNewTaskBranch } from "./new-task-context-presentation";
 import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
-import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { AuthSourceControlWriteScope, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import {
   isAtomCommandInterrupted,
@@ -28,6 +29,7 @@ import { PickerRow, PickerSurface, PickerToggleRow } from "../../components/Pick
 import { cn } from "../../lib/cn";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 import { useServerConfigs } from "../../state/entities";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import {
@@ -139,6 +141,10 @@ export function NewTaskEnvironmentPickerRouteScreen() {
 
 export function NewTaskBranchPickerRouteScreen() {
   const flow = useNewTaskFlow();
+  const canWriteSourceControl = useEnvironmentScope(
+    flow.selectedProject?.environmentId ?? null,
+    AuthSourceControlWriteScope,
+  );
   const navigation = useNavigation();
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const [switchingBranchName, setSwitchingBranchName] = useState<string | null>(null);
@@ -166,7 +172,12 @@ export function NewTaskBranchPickerRouteScreen() {
 
   const selectBranch = useCallback(
     async (branch: VcsRef) => {
-      if (selectingBranchNameRef.current !== null) {
+      const needsCheckout = shouldCheckoutNewTaskBranch({
+        branchIsCurrent: branch.current,
+        branchWorktreePath: branch.worktreePath,
+        workspaceMode: flow.workspaceMode,
+      });
+      if (selectingBranchNameRef.current !== null || (needsCheckout && !canWriteSourceControl)) {
         return;
       }
       selectingBranchNameRef.current = branch.name;
@@ -211,6 +222,7 @@ export function NewTaskBranchPickerRouteScreen() {
       }
     },
     [
+      canWriteSourceControl,
       flow.selectBranch,
       flow.selectedProject,
       flow.setBranchQuery,

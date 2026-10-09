@@ -1,5 +1,6 @@
 import { useTaskDestination } from "../../quickActions/useTaskDestination";
 import type { ComposerThreadTarget } from "../../composerDraftStore";
+import { useAtomCommand } from "~/state/use-atom-command";
 /**
  * The actions a pull request offers, extracted from the detail panel so smaller surfaces — the
  * thread details panel's pull request row — perform them through the very same code. Two callers
@@ -32,7 +33,6 @@ import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
 import { pullRequestEnvironment } from "~/state/pullRequests";
-import { useAtomCommand } from "~/state/use-atom-command";
 
 import { toastManager } from "../ui/toast";
 import { readableFailure } from "./pullRequestDetail.logic";
@@ -141,7 +141,9 @@ export function usePullRequestActionRunner({
   /** Small surfaces resolve repository settings on the click, not for every visible row. */
   resolveMergeMethod?: (detail: PullRequestDetail) => PullRequestMergeMethod;
 }) {
-  const runAction = useAtomCommand(pullRequestEnvironment.runAction, { reportFailure: false });
+  const runAction = useAtomCommand(pullRequestEnvironment.runAction, {
+    reportFailure: false,
+  });
   const [actionPending, setActionPending] = useState(false);
   const pendingRef = useRef(false);
 
