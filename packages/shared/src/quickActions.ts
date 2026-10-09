@@ -286,6 +286,7 @@ export const QUICK_ACTION_STARTER_IDS = {
   resolveConflicts: "99aa6720-f388-4bbd-aacc-000000000001",
   pullRequestWalkthrough: "99aa6720-f388-4bbd-aacc-000000000002",
   reviewChanges: "99aa6720-f388-4bbd-aacc-000000000003",
+  addressReviewThreads: "99aa6720-f388-4bbd-aacc-000000000004",
 } as const;
 
 const starter = (
@@ -341,5 +342,15 @@ export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
     category: "Review",
     template:
       "Review the current changes for correctness and reliability. Report concrete defects with file locations and user-visible effects. Do not modify files.",
+  }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+    name: "Address review threads",
+    description: "Check PR review feedback, fix valid findings, and resolve addressed threads",
+    aliases: ["address reviews", "fix review comments", "resolve review threads"],
+    tags: ["review", "pr"],
+    category: "Pull requests",
+    template:
+      "Address the unresolved review threads on {{pr.url}} in this thread. Read each thread and check its feedback against the current code. Fix valid findings, run focused checks, and reply with what changed or a clear reason when no change is needed. Resolve threads only after their feedback has been addressed. Report anything still unresolved. Do not commit, push, merge, request another review, or open another thread unless I ask.",
   }),
 ];

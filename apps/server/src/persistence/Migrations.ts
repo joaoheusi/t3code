@@ -75,6 +75,7 @@ import Migration0057 from "./Migrations/057_ScheduledTaskWebhooks.ts";
 import Migration0059 from "./Migrations/059_ForkQuickActions.ts";
 import Migration0061 from "./Migrations/061_ForkQuickActionStarters.ts";
 import Migration0062 from "./Migrations/062_DropForkWorkspaceOperations.ts";
+import Migration0063 from "./Migrations/063_AddressReviewThreadsQuickAction.ts";
 import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
 
 /**
@@ -152,6 +153,7 @@ export const migrationEntries = [
   [60, "ForkWorkspaceOperations", Migration0060],
   [61, "ForkQuickActionStarters", Migration0061],
   [62, "DropForkWorkspaceOperations", Migration0062],
+  [63, "AddressReviewThreadsQuickAction", Migration0063],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
