@@ -21,9 +21,12 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import {
+  describeQuickActionTargets,
+  pullRequestSnapshotStatus,
   quickActionTargets,
   renderQuickActionSelection,
   type QuickActionChoice,
+  type QuickActionVariant,
 } from "@t3tools/client-runtime/quickActionRunner";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { rankQuickActions } from "@t3tools/shared/quickActions";
@@ -61,12 +64,15 @@ export type QuickActionsTarget = {
 type Editing = { readonly action: QuickActionFields; readonly revision: number | null };
 type ManageAction = "edit" | "favorite" | "enable" | "delete";
 type ActionRow = {
-  readonly key: string;
   readonly action: QuickAction;
-  readonly title: string;
   readonly subtitle: string | undefined;
   /** Null when the action cannot run here; the subtitle says why. */
-  readonly choice: QuickActionChoice | null;
+  readonly variants: readonly QuickActionVariant[] | null;
+};
+type Choosing = {
+  readonly action: QuickAction;
+  readonly variants: readonly QuickActionVariant[];
+  readonly selected: readonly string[];
 };
 
 export function useQuickActionsSupported(environmentId: EnvironmentId) {
@@ -136,6 +142,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   const canRemove = useAtomValue(
     quickActionsEnvironment.remove.permissionAtom(target.environmentId),
   );
+  const [choosing, setChoosing] = useState<Choosing | null>(null);
   const save = useAtomCommand(quickActionsEnvironment.save, { reportFailure: false });
   const remove = useAtomCommand(quickActionsEnvironment.remove, { reportFailure: false });
   const reload = useAtomCommand(quickActionsEnvironment.reload, { reportFailure: false });
@@ -162,7 +169,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   const ranked = rankQuickActions(actions, query);
   const disabledActions = query.trim() ? [] : actions.filter((action) => !action.enabled);
 
-  const run = async (action: QuickAction, choice: QuickActionChoice) => {
+  const run = async (action: QuickAction, choices: readonly QuickActionChoice[]) => {
     if (busy) return;
     const invocation = ++generation.current;
     const insertion = captureComposerDraftInsertion(target.draftKey);
@@ -180,7 +187,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       const rendered = await renderQuickActionSelection({
         action: current,
         scope,
-        choices: [choice],
+        choices,
         readClipboard: Clipboard.getStringAsync,
         resolveContext: async (environmentId, input) => {
           const result = await resolve({ environmentId, input });
@@ -201,7 +208,8 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       void Haptics.selectionAsync();
       navigation.goBack();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (invocation === generation.current)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
@@ -314,22 +322,111 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     );
   }
 
-  // Each runnable choice is one row; an action that needs a pull request or repository
-  // offers one row per candidate.
-  const rows = ranked.flatMap((action): ActionRow[] => {
+  const listStyle = {
+    gap: 12,
+    paddingBottom: Math.max(insets.bottom, 16) + 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  };
+
+  if (choosing) {
+    const { action, variants, selected } = choosing;
+    return (
+      <View collapsable={false} className="flex-1 bg-sheet">
+        <ForkScreenHeader
+          title={action.name}
+          cancel={{
+            label: "Back",
+            onPress: () => {
+              // Leaving the picker cancels a pending insert.
+              generation.current++;
+              setChoosing(null);
+              setError(null);
+            },
+          }}
+          action={{
+            accessibilityLabel: "Insert selected",
+            label: "Insert",
+            icon: "checkmark",
+            disabled: busy || selected.length === 0,
+            onPress: () =>
+              void run(
+                action,
+                variants
+                  .filter((variant) => selected.includes(variant.key))
+                  .map((variant) => variant.choice),
+              ),
+          }}
+        />
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={listStyle}
+        >
+          <PickerCaption>
+            {describeQuickActionTargets(action, variants) ?? "Choose where it applies"}
+          </PickerCaption>
+          <PickerSurface>
+            {variants.map((variant, index) => (
+              <PickerRow
+                key={variant.key}
+                title={variant.label ?? action.name}
+                subtitle={
+                  variant.choice.pullRequest
+                    ? pullRequestSnapshotStatus(variant.snapshot)
+                    : undefined
+                }
+                symbol={
+                  variant.choice.pullRequest ? "arrow.triangle.pull" : "arrow.triangle.branch"
+                }
+                selected={selected.includes(variant.key)}
+                accessibilityRole="checkbox"
+                isLast={index === variants.length - 1}
+                disabled={busy}
+                onPress={() =>
+                  setChoosing({
+                    ...choosing,
+                    selected: selected.includes(variant.key)
+                      ? selected.filter((key) => key !== variant.key)
+                      : [...selected, variant.key],
+                  })
+                }
+              />
+            ))}
+          </PickerSurface>
+          {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
+          {busy ? (
+            <View className="flex-row items-center justify-center gap-2">
+              <ActivityIndicator size="small" />
+              <Text className="text-sm text-foreground-muted">Preparing action…</Text>
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // One row per action. An action with several PR or repository targets opens a picker that
+  // shows each target's status, like the desktop palette's submenu.
+  const rows = ranked.map((action): ActionRow => {
     const targets = quickActionTargets(action, scope);
-    if (targets.kind === "unavailable") {
-      return [
-        { key: action.id, action, title: action.name, subtitle: targets.reason, choice: null },
-      ];
+    if (targets.kind === "unavailable") return { action, subtitle: targets.reason, variants: null };
+    const [only] = targets.variants;
+    if (targets.variants.length === 1 && only) {
+      return {
+        action,
+        variants: targets.variants,
+        subtitle: only.choice.pullRequest
+          ? `${only.label} · ${pullRequestSnapshotStatus(only.snapshot)}`
+          : only.label || action.description || undefined,
+      };
     }
-    return targets.variants.map((variant) => ({
-      key: `${action.id}:${variant.key}`,
+    return {
       action,
-      title: action.name,
-      subtitle: variant.label || action.description || undefined,
-      choice: variant.choice,
-    }));
+      variants: targets.variants,
+      subtitle:
+        describeQuickActionTargets(action, targets.variants) ?? (action.description || undefined),
+    };
   });
 
   return (
@@ -348,12 +445,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          gap: 12,
-          paddingBottom: Math.max(insets.bottom, 16) + 16,
-          paddingHorizontal: 16,
-          paddingTop: 12,
-        }}
+        contentContainerStyle={listStyle}
       >
         <PickerSearchField placeholder="Find an action" value={query} onChangeText={setQuery} />
         {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
@@ -389,8 +481,8 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
               <PickerSurface>
                 {rows.map((row, index) => (
                   <ControlPillMenu
-                    key={row.key}
-                    accessibilityLabel={`Manage ${row.title}`}
+                    key={row.action.id}
+                    accessibilityLabel={`Manage ${row.action.name}`}
                     shouldOpenOnLongPress
                     actions={manageMenu(row.action)}
                     onPressAction={({ nativeEvent }) =>
@@ -398,21 +490,33 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                     }
                   >
                     <PickerRow
-                      title={row.title}
+                      title={row.action.name}
                       subtitle={row.subtitle}
                       symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
+                      tone={row.variants ? undefined : "muted"}
+                      trailing={
+                        row.variants && row.variants.length > 1 ? (
+                          <SymbolView
+                            name="chevron.right"
+                            size={14}
+                            tintColorClassName="accent-icon-muted"
+                            type="monochrome"
+                          />
+                        ) : undefined
+                      }
                       isLast={index === rows.length - 1}
                       disabled={busy}
-                      accessibilityHint={
-                        canSave
-                          ? "Inserts the action into the message. Long press to manage it."
-                          : "Inserts the action into the message."
-                      }
-                      onPress={() =>
-                        row.choice
-                          ? void run(row.action, row.choice)
-                          : Alert.alert(row.title, row.subtitle)
-                      }
+                      accessibilityHint={`${row.variants ? "Inserts the action into the message." : "Not available here."}${canSave ? " Long press to manage it." : ""}`}
+                      onPress={() => {
+                        const variants = row.variants;
+                        if (!variants) Alert.alert(row.action.name, row.subtitle);
+                        else if (variants.length === 1)
+                          void run(
+                            row.action,
+                            variants.map((variant) => variant.choice),
+                          );
+                        else setChoosing({ action: row.action, variants, selected: [] });
+                      }}
                     />
                   </ControlPillMenu>
                 ))}
