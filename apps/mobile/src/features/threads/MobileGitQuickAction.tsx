@@ -33,6 +33,7 @@ import type { QuickActionsTarget } from "./MobileQuickActions";
 export function MobileGitQuickAction(props: {
   target: QuickActionsTarget;
   query: string;
+  isLast?: boolean;
   onClose: () => void;
   choosing: boolean;
   onChoosingChange: (choosing: boolean) => void;
@@ -318,25 +319,21 @@ export function MobileGitQuickAction(props: {
   )
     return null;
   return (
-    <View className="gap-2">
-      <PickerSurface>
-        <PickerRow
-          multiline
-          title={summary.label}
-          subtitle={
-            !canWrite ? "This connection cannot change source control." : summary.description
-          }
-          symbol="arrow.triangle.branch"
-          isLast
-          disabled={busy || !canWrite || summary.disabled}
-          onPress={() => {
-            if (repositories.length === 1) void run(repositories[0]!);
-            else props.onChoosingChange(true);
-          }}
-        />
-      </PickerSurface>
+    <>
+      <PickerRow
+        multiline
+        title={summary.label}
+        subtitle={!canWrite ? "This connection cannot change source control." : summary.description}
+        symbol="bolt.circle"
+        isLast={props.isLast}
+        disabled={busy || !canWrite || summary.disabled}
+        onPress={() => {
+          if (repositories.length === 1) void run(repositories[0]!);
+          else props.onChoosingChange(true);
+        }}
+      />
       {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
       {busy ? <PickerCaption>Running Git action…</PickerCaption> : null}
-    </View>
+    </>
   );
 }
