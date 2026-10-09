@@ -489,9 +489,9 @@ function toClientMetadata(record: {
 }
 
 /**
- * Fork policy: a session that may operate agents holds every standard client
- * permission, including ones added after it paired, so updates never force a
- * re-pair. Narrower grants, admin permissions, and MCP agent sessions stay as recorded.
+ * Fork policy: any grant holding `orchestration:operate` holds every current standard
+ * client permission, including ones added after it paired, so updates never force a
+ * re-pair. Grants without it, admin permissions, and MCP agent sessions stay as recorded.
  */
 export function effectiveSessionScopes(
   subject: string,
@@ -1113,17 +1113,23 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         // Subscribe before reading: revocation can race with the WebSocket upgrade.
         const subscription = yield* PubSub.subscribe(changesPubSub);
-        const row = yield* authSessions
-          .getById({ sessionId })
-          .pipe(
-            Effect.mapError(
-              (cause) => new SessionCredentialVerificationError({ sessionId, cause }),
-            ),
-          );
-        if (Option.isNone(row) || row.value.revokedAt !== null) return;
-        const now = yield* DateTime.now;
-        const remaining = row.value.expiresAt.epochMilliseconds - now.epochMilliseconds;
-        if (remaining <= 0) return;
+        // Re-read at each deadline: renewal can move it while the connection stays open.
+        const untilExpired = Effect.gen(function* () {
+          while (true) {
+            const row = yield* authSessions
+              .getById({ sessionId })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new SessionCredentialVerificationError({ sessionId, cause }),
+                ),
+              );
+            if (Option.isNone(row) || row.value.revokedAt !== null) return;
+            const now = yield* DateTime.now;
+            const remaining = row.value.expiresAt.epochMilliseconds - now.epochMilliseconds;
+            if (remaining <= 0) return;
+            yield* Effect.sleep(Duration.millis(remaining));
+          }
+        });
         yield* Effect.raceFirst(
           Stream.fromSubscription(subscription).pipe(
             Stream.filter(
@@ -1131,7 +1137,7 @@ export const make = Effect.gen(function* () {
             ),
             Stream.runHead,
           ),
-          Effect.sleep(Duration.millis(remaining)),
+          untilExpired,
         );
       }),
     );
