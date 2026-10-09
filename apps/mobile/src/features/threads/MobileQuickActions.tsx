@@ -28,7 +28,8 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import { rankQuickActions } from "@t3tools/shared/quickActions";
 
 import { AppText as Text } from "../../components/AppText";
-import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import { SymbolView } from "../../components/AppSymbol";
+import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
 import { ControlPillMenu } from "../../components/ControlPill";
 import {
   PickerCaption,
@@ -74,21 +75,31 @@ export function useQuickActionsSupported(environmentId: EnvironmentId) {
   );
 }
 
-/** The composer control that opens the quick action screen. */
+/** The composer toolbar button that opens the quick action screen, beside attachments. */
 export function QuickActionsControl(props: {
   readonly environmentId: EnvironmentId;
   readonly disabled?: boolean;
   readonly onOpen: () => void;
 }) {
+  const { scale } = useAndroidControlSizing();
   if (!useQuickActionsSupported(props.environmentId)) return null;
   return (
-    <ComposerInlineControl
-      label="Actions"
+    <Pressable
       accessibilityLabel="Quick actions"
-      icon="bolt.circle"
+      accessibilityRole="button"
+      accessibilityState={{ disabled: props.disabled }}
+      className="size-[44px] shrink-0 items-center justify-center rounded-full active:opacity-70 disabled:opacity-50"
       disabled={props.disabled}
       onPress={props.onOpen}
-    />
+    >
+      <SymbolView
+        name="bolt.circle"
+        size={Math.round(20 * scale)}
+        weight="regular"
+        tintColorClassName="accent-icon"
+        type="monochrome"
+      />
+    </Pressable>
   );
 }
 
@@ -395,11 +406,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                 <ActivityIndicator size="small" />
                 <Text className="text-sm text-foreground-muted">Preparing action…</Text>
               </View>
-            ) : (
-              <PickerCaption>
-                Inserting never sends. Long press an action to edit, favorite, or delete it.
-              </PickerCaption>
-            )}
+            ) : null}
             {disabledActions.length > 0 ? (
               <View className="gap-2">
                 <PickerCaption>Disabled</PickerCaption>

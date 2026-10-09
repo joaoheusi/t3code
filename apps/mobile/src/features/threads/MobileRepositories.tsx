@@ -2,7 +2,7 @@ import { type StaticScreenProps } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   CommandId,
@@ -28,7 +28,6 @@ import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
-import { ControlPillMenu } from "../../components/ControlPill";
 import {
   PickerCaption,
   PickerRow,
@@ -76,17 +75,19 @@ export function RepositoriesControl(props: {
   const choice = useMobileRepositories(props.project, props.draftKey);
   if (!choice.supported) return null;
   const total = choice.repositories.length + (choice.selection.folder ? 0 : 1);
+  const several = total > 1 || choice.selection.folder;
+  // Compact so it fits beside the workspace and branch controls: an add icon alone, or a
+  // folder with the repository count.
   return (
     <ComposerInlineControl
-      accessibilityLabel={`Repositories: ${repositoryCount(total)}`}
+      accessibilityLabel={several ? `Repositories: ${repositoryCount(total)}` : "Add repositories"}
       label={
-        choice.discovery.isPending && !choice.discovery.data
-          ? "Finding repositories…"
-          : total > 1 || choice.selection.folder
-            ? repositoryCount(total)
-            : "Repositories"
+        choice.discovery.isPending && !choice.discovery.data ? "…" : several ? String(total) : ""
       }
-      icon="folder"
+      icon={several ? "folder" : "folder.badge.plus"}
+      selected={several}
+      showChevron={false}
+      maxWidth={72}
       disabled={props.disabled}
       onPress={props.onOpen}
     />
@@ -244,56 +245,33 @@ function RepositoriesContent(props: {
               selection.folder && isInsideFolder(props.project.workspaceRoot, repository.path);
             const canSwitch = repository.mode !== "existing-worktree" && !followsFolder;
             return (
-              <ControlPillMenu
+              <PickerRow
                 key={repository.path}
-                accessibilityLabel={`Options for ${repository.label}`}
-                actions={[
-                  ...(canSwitch
-                    ? [
-                        {
-                          id: "current",
-                          title: CHECKOUT_MODE_LABEL.current,
-                          state: repository.mode === "current" ? ("on" as const) : undefined,
-                        },
-                        {
-                          id: "new-worktree",
-                          title: CHECKOUT_MODE_LABEL["new-worktree"],
-                          state: repository.mode === "new-worktree" ? ("on" as const) : undefined,
-                        },
-                      ]
-                    : []),
-                  {
-                    id: "remove",
-                    title: "Remove",
-                    image: Platform.OS === "ios" ? "minus.circle" : "remove",
-                    attributes: { destructive: true },
-                  },
-                ]}
-                onPressAction={({ nativeEvent }) => {
-                  const id = nativeEvent.event;
-                  if (id === "remove") removeRepository(repository.path);
-                  else if (id === "current" || id === "new-worktree") setMode(repository.path, id);
-                }}
-              >
-                <PickerRow
-                  title={repository.label}
-                  subtitle={`${
-                    followsFolder ? "Follows the folder" : CHECKOUT_MODE_LABEL[repository.mode]
-                  } · ${shortPath(repository.path)}`}
-                  symbol="arrow.triangle.branch"
-                  disabled={busy}
-                  isLast={index === repositories.length - 1}
-                  accessibilityHint="Opens checkout options"
-                  trailing={
-                    <SymbolView
-                      name="chevron.down"
-                      size={14}
-                      tintColorClassName="accent-chevron"
-                      type="monochrome"
+                title={repository.label}
+                subtitle={
+                  followsFolder
+                    ? "Follows the folder setting"
+                    : `${CHECKOUT_MODE_LABEL[repository.mode]} · ${shortPath(repository.path)}`
+                }
+                leading={
+                  <RemoveButton
+                    label={repository.label}
+                    disabled={busy}
+                    onPress={() => removeRepository(repository.path)}
+                  />
+                }
+                trailing={
+                  canSwitch ? (
+                    <CheckoutModeToggle
+                      label={repository.label}
+                      mode={repository.mode === "new-worktree" ? "new-worktree" : "current"}
+                      disabled={busy}
+                      onChange={(mode) => setMode(repository.path, mode)}
                     />
-                  }
-                />
-              </ControlPillMenu>
+                  ) : undefined
+                }
+                isLast={index === repositories.length - 1}
+              />
             );
           })}
           {selection.folder && repositories.length === 0 ? (
@@ -302,7 +280,7 @@ function RepositoriesContent(props: {
         </PickerSurface>
         <PickerCaption>
           {selection.folder
-            ? "The workspace control under the composer chooses the current folder or a copy with new worktrees. "
+            ? "The workspace control above the composer chooses the current folder or a copy with new worktrees. "
             : ""}
           Repositories are prepared when you send the first message.
           {choice.foundCount > REPOSITORY_LIMIT
@@ -401,6 +379,87 @@ function RepositoriesContent(props: {
           {notice ?? "New tasks in this project start with the saved repositories."}
         </PickerCaption>
       </ScrollView>
+    </View>
+  );
+}
+
+/** iOS-style delete control: a red circle with a minus. */
+function RemoveButton(props: {
+  readonly label: string;
+  readonly disabled?: boolean;
+  readonly onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Remove ${props.label}`}
+      disabled={props.disabled}
+      hitSlop={10}
+      onPress={() => {
+        void Haptics.selectionAsync();
+        props.onPress();
+      }}
+      className="size-[22px] items-center justify-center rounded-full bg-danger active:opacity-70"
+    >
+      <SymbolView
+        name="minus"
+        size={12}
+        weight="bold"
+        tintColorClassName="accent-danger-foreground"
+        type="monochrome"
+      />
+    </Pressable>
+  );
+}
+
+const CHECKOUT_MODE_ICON = {
+  current: "folder",
+  "new-worktree": "arrow.triangle.branch",
+} as const;
+
+/** Two icon segments: work in the current checkout, or in a new worktree. */
+function CheckoutModeToggle(props: {
+  readonly label: string;
+  readonly mode: "current" | "new-worktree";
+  readonly disabled?: boolean;
+  readonly onChange: (mode: "current" | "new-worktree") => void;
+}) {
+  return (
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel={`Checkout for ${props.label}`}
+      className="flex-row rounded-full bg-subtle p-0.5"
+      style={{ opacity: props.disabled ? 0.45 : 1 }}
+    >
+      {(["current", "new-worktree"] as const).map((mode) => {
+        const selected = props.mode === mode;
+        return (
+          <Pressable
+            key={mode}
+            accessibilityRole="radio"
+            accessibilityLabel={CHECKOUT_MODE_LABEL[mode]}
+            accessibilityState={{ checked: selected, disabled: props.disabled }}
+            disabled={props.disabled || selected}
+            hitSlop={4}
+            onPress={() => {
+              void Haptics.selectionAsync();
+              props.onChange(mode);
+            }}
+            className={
+              selected
+                ? "h-7 w-9 items-center justify-center rounded-full bg-card"
+                : "h-7 w-9 items-center justify-center rounded-full active:opacity-60"
+            }
+          >
+            <SymbolView
+              name={CHECKOUT_MODE_ICON[mode]}
+              size={14}
+              tintColorClassName={selected ? "accent-icon" : "accent-icon-muted"}
+              type="monochrome"
+            />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

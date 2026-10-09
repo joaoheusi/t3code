@@ -1,5 +1,6 @@
 import { QuickActionsControl } from "./MobileQuickActions";
 import { RepositoriesControl } from "./MobileRepositories";
+import { useInitialRepositories } from "./useMobileRepositories";
 import { useAtomValue } from "@effect/atom-react";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
@@ -196,6 +197,8 @@ export function NewTaskDraftScreen(props: {
   readonly draftId?: string;
   /** Durable native share inbox item to merge into this project draft. */
   readonly incomingShareId?: string;
+  /** Projects picked together with this one, added as its repositories. */
+  readonly initialRepositories?: { readonly projectId: string; readonly paths: readonly string[] };
 }) {
   const projects = useProjects();
   const flow = useNewTaskFlow();
@@ -212,6 +215,7 @@ export function NewTaskDraftScreen(props: {
   const controlsBottomPadding = Math.max(insets.bottom, 10);
   const keyboardOpenedOffset = Math.max(0, controlsBottomPadding - 8);
   const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
+  useInitialRepositories(selectedProject, flow.draftKey, props.initialRepositories);
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,
@@ -1595,12 +1599,7 @@ export function NewTaskDraftScreen(props: {
   };
 
   const workspaceControls = (
-    <ScrollView
-      horizontal
-      keyboardShouldPersistTaps="handled"
-      showsHorizontalScrollIndicator={false}
-      contentContainerClassName="items-center gap-1 px-2"
-    >
+    <View className="flex-row items-center gap-1 px-2">
       {flow.canChooseWorkspace ? (
         <ComposerInlineControl
           accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
@@ -1650,14 +1649,7 @@ export function NewTaskDraftScreen(props: {
           onOpen={() => pushForkScreen("NewTaskRepositories")}
         />
       ) : null}
-      {flow.draftKey && selectedProject ? (
-        <QuickActionsControl
-          environmentId={selectedProject.environmentId}
-          disabled={isComposerInteractionLocked}
-          onOpen={() => pushForkScreen("NewTaskQuickActions")}
-        />
-      ) : null}
-    </ScrollView>
+    </View>
   );
 
   const composerDock = (
@@ -1799,6 +1791,13 @@ export function NewTaskDraftScreen(props: {
                     onPickMedia={handlePickMedia}
                     onPickFiles={handlePickFiles}
                   />
+                  {flow.draftKey && selectedProject ? (
+                    <QuickActionsControl
+                      environmentId={selectedProject.environmentId}
+                      disabled={isComposerInteractionLocked}
+                      onOpen={() => pushForkScreen("NewTaskQuickActions")}
+                    />
+                  ) : null}
                   <View className="min-w-0 flex-1 flex-row items-center justify-end gap-2">
                     <View className="min-w-0 shrink">
                       <ComposerInlineControl

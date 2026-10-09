@@ -902,19 +902,6 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       }}
                     />
                   ) : null}
-                  <QuickActionsControl
-                    environmentId={props.environmentId}
-                    disabled={props.queuedEdit?.saving}
-                    onOpen={() => {
-                      Keyboard.dismiss();
-                      navigation.navigate("ThreadQuickActions", {
-                        environmentId: props.environmentId,
-                        projectId: props.selectedThread.projectId,
-                        draftKey: composerDraftKey,
-                        threadId: props.selectedThread.id,
-                      });
-                    }}
-                  />
                 </View>
               ) : null}
               <ComposerEditor
@@ -1142,13 +1129,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : (
                   <View className="min-w-0 flex-1 flex-row items-center justify-between">
-                    <ComposerAttachmentButton
-                      supportsFiles={Boolean(
-                        props.serverConfig?.environment.capabilities.fileAttachments,
-                      )}
-                      onPickMedia={props.onPickDraftMedia}
-                      onPickFiles={props.onPickDraftFiles}
-                    />
+                    <View className="flex-row items-center">
+                      <ComposerAttachmentButton
+                        supportsFiles={Boolean(
+                          props.serverConfig?.environment.capabilities.fileAttachments,
+                        )}
+                        onPickMedia={props.onPickDraftMedia}
+                        onPickFiles={props.onPickDraftFiles}
+                      />
+                      <QuickActionsControl
+                        environmentId={props.environmentId}
+                        disabled={props.queuedEdit?.saving}
+                        onOpen={() => {
+                          Keyboard.dismiss();
+                          navigation.navigate("ThreadQuickActions", {
+                            environmentId: props.environmentId,
+                            projectId: props.selectedThread.projectId,
+                            draftKey: composerDraftKey,
+                            threadId: props.selectedThread.id,
+                          });
+                        }}
+                      />
+                    </View>
                     <View className="min-w-0 shrink">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"
