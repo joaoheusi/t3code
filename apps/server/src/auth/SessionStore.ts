@@ -694,15 +694,21 @@ export const make = Effect.gen(function* () {
     const renewedExpiresAt = DateTime.add(now, {
       milliseconds: Duration.toMillis(RENEWED_SESSION_TTL),
     });
+    const renewIfExpiresBefore = DateTime.subtract(renewedExpiresAt, {
+      milliseconds: Duration.toMillis(SESSION_RENEWAL_INTERVAL),
+    });
     if (
       !isRenewableSession(session) ||
-      renewedExpiresAt.epochMilliseconds - session.expiresAt.epochMilliseconds <
-        Duration.toMillis(SESSION_RENEWAL_INTERVAL)
+      session.expiresAt.epochMilliseconds >= renewIfExpiresBefore.epochMilliseconds
     ) {
       return Effect.succeed(session.expiresAt);
     }
     return authSessions
-      .extendExpiry({ sessionId: session.sessionId, expiresAt: renewedExpiresAt })
+      .extendExpiry({
+        sessionId: session.sessionId,
+        expiresAt: renewedExpiresAt,
+        renewIfExpiresBefore,
+      })
       .pipe(
         Effect.as(renewedExpiresAt),
         Effect.catch((cause) =>

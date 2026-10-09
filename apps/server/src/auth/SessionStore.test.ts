@@ -425,6 +425,9 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(renewed.expiresAt!.epochMilliseconds).toBeGreaterThan(
         paired.expiresAt.epochMilliseconds + Duration.toMillis(Duration.days(300)),
       );
+      // Later uses on the same day keep that deadline instead of writing again.
+      yield* TestClock.adjust(Duration.hours(3));
+      expect((yield* sessions.verify(paired.token)).expiresAt).toEqual(renewed.expiresAt);
 
       // Past the 30-day `exp` signed into the token.
       yield* TestClock.adjust(Duration.days(200));

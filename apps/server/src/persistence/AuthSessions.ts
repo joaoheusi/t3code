@@ -95,6 +95,8 @@ export type SetAuthSessionLastConnectedAtInput = typeof SetAuthSessionLastConnec
 export const ExtendAuthSessionExpiryInput = Schema.Struct({
   sessionId: AuthSessionId,
   expiresAt: Schema.DateTimeUtcFromString,
+  /** Renew only a session whose stored deadline is earlier than this. */
+  renewIfExpiresBefore: Schema.DateTimeUtcFromString,
 });
 export type ExtendAuthSessionExpiryInput = typeof ExtendAuthSessionExpiryInput.Type;
 
@@ -340,16 +342,17 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  // Only moves the deadline forward, so a racing renewal can never shorten a session.
+  // The deadline condition lives in the update, so concurrent renewals write at most once
+  // and never shorten a session.
   const extendExpiryRow = SqlSchema.void({
     Request: ExtendAuthSessionExpiryInput,
-    execute: ({ sessionId, expiresAt }) =>
+    execute: ({ sessionId, expiresAt, renewIfExpiresBefore }) =>
       sql`
         UPDATE auth_sessions
         SET expires_at = ${expiresAt}
         WHERE session_id = ${sessionId}
           AND revoked_at IS NULL
-          AND expires_at < ${expiresAt}
+          AND expires_at < ${renewIfExpiresBefore}
       `,
   });
 
