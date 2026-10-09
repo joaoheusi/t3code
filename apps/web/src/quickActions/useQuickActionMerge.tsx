@@ -12,7 +12,7 @@ import { openCommandPalette } from "../commandPaletteBus";
 import {
   ADDON_ICON_CLASS,
   ITEM_ICON_CLASS,
-  type CommandPaletteSubmenuItem,
+  type CommandPaletteActionItem,
 } from "../components/CommandPalette.logic";
 import {
   PULL_REQUEST_MERGE_METHOD_LABELS,
@@ -115,32 +115,15 @@ export function useQuickActionMerge() {
           groups: [
             {
               value: "quick-action-merge-methods",
-              label: "Choose a merge method",
-              items: methods.map((method): CommandPaletteSubmenuItem => ({
-                kind: "submenu",
+              label: `Confirm merge · ${targets}`,
+              items: methods.map((method): CommandPaletteActionItem => ({
+                kind: "action",
                 value: `quick-action-merge:${method}`,
                 searchTerms: [method, PULL_REQUEST_MERGE_METHOD_LABELS[method]],
                 title: PULL_REQUEST_MERGE_METHOD_LABELS[method],
-                description: targets,
+                description: `Merge ${references.length} pull request${references.length === 1 ? "" : "s"} now`,
                 icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
-                addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
-                groups: [
-                  {
-                    value: "quick-action-merge-confirm",
-                    label: "Confirm merge",
-                    items: [
-                      {
-                        kind: "action",
-                        value: "quick-action-merge-confirm",
-                        searchTerms: ["confirm", "merge", targets],
-                        title: `${PULL_REQUEST_MERGE_METHOD_LABELS[method]} ${references.length} pull request${references.length === 1 ? "" : "s"}`,
-                        description: targets,
-                        icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
-                        run: () => merge(method),
-                      },
-                    ],
-                  },
-                ],
+                run: () => merge(method),
               })),
             },
           ],
