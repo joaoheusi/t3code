@@ -155,6 +155,24 @@ it.effect("sets the selected browser session cookies through the HTTP route", ()
           expect(restrictedCookies).toHaveLength(1);
           expect(restrictedCookies[0]).toMatch(/^t3_session_/);
           expect(restrictedCookies[0]).not.toContain("t3_dev_session_");
+
+          // The session check re-sends the cookie so the browser keeps the renewed deadline.
+          const restrictedCookieHeader = restrictedCookies[0]!.split(";", 1)[0]!;
+          const renewedResponse = await environmentA.handler(
+            new Request("http://127.0.0.1/api/auth/session", {
+              headers: { cookie: restrictedCookieHeader },
+            }),
+            requestContext,
+          );
+          expect(renewedResponse.status).toBe(200);
+          const renewedCookies = renewedResponse.headers.getSetCookie();
+          expect(renewedCookies).toHaveLength(1);
+          expect(renewedCookies[0]!.startsWith(`${restrictedCookieHeader};`)).toBe(true);
+          const cookieExpiry = (cookie: string) =>
+            Date.parse(/Expires=([^;]+)/.exec(cookie)?.[1] ?? "");
+          expect(cookieExpiry(renewedCookies[0]!)).toBeGreaterThan(
+            cookieExpiry(restrictedCookies[0]!) + 300 * 86_400_000,
+          );
         }),
       ([environmentA, environmentB]) =>
         Effect.promise(() => Promise.all([environmentA.dispose(), environmentB.dispose()])),

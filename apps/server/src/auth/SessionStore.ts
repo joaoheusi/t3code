@@ -1,6 +1,7 @@
 import {
   AuthSessionId,
   AuthAdministrativeScopes,
+  AuthOrchestrationOperateScope,
   AuthStandardClientScopes,
   AuthEnvironmentScopes,
   type AuthClientMetadata,
@@ -430,6 +431,11 @@ export class SessionStore extends Context.Service<
 
 const SIGNING_SECRET_NAME = "server-signing-key";
 const DEFAULT_SESSION_TTL = Duration.days(30);
+// Fork policy: a paired client stays paired while it is used. Each use pushes its
+// deadline to a year out, written at most once a day.
+const RENEWED_SESSION_TTL = Duration.days(365);
+const SESSION_RENEWAL_INTERVAL = Duration.days(1);
+export const MCP_CLIENT_SUBJECT = "mcp-client";
 const DEFAULT_WEBSOCKET_TOKEN_TTL = Duration.minutes(5);
 
 const SessionClaims = Schema.Struct({
@@ -482,9 +488,35 @@ function toClientMetadata(record: {
   };
 }
 
+/**
+ * Fork policy: any grant holding `orchestration:operate` holds every current standard
+ * client permission, including ones added after it paired, so updates never force a
+ * re-pair. Grants without it, admin permissions, and MCP agent sessions stay as recorded.
+ */
+export function effectiveSessionScopes(
+  subject: string,
+  scopes: ReadonlyArray<AuthEnvironmentScope>,
+): ReadonlyArray<AuthEnvironmentScope> {
+  if (subject === MCP_CLIENT_SUBJECT || !scopes.includes(AuthOrchestrationOperateScope)) {
+    return scopes;
+  }
+  return [...new Set([...scopes, ...AuthStandardClientScopes])];
+}
+
+/** Paired sessions renew; relay access tokens, agent sessions, and short explicit TTLs do not. */
+function isRenewableSession(session: AuthSessions.AuthSessionRecord): boolean {
+  const lifetime = session.expiresAt.epochMilliseconds - session.issuedAt.epochMilliseconds;
+  return (
+    session.method !== "dpop-access-token" &&
+    session.subject !== MCP_CLIENT_SUBJECT &&
+    lifetime >= Duration.toMillis(DEFAULT_SESSION_TTL)
+  );
+}
+
 function toAuthClientSession(input: Omit<AuthClientSession, "current">): AuthClientSession {
   return {
     ...input,
+    scopes: effectiveSessionScopes(input.subject, input.scopes),
     current: false,
   };
 }
@@ -657,6 +689,37 @@ export const make = Effect.gen(function* () {
     );
 
   const encodeClaims = Schema.encodeEffect(Schema.fromJsonString(SessionClaims));
+  // Best effort: a failed write keeps the current deadline instead of rejecting the request.
+  const renewIfDue = (session: AuthSessions.AuthSessionRecord, now: DateTime.Utc) => {
+    const renewedExpiresAt = DateTime.add(now, {
+      milliseconds: Duration.toMillis(RENEWED_SESSION_TTL),
+    });
+    const renewIfExpiresBefore = DateTime.subtract(renewedExpiresAt, {
+      milliseconds: Duration.toMillis(SESSION_RENEWAL_INTERVAL),
+    });
+    if (
+      !isRenewableSession(session) ||
+      session.expiresAt.epochMilliseconds >= renewIfExpiresBefore.epochMilliseconds
+    ) {
+      return Effect.succeed(session.expiresAt);
+    }
+    return authSessions
+      .extendExpiry({
+        sessionId: session.sessionId,
+        expiresAt: renewedExpiresAt,
+        renewIfExpiresBefore,
+      })
+      .pipe(
+        Effect.as(renewedExpiresAt),
+        Effect.catch((cause) =>
+          Effect.logWarning("auth session renewal failed", {
+            sessionId: session.sessionId,
+            cause,
+          }).pipe(Effect.as(session.expiresAt)),
+        ),
+      );
+  };
+
   const issue: SessionStore["Service"]["issue"] = Effect.fn("SessionStore.issue")(
     function* (input) {
       const sessionId = AuthSessionId.make(
@@ -757,7 +820,7 @@ export const make = Effect.gen(function* () {
         method: claims.method,
         client,
         expiresAt: expiresAt,
-        scopes: claims.scopes,
+        scopes: effectiveSessionScopes(claims.sub, claims.scopes),
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
       } satisfies IssuedSession;
     },
@@ -798,7 +861,7 @@ export const make = Effect.gen(function* () {
           client: toClientMetadata(row.value.client),
           expiresAt: row.value.expiresAt,
           subject: row.value.subject,
-          scopes: row.value.scopes,
+          scopes: effectiveSessionScopes(row.value.subject, row.value.scopes),
         } satisfies VerifiedSession;
       }
       const [encodedPayload, signature] = token.split(".");
@@ -816,18 +879,10 @@ export const make = Effect.gen(function* () {
       );
 
       const observedAt = yield* DateTime.now;
-      const expiresAt = DateTime.make(claims.exp);
-      if (Option.isNone(expiresAt)) {
+      if (Option.isNone(DateTime.make(claims.exp))) {
         return yield* new InvalidSessionExpirationClaimError({
           sessionId: claims.sid,
           expirationClaim: claims.exp,
-        });
-      }
-      if (claims.exp <= observedAt.epochMilliseconds) {
-        return yield* new SessionTokenExpiredError({
-          sessionId: claims.sid,
-          expiresAt: expiresAt.value,
-          observedAt,
         });
       }
 
@@ -847,15 +902,24 @@ export const make = Effect.gen(function* () {
           revokedAt: row.value.revokedAt,
         });
       }
+      // The stored deadline is authoritative so a renewed session outlives its signed `exp`.
+      if (row.value.expiresAt.epochMilliseconds <= observedAt.epochMilliseconds) {
+        return yield* new SessionTokenExpiredError({
+          sessionId: claims.sid,
+          expiresAt: row.value.expiresAt,
+          observedAt,
+        });
+      }
+      const expiresAt = yield* renewIfDue(row.value, observedAt);
 
       return {
         sessionId: claims.sid,
         token,
         method: claims.method,
         client: toClientMetadata(row.value.client),
-        expiresAt: expiresAt.value,
+        expiresAt,
         subject: claims.sub,
-        scopes: claims.scopes,
+        scopes: effectiveSessionScopes(claims.sub, claims.scopes),
         ...(claims.jkt ? { proofKeyThumbprint: claims.jkt } : {}),
         ...(claims.rtc ? { runtimeModeCeiling: claims.rtc } : {}),
       } satisfies VerifiedSession;
@@ -965,7 +1029,7 @@ export const make = Effect.gen(function* () {
       client: toClientMetadata(row.value.client),
       expiresAt: row.value.expiresAt,
       subject: row.value.subject,
-      scopes: row.value.scopes,
+      scopes: effectiveSessionScopes(row.value.subject, row.value.scopes),
     } satisfies VerifiedSession;
   });
 
@@ -1055,17 +1119,23 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         // Subscribe before reading: revocation can race with the WebSocket upgrade.
         const subscription = yield* PubSub.subscribe(changesPubSub);
-        const row = yield* authSessions
-          .getById({ sessionId })
-          .pipe(
-            Effect.mapError(
-              (cause) => new SessionCredentialVerificationError({ sessionId, cause }),
-            ),
-          );
-        if (Option.isNone(row) || row.value.revokedAt !== null) return;
-        const now = yield* DateTime.now;
-        const remaining = row.value.expiresAt.epochMilliseconds - now.epochMilliseconds;
-        if (remaining <= 0) return;
+        // Re-read at each deadline: renewal can move it while the connection stays open.
+        const untilExpired = Effect.gen(function* () {
+          while (true) {
+            const row = yield* authSessions
+              .getById({ sessionId })
+              .pipe(
+                Effect.mapError(
+                  (cause) => new SessionCredentialVerificationError({ sessionId, cause }),
+                ),
+              );
+            if (Option.isNone(row) || row.value.revokedAt !== null) return;
+            const now = yield* DateTime.now;
+            const remaining = row.value.expiresAt.epochMilliseconds - now.epochMilliseconds;
+            if (remaining <= 0) return;
+            yield* Effect.sleep(Duration.millis(remaining));
+          }
+        });
         yield* Effect.raceFirst(
           Stream.fromSubscription(subscription).pipe(
             Stream.filter(
@@ -1073,7 +1143,7 @@ export const make = Effect.gen(function* () {
             ),
             Stream.runHead,
           ),
-          Effect.sleep(Duration.millis(remaining)),
+          untilExpired,
         );
       }),
     );
