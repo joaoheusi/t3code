@@ -279,8 +279,10 @@ export const layer = HttpApiBuilder.group(
               sessions.cookieName,
               sessions.legacyCookieName,
             );
+            // Re-sending the cookie carries a renewed session deadline to the browser
+            // and moves a legacy cookie to the current name.
             if (
-              credential?.source === "legacy-cookie" &&
+              (credential?.source === "cookie" || credential?.source === "legacy-cookie") &&
               result.authenticated &&
               result.sessionMethod === "browser-session-cookie" &&
               result.expiresAt

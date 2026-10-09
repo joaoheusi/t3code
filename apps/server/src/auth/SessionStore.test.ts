@@ -101,6 +101,7 @@ const layerFailingSessionLookupRepository = Layer.succeed(AuthSessions.AuthSessi
   revokeAllExcept: () => Effect.fail(repositoryFailure),
   setLastConnectedAt: () => Effect.void,
   setClientConnection: () => Effect.void,
+  extendExpiry: () => Effect.void,
 });
 
 const layerFailingSessionLookupCredential = Layer.effect(
@@ -327,7 +328,10 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       expect(verified.scopes).toEqual(["orchestration:read", "access:write"]);
       expect(verified.client.label).toBe("Desktop app");
       expect(verified.client.browser).toBe("Electron");
-      expect(verified.expiresAt?.toString()).toBe(issued.expiresAt.toString());
+      // Using a paired session renews it a year past its original deadline.
+      expect(verified.expiresAt!.epochMilliseconds).toBeGreaterThan(
+        issued.expiresAt.epochMilliseconds,
+      );
     }).pipe(Effect.provide(layerSessionStore())),
   );
   it.effect("carries a runtime-mode ceiling only on sessions issued with one", () =>
@@ -370,6 +374,91 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
         ),
       ),
     ),
+  );
+
+  it.effect("grants current standard permissions to operating sessions paired earlier", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      // The scopes an older client requested when it paired.
+      const legacyOperate = yield* sessions.issue({
+        subject: "one-time-token",
+        method: "bearer-access-token",
+        scopes: ["orchestration:read", "orchestration:operate", "terminal:operate", "relay:read"],
+      });
+      const readOnly = yield* sessions.issue({
+        subject: "one-time-token",
+        method: "bearer-access-token",
+        scopes: ["orchestration:read"],
+      });
+      const agent = yield* sessions.issue({
+        subject: SessionStore.MCP_CLIENT_SUBJECT,
+        method: "bearer-access-token",
+        scopes: ["orchestration:read", "orchestration:operate"],
+      });
+
+      const verified = yield* sessions.verify(legacyOperate.token);
+      expect(verified.scopes).toEqual(expect.arrayContaining([...AuthStandardClientScopes]));
+      expect(verified.scopes).not.toContain("access:write");
+      expect(legacyOperate.scopes).toContain("source-control:write");
+      expect((yield* sessions.verify(readOnly.token)).scopes).toEqual(["orchestration:read"]);
+      expect((yield* sessions.verify(agent.token)).scopes).toEqual([
+        "orchestration:read",
+        "orchestration:operate",
+      ]);
+      const listed = (yield* sessions.listActive()).find(
+        (session) => session.sessionId === legacyOperate.sessionId,
+      );
+      expect(listed?.scopes).toContain("filesystem:write");
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
+  it.effect("keeps a used paired session alive past its signed expiry", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const paired = yield* sessions.issue({
+        subject: "one-time-token",
+        method: "bearer-access-token",
+      });
+
+      yield* TestClock.adjust(Duration.days(20));
+      const renewed = yield* sessions.verify(paired.token);
+      expect(renewed.expiresAt!.epochMilliseconds).toBeGreaterThan(
+        paired.expiresAt.epochMilliseconds + Duration.toMillis(Duration.days(300)),
+      );
+
+      // Past the 30-day `exp` signed into the token.
+      yield* TestClock.adjust(Duration.days(200));
+      const stillValid = yield* sessions.verify(paired.token);
+      expect(stillValid.sessionId).toBe(paired.sessionId);
+      const websocket = yield* sessions.issueWebSocketToken(paired.sessionId);
+      yield* sessions.verifyWebSocketToken(websocket.token);
+
+      yield* sessions.revoke(paired.sessionId);
+      expect(yield* Effect.flip(sessions.verify(paired.token))).toMatchObject({
+        _tag: "SessionTokenRevokedError",
+      });
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
+  );
+
+  it.effect("does not renew relay tokens or sessions issued with a short lifetime", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const relay = yield* sessions.issue(relaySessionInput);
+      const shortLived = yield* sessions.issue({
+        subject: "script",
+        method: "bearer-access-token",
+        ttl: Duration.hours(2),
+      });
+
+      yield* TestClock.adjust(Duration.minutes(30));
+      expect((yield* sessions.verify(relay.token)).expiresAt).toEqual(relay.expiresAt);
+      expect((yield* sessions.verify(shortLived.token)).expiresAt).toEqual(shortLived.expiresAt);
+
+      yield* TestClock.adjust(Duration.hours(2));
+      expect(yield* Effect.flip(sessions.verify(shortLived.token))).toMatchObject({
+        _tag: "SessionTokenExpiredError",
+      });
+    }).pipe(Effect.provide(Layer.merge(layerSessionStore(), TestClock.layer()))),
   );
 
   it.effect("rejects malformed session tokens", () =>
