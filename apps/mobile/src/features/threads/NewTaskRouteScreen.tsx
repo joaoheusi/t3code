@@ -97,6 +97,13 @@ function NewTaskHeader(props: {
   readonly title: string;
   readonly subtitle: string | null;
   readonly canAddProject: boolean;
+  readonly selection: {
+    readonly available: boolean;
+    readonly active: boolean;
+    readonly count: number;
+    readonly onToggle: () => void;
+    readonly onConfirm: () => void;
+  };
   readonly searchText: string;
   readonly onSearchTextChange: (text: string) => void;
 }) {
@@ -114,17 +121,42 @@ function NewTaskHeader(props: {
       options={{ headerBackVisible: !layout.usesSplitView }}
       hideBottomBorder
       onBack={() => navigation.goBack()}
-      actions={
-        props.canAddProject
+      actions={[
+        // The confirm lives in the header: iOS pins the search bar to the bottom of the sheet.
+        ...(props.selection.active
+          ? [
+              {
+                accessibilityLabel:
+                  props.selection.count === 0
+                    ? "Choose projects to start"
+                    : `Start with ${props.selection.count} ${props.selection.count === 1 ? "project" : "projects"}`,
+                icon: "checkmark" as const,
+                disabled: props.selection.count === 0,
+                onPress: props.selection.onConfirm,
+              },
+            ]
+          : []),
+        ...(props.selection.available
+          ? [
+              {
+                accessibilityLabel: props.selection.active
+                  ? "Stop selecting projects"
+                  : "Select several projects",
+                icon: props.selection.active ? ("xmark" as const) : ("checkmark.circle" as const),
+                onPress: props.selection.onToggle,
+              },
+            ]
+          : []),
+        ...(props.canAddProject && !props.selection.active
           ? [
               {
                 accessibilityLabel: "Add project",
-                icon: "plus",
+                icon: "plus" as const,
                 onPress: () => navigation.dispatch(StackActions.push("AddProject")),
               },
             ]
-          : []
-      }
+          : []),
+      ]}
       search={{
         value: props.searchText,
         onChangeText: props.onSearchTextChange,
@@ -196,6 +228,47 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
     null;
   const canStartScratch = scratchEnvironment !== null && reservedDestinationProject === null;
   const scratchStartInFlightRef = useRef(false);
+  // Select mode starts one task across several projects: the first pick is the task's
+  // project and the rest become its repositories.
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<ReadonlyArray<EnvironmentProject>>([]);
+  const changingDraftProject = (() => {
+    const state = navigation.getState();
+    return state?.routes[state.index - 1]?.name === "NewTaskDraft";
+  })();
+  const canSelectSeveral =
+    !incomingShare &&
+    !changingDraftProject &&
+    listScopes.some(
+      (scope) =>
+        (serverConfigs.get(scope.representative.environmentId)?.environment.capabilities
+          .forkMultiRepoVersion ?? 0) >= 2,
+    );
+  const pickedEnvironmentId = picked[0]?.environmentId ?? null;
+  const togglePicked = (project: EnvironmentProject) =>
+    setPicked((current) =>
+      current.some(
+        (entry) => entry.environmentId === project.environmentId && entry.id === project.id,
+      )
+        ? current.filter(
+            (entry) => !(entry.environmentId === project.environmentId && entry.id === project.id),
+          )
+        : [...current, project],
+    );
+  const startPicked = () => {
+    const [primary, ...rest] = picked;
+    if (!primary) return;
+    navigation.dispatch(
+      StackActions.push("NewTaskDraft", {
+        environmentId: primary.environmentId,
+        projectId: primary.id,
+        title: primary.title,
+        repositoryPaths: rest.map((project) => project.workspaceRoot),
+      }),
+    );
+    setSelecting(false);
+    setPicked([]);
+  };
 
   async function selectProject(project: EnvironmentProject): Promise<void> {
     if (incomingShare?.destination && !reservedDestinationProject) {
@@ -286,9 +359,25 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
       <NewTaskHeader
-        title={screenTitle}
-        subtitle={incomingShareSubtitle}
+        title={
+          selecting
+            ? picked.length > 0
+              ? `${picked.length} selected`
+              : "Select projects"
+            : screenTitle
+        }
+        subtitle={selecting ? null : incomingShareSubtitle}
         canAddProject={catalogState.hasReadyEnvironment}
+        selection={{
+          available: canSelectSeveral,
+          active: selecting,
+          count: picked.length,
+          onConfirm: startPicked,
+          onToggle: () => {
+            setSelecting((value) => !value);
+            setPicked([]);
+          },
+        }}
         searchText={searchText}
         onSearchTextChange={setSearchText}
       />
@@ -310,7 +399,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               : {}),
           }}
         >
-          {canStartScratch && listScopes.length > 0 ? (
+          {canStartScratch && listScopes.length > 0 && !selecting ? (
             Platform.OS === "android" ? (
               <View collapsable={false} className="overflow-hidden rounded-[28px] bg-grouped-card">
                 <MaterialListRow
@@ -450,8 +539,28 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                 const hasMultipleProjects = scope.projects.length > 1;
                 const selectionTarget = getProjectScopeSelectionTarget(
                   scope,
-                  selectedEnvironmentId,
+                  pickedEnvironmentId ?? selectedEnvironmentId,
                 );
+                const pickIndex = picked.findIndex(
+                  (entry) =>
+                    entry.environmentId === selectionTarget.environmentId &&
+                    entry.id === selectionTarget.id,
+                );
+                // Repositories in one task must live on the same machine.
+                const pickable =
+                  !selecting ||
+                  pickedEnvironmentId === null ||
+                  selectionTarget.environmentId === pickedEnvironmentId;
+                const onRowPress = () =>
+                  selecting ? togglePicked(selectionTarget) : void selectProject(selectionTarget);
+                const selectionMark = selecting ? (
+                  <SymbolView
+                    name={pickIndex >= 0 ? "checkmark.circle" : "circle"}
+                    size={Platform.OS === "android" ? 22 : 20}
+                    tintColorClassName={pickIndex >= 0 ? "accent-focus" : "accent-icon-muted"}
+                    type="monochrome"
+                  />
+                ) : null;
                 if (Platform.OS === "android") {
                   return (
                     <MaterialListRow
@@ -463,8 +572,9 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                           ? `${scope.projects.length} workspaces`
                           : selectionTarget.workspaceRoot
                       }
-                      disabled={reservedDestinationProject !== null}
-                      onPress={() => void selectProject(selectionTarget)}
+                      disabled={reservedDestinationProject !== null || !pickable}
+                      onPress={onRowPress}
+                      trailing={selectionMark}
                       leading={
                         <ProjectFavicon
                           environmentId={scope.representative.environmentId}
@@ -486,9 +596,11 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={scope.title}
-                      disabled={reservedDestinationProject !== null}
-                      onPress={() => void selectProject(selectionTarget)}
+                      accessibilityState={selecting ? { checked: pickIndex >= 0 } : undefined}
+                      disabled={reservedDestinationProject !== null || !pickable}
+                      onPress={onRowPress}
                       className="flex-row items-center gap-3 bg-grouped-card px-4 py-3.5"
+                      style={{ opacity: pickable ? 1 : 0.45 }}
                     >
                       <View className="h-7 w-7 items-center justify-center">
                         <ProjectFavicon
@@ -514,12 +626,14 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
                             : selectionTarget.workspaceRoot}
                         </Text>
                       </View>
-                      <SymbolView
-                        name="chevron.right"
-                        size={14}
-                        tintColorClassName="accent-chevron"
-                        type="monochrome"
-                      />
+                      {selectionMark ?? (
+                        <SymbolView
+                          name="chevron.right"
+                          size={14}
+                          tintColorClassName="accent-chevron"
+                          type="monochrome"
+                        />
+                      )}
                     </Pressable>
                   </View>
                 );

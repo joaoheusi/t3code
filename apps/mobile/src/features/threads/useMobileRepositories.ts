@@ -1,13 +1,16 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { Alert } from "react-native";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import {
   draftRepositoryFrom,
   draftRepositoryFromDefault,
+  REPOSITORY_LIMIT,
   repositoryDefaultFrom,
   topLevelRepositories,
 } from "@t3tools/client-runtime/workspaceModel";
 import { useEnvironmentServerConfig } from "../../state/entities";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { useEnvironmentQuery } from "../../state/query";
 import { forkWorkspace } from "../../state/forkWorkspace";
 import {
@@ -75,4 +78,63 @@ export function useMobileRepositories(project: EnvironmentProject | null, draftK
       updateComposerDraftSettings(draftKey, { repositorySelection: value });
     },
   };
+}
+
+/**
+ * Adds the projects picked together with this draft's project as its other repositories.
+ * Runs once per draft and pick, after discovery decides whether the project is a folder.
+ */
+export function useInitialRepositories(
+  project: EnvironmentProject | null,
+  draftKey: string | null,
+  initial: { readonly projectId: string; readonly paths: readonly string[] } | undefined,
+) {
+  const choice = useMobileRepositories(project, draftKey);
+  const inspect = useAtomCommand(forkWorkspace.inspect, { reportFailure: false });
+  const applied = useRef<string | null>(null);
+  const ready =
+    !!initial &&
+    initial.paths.length > 0 &&
+    !!project &&
+    !!draftKey &&
+    project.id === initial.projectId &&
+    choice.supported &&
+    (!choice.discovery.isPending || !!choice.discovery.data);
+  const key = ready ? `${draftKey}:${initial.paths.join("\n")}` : null;
+  useEffect(() => {
+    if (!key || !project || applied.current === key) return;
+    applied.current = key;
+    const base = choice.selection;
+    void (async () => {
+      const results = await Promise.all(
+        initial!.paths.map((path) =>
+          inspect({ environmentId: project.environmentId, input: { path } }),
+        ),
+      );
+      const seen = new Set(base.repositories.map((entry) => entry.commonDir));
+      const added = results.flatMap((result) => {
+        if (result._tag === "Failure" || seen.has(result.value.commonDir)) return [];
+        seen.add(result.value.commonDir);
+        return [
+          {
+            ...repositoryDefaultFrom(draftRepositoryFrom(result.value, result.value.path)),
+            branch: result.value.branch,
+            head: result.value.head,
+          },
+        ];
+      });
+      const limit = base.folder ? REPOSITORY_LIMIT : REPOSITORY_LIMIT - 1;
+      choice.setSelection({
+        ...base,
+        repositories: [...base.repositories, ...added].slice(0, limit),
+      });
+      const failed = results.filter((result) => result._tag === "Failure").length;
+      if (failed > 0)
+        Alert.alert(
+          failed === 1 ? "A project was not added" : `${failed} projects were not added`,
+          "They could not be read as repositories on this machine.",
+        );
+    })();
+    // Runs once per key; the selection is read at that moment on purpose.
+  }, [key]);
 }

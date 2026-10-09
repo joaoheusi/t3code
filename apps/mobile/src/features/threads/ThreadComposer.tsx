@@ -1,5 +1,5 @@
-import { MobileQuickActions } from "./MobileQuickActions";
-import { MobileThreadRepositories } from "./MobileRepositories";
+import { QuickActionsControl } from "./MobileQuickActions";
+import { ThreadRepositoriesControl } from "./MobileRepositories";
 import type { ComposerTextPaste } from "../../native/T3ComposerEditor.types";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
@@ -891,20 +891,17 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
               {isExpanded ? (
                 <View className="flex-row flex-wrap">
                   {props.selectedThread.workspace ? (
-                    <MobileThreadRepositories
-                      environmentId={props.environmentId}
-                      threadId={props.selectedThread.id}
+                    <ThreadRepositoriesControl
                       workspace={props.selectedThread.workspace}
+                      onOpen={() => {
+                        Keyboard.dismiss();
+                        navigation.navigate("ThreadRepositories", {
+                          environmentId: props.environmentId,
+                          threadId: props.selectedThread.id,
+                        });
+                      }}
                     />
                   ) : null}
-                  <MobileQuickActions
-                    key={composerDraftKey}
-                    environmentId={props.environmentId}
-                    projectId={props.selectedThread.projectId}
-                    draftKey={composerDraftKey}
-                    thread={props.selectedThread}
-                    disabled={props.queuedEdit?.saving}
-                  />
                 </View>
               ) : null}
               <ComposerEditor
@@ -1132,13 +1129,28 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                   />
                 ) : (
                   <View className="min-w-0 flex-1 flex-row items-center justify-between">
-                    <ComposerAttachmentButton
-                      supportsFiles={Boolean(
-                        props.serverConfig?.environment.capabilities.fileAttachments,
-                      )}
-                      onPickMedia={props.onPickDraftMedia}
-                      onPickFiles={props.onPickDraftFiles}
-                    />
+                    <View className="flex-row items-center">
+                      <ComposerAttachmentButton
+                        supportsFiles={Boolean(
+                          props.serverConfig?.environment.capabilities.fileAttachments,
+                        )}
+                        onPickMedia={props.onPickDraftMedia}
+                        onPickFiles={props.onPickDraftFiles}
+                      />
+                      <QuickActionsControl
+                        environmentId={props.environmentId}
+                        disabled={props.queuedEdit?.saving}
+                        onOpen={() => {
+                          Keyboard.dismiss();
+                          navigation.navigate("ThreadQuickActions", {
+                            environmentId: props.environmentId,
+                            projectId: props.selectedThread.projectId,
+                            draftKey: composerDraftKey,
+                            threadId: props.selectedThread.id,
+                          });
+                        }}
+                      />
+                    </View>
                     <View className="min-w-0 shrink">
                       <ComposerInlineControl
                         accessibilityLabel="Model and reasoning settings"

@@ -26,6 +26,8 @@ type NewTaskDraftRouteParams = {
   readonly pendingTaskId?: string | string[];
   readonly draftId?: string | string[];
   readonly incomingShareId?: string | string[];
+  /** Other projects picked together with this one, added as its repositories. */
+  readonly repositoryPaths?: string[];
 };
 
 export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraftRouteParams>) {
@@ -35,6 +37,12 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
     : params.pendingTaskId;
   const draftId = Array.isArray(params.draftId) ? params.draftId[0] : params.draftId;
   const projects = useProjects();
+  const initialRepositories = useMemo(() => {
+    const projectId = Array.isArray(params.projectId) ? params.projectId[0] : params.projectId;
+    return projectId && params.repositoryPaths?.length
+      ? { projectId, paths: params.repositoryPaths }
+      : undefined;
+  }, [params]);
   const { state: catalogState } = useWorkspaceState();
   const navigation = useNavigation();
   const switchRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
@@ -168,6 +176,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
           }
           pendingTaskId={pendingTaskId}
           draftId={draftId}
+          initialRepositories={initialRepositories}
         />
       )}
     </>
