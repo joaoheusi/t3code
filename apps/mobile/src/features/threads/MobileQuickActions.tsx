@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
@@ -131,6 +132,10 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
+  const canSave = useAtomValue(quickActionsEnvironment.save.permissionAtom(target.environmentId));
+  const canRemove = useAtomValue(
+    quickActionsEnvironment.remove.permissionAtom(target.environmentId),
+  );
   const save = useAtomCommand(quickActionsEnvironment.save, { reportFailure: false });
   const remove = useAtomCommand(quickActionsEnvironment.remove, { reportFailure: false });
   const reload = useAtomCommand(quickActionsEnvironment.reload, { reportFailure: false });
@@ -255,27 +260,34 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       );
   };
 
-  const manageMenu = (action: QuickAction) => [
-    { id: "edit", title: "Edit", image: Platform.OS === "ios" ? "pencil" : "edit" },
-    {
-      id: "favorite",
-      title: action.favorite ? "Remove from favorites" : "Add to favorites",
-      image: Platform.OS === "ios" ? (action.favorite ? "star.slash" : "star") : "star",
-    },
-    {
-      id: "enable",
-      title: action.enabled ? "Disable" : "Enable",
-      image: Platform.OS === "ios" ? (action.enabled ? "eye.slash" : "eye") : "visibility",
-    },
-    {
-      id: "delete",
-      title: "Delete",
-      image: Platform.OS === "ios" ? "trash" : "delete",
-      attributes: { destructive: true },
-    },
-  ];
+  const manageMenu = (action: QuickAction) =>
+    [
+      { id: "edit", title: "Edit", image: Platform.OS === "ios" ? "pencil" : "edit" },
+      {
+        id: "favorite",
+        title: action.favorite ? "Remove from favorites" : "Add to favorites",
+        image: Platform.OS === "ios" ? (action.favorite ? "star.slash" : "star") : "star",
+      },
+      {
+        id: "enable",
+        title: action.enabled ? "Disable" : "Enable",
+        image: Platform.OS === "ios" ? (action.enabled ? "eye.slash" : "eye") : "visibility",
+      },
+      {
+        id: "delete",
+        title: "Delete",
+        image: Platform.OS === "ios" ? "trash" : "delete",
+        attributes: { destructive: true },
+      },
+    ].map((item) => ({
+      ...item,
+      attributes: {
+        ...item.attributes,
+        disabled: busy || !(item.id === "delete" ? canRemove : canSave),
+      },
+    }));
 
-  if (editing) {
+  if (editing && canSave) {
     return (
       <QuickActionEditor
         editing={editing}
@@ -290,7 +302,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           if (await persist(editing.action, editing.revision)) setEditing(null);
         }}
         onDelete={
-          editing.revision === null
+          editing.revision === null || !canRemove
             ? undefined
             : () => {
                 const action = actions.find((entry) => entry.id === editing.action.id);
@@ -326,6 +338,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         title="Quick actions"
         action={{
           accessibilityLabel: "New quick action",
+          disabled: !canSave || busy,
           icon: "plus",
           onPress: () => setEditing(newAction(target.projectId)),
         }}
@@ -390,7 +403,11 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                       symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
                       isLast={index === rows.length - 1}
                       disabled={busy}
-                      accessibilityHint="Inserts the action into the message. Long press to manage it."
+                      accessibilityHint={
+                        canSave
+                          ? "Inserts the action into the message. Long press to manage it."
+                          : "Inserts the action into the message."
+                      }
                       onPress={() =>
                         row.choice
                           ? void run(row.action, row.choice)
@@ -426,7 +443,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                         subtitle="Disabled"
                         symbol="bolt.circle"
                         isLast={index === disabledActions.length - 1}
-                        disabled={busy}
+                        disabled={busy || !canSave}
                         onPress={() => setEditing({ action, revision: action.revision })}
                       />
                     </ControlPillMenu>

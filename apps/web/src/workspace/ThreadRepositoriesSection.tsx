@@ -240,7 +240,10 @@ function RepositorySectionRow(props: {
             <FileDiffIcon />
             Show changes
           </MenuItem>
-          <MenuItem disabled={!ready} onClick={() => void actions.openTerminal(binding)}>
+          <MenuItem
+            disabled={!ready || !actions.canOpenTerminal}
+            onClick={() => void actions.openTerminal(binding)}
+          >
             <SquareTerminalIcon />
             Open terminal here
           </MenuItem>

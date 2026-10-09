@@ -9,6 +9,7 @@ import { vi } from "vite-plus/test";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
+  AuthTerminalOperateScope,
   ThreadId,
   EnvironmentId,
   ScheduledTaskId,
@@ -260,4 +261,40 @@ it.effect("rejects protected unary and streamed RPCs outside a guarded command",
     expect(streamed._tag).toBe("EnvironmentAuthorizationError");
     expect(writes).toBe(0);
   }),
+);
+
+it.effect("guards fork mutations with their exact grants and reacts to revocation", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      for (const [method, requiredPermission] of [
+        [WS_METHODS.quickActionsSave, AuthOrchestrationOperateScope],
+        [WS_METHODS.quickActionsImport, AuthOrchestrationOperateScope],
+        [WS_METHODS.quickActionsDelete, AuthOrchestrationOperateScope],
+        [WS_METHODS.workspaceTerminal, AuthTerminalOperateScope],
+      ] as const) {
+        const command = createCommandPermissions(runtime, method);
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(command.permissionAtom(env))).toBe(false);
+        expect((yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission).toBe(
+          requiredPermission,
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [requiredPermission],
+            permissions: [requiredPermission],
+          }),
+        );
+        expect(registry.get(command.permissionAtom(env))).toBe(true);
+        yield* command.authorize(registry, env);
+        registry.set(sessions(env), AsyncResult.success(grant(false)));
+        expect(registry.get(command.permissionAtom(env))).toBe(false);
+        expect((yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission).toBe(
+          requiredPermission,
+        );
+      }
+    }),
+  ),
 );

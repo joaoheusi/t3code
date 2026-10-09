@@ -41,7 +41,7 @@ const run = (shim: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv =
 
 /** An app executable that reports its environment and arguments. */
 const REPORTER =
-  '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$T3CODE_HOME"\nprintf "%s\\n" "$@"\nexit 3\n';
+  '#!/bin/sh\necho "node=$ELECTRON_RUN_AS_NODE cli=$T3CODE_CLI_PATH home=$J4CODE_HOME"\nprintf "%s\\n" "$@"\nexit 3\n';
 
 /**
  * A stand-in AppImage whose image holds the reporter. `--appimage-mount`
@@ -112,7 +112,8 @@ describe("renderCliShim", () => {
     });
     // sudo clears the environment, so the launcher supplies its own.
     expect(run(shim, []).stdout).toContain(`home=${root}/home`);
-    expect(run(shim, [], { T3CODE_HOME: "/elsewhere" }).stdout).toContain("home=/elsewhere");
+    expect(run(shim, [], { T3CODE_HOME: "/upstream" }).stdout).toContain(`home=${root}/home`);
+    expect(run(shim, [], { J4CODE_HOME: "/elsewhere" }).stdout).toContain("home=/elsewhere");
     // Run by a relative path, it still names itself absolutely.
     const relative = NodeChildProcess.spawnSync("./bin/t3", [], { cwd: root, encoding: "utf8" });
     expect(relative.stdout).toContain(`cli=${shim}`);
@@ -157,6 +158,7 @@ describe("renderCliShim", () => {
     const lines = script.split("\r\n");
     expect(lines).toContain("setlocal EnableExtensions DisableDelayedExpansion");
     expect(lines).toContain("chcp 65001 >nul");
+    expect(lines).toContain('if not defined J4CODE_HOME set "J4CODE_HOME=C:\\Users\\José\\.t3"');
     expect(lines).toContain(
       'if exist "C:\\Apps\\R&whoami&X 100%%\\!CHANNEL!\\T3 Code.exe" goto run',
     );

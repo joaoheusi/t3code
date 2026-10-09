@@ -3,6 +3,7 @@ import { GitPreparePullRequestThreadInput } from "./git.ts";
 import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
+  AuthTerminalOperateScope,
   type AuthEnvironmentScope,
 } from "./auth.ts";
 import { WS_METHODS } from "./rpc.ts";
@@ -33,6 +34,11 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.vcsCreateRef]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSwitchRef]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsInit]: AuthSourceControlWriteScope,
+
+  [WS_METHODS.quickActionsSave]: AuthOrchestrationOperateScope,
+  [WS_METHODS.quickActionsImport]: AuthOrchestrationOperateScope,
+  [WS_METHODS.quickActionsDelete]: AuthOrchestrationOperateScope,
+  [WS_METHODS.workspaceTerminal]: AuthTerminalOperateScope,
 
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
