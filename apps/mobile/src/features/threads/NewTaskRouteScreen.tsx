@@ -100,7 +100,9 @@ function NewTaskHeader(props: {
   readonly selection: {
     readonly available: boolean;
     readonly active: boolean;
+    readonly count: number;
     readonly onToggle: () => void;
+    readonly onConfirm: () => void;
   };
   readonly searchText: string;
   readonly onSearchTextChange: (text: string) => void;
@@ -120,6 +122,20 @@ function NewTaskHeader(props: {
       hideBottomBorder
       onBack={() => navigation.goBack()}
       actions={[
+        // The confirm lives in the header: iOS pins the search bar to the bottom of the sheet.
+        ...(props.selection.active
+          ? [
+              {
+                accessibilityLabel:
+                  props.selection.count === 0
+                    ? "Choose projects to start"
+                    : `Start with ${props.selection.count} ${props.selection.count === 1 ? "project" : "projects"}`,
+                icon: "checkmark" as const,
+                disabled: props.selection.count === 0,
+                onPress: props.selection.onConfirm,
+              },
+            ]
+          : []),
         ...(props.selection.available
           ? [
               {
@@ -350,11 +366,13 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
               : "Select projects"
             : screenTitle
         }
-        subtitle={selecting ? "The first one is the task's project" : incomingShareSubtitle}
+        subtitle={selecting ? null : incomingShareSubtitle}
         canAddProject={catalogState.hasReadyEnvironment}
         selection={{
           available: canSelectSeveral,
           active: selecting,
+          count: picked.length,
+          onConfirm: startPicked,
           onToggle: () => {
             setSelecting((value) => !value);
             setPicked([]);
@@ -373,7 +391,7 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           className="flex-1"
           contentContainerStyle={{
             gap: Platform.OS === "android" ? 8 : 12,
-            paddingBottom: Math.max(insets.bottom, 18) + 18 + (selecting ? 64 : 0),
+            paddingBottom: Math.max(insets.bottom, 18) + 18,
             paddingHorizontal: Platform.OS === "android" ? 16 : 20,
             paddingTop: Platform.OS === "android" ? 16 : 8,
             ...(Platform.OS === "android" && visibleScopes.length === 0
@@ -624,33 +642,6 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
           )}
         </ScrollView>
       </MaterialScreenContent>
-      {selecting ? (
-        <View
-          className="absolute inset-x-0 bottom-0 px-5 pt-3"
-          style={{ paddingBottom: Math.max(insets.bottom, 12) + 4 }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            disabled={picked.length === 0}
-            onPress={startPicked}
-            className={cn(
-              "h-12 items-center justify-center rounded-full active:opacity-80",
-              picked.length === 0 ? "bg-subtle-strong" : "bg-primary",
-            )}
-          >
-            <Text
-              className={cn(
-                "text-base font-t3-bold",
-                picked.length === 0 ? "text-foreground-muted" : "text-primary-foreground",
-              )}
-            >
-              {picked.length === 0
-                ? "Choose projects"
-                : `Start with ${picked.length} ${picked.length === 1 ? "project" : "projects"}`}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
     </View>
   );
 }
