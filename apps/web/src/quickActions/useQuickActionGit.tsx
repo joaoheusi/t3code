@@ -107,25 +107,34 @@ export function useQuickActionGit(
 
         const readCurrentAction = async () => {
           assertWriteAccess();
-          const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
-          if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
-          assertWriteAccess();
-          const current = resolveQuickActionGit(
-            fresh.value,
-            registry.get(vcsActionManager.stateAtom(target)).isRunning,
-          );
-          if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
-          if (
-            !sameQuickActionGit(
-              action,
-              current,
-              repository.status?.refName ?? null,
-              fresh.value.refName,
-            )
-          ) {
-            throw new Error("Repository status changed. Choose the updated action.");
+          const progress = toastManager.add({
+            type: "loading",
+            title: "Checking repository status…",
+            description: repository.label,
+          });
+          try {
+            const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
+            if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
+            assertWriteAccess();
+            const current = resolveQuickActionGit(
+              fresh.value,
+              registry.get(vcsActionManager.stateAtom(target)).isRunning,
+            );
+            if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
+            if (
+              !sameQuickActionGit(
+                action,
+                current,
+                repository.status?.refName ?? null,
+                fresh.value.refName,
+              )
+            ) {
+              throw new Error("Repository status changed. Choose the updated action.");
+            }
+            return { status: fresh.value, action: current };
+          } finally {
+            toastManager.close(progress);
           }
-          return { status: fresh.value, action: current };
         };
 
         let started = false;
@@ -147,7 +156,8 @@ export function useQuickActionGit(
           close();
           const progress = toastManager.add({
             type: "loading",
-            title: `${action.label} · ${repository.label}`,
+            title: `${action.label}…`,
+            description: repository.label,
           });
           try {
             if (kind === "pull") {
@@ -171,6 +181,19 @@ export function useQuickActionGit(
                   actionId: randomUUID(),
                   action: kind,
                   featureBranch,
+                  onProgress: (event) => {
+                    if (
+                      event.kind === "phase_started" ||
+                      event.kind === "hook_started" ||
+                      event.kind === "hook_finished"
+                    ) {
+                      toastManager.update(progress, {
+                        title:
+                          registry.get(vcsActionManager.stateAtom(target)).currentLabel ??
+                          `${action.label}…`,
+                      });
+                    }
+                  },
                   ...(thread ? { threadId: thread.id } : {}),
                   ...(scope.projectId ? { projectId: scope.projectId } : {}),
                 },

@@ -158,6 +158,35 @@ afterEach(() => {
 });
 
 describe("native Git quick action", () => {
+  it("shows status checking and server progress until the operation finishes", async () => {
+    const refresh = Promise.withResolvers<AsyncResult.Success<VcsStatusResult>>();
+    const complete = Promise.withResolvers<AsyncResult.Success<unknown>>();
+    const state = Atom.make({ isRunning: false, currentLabel: "Generating commit message..." });
+    mocks.busy.mockReturnValue(state);
+    mocks.load.mockReturnValueOnce(refresh.promise);
+    mocks.stacked.mockImplementationOnce((_registry, _target, input) => {
+      input.onProgress({ kind: "phase_started" });
+      return complete.promise;
+    });
+    await act(async () => {
+      row("App").click();
+    });
+    expect(container.textContent).toContain("Checking repository status…");
+    expect(row("App").disabled).toBe(true);
+    await act(async () => {
+      refresh.resolve(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
+    });
+    expect(container.textContent).toContain("Generating commit message...");
+    expect(mocks.close).not.toHaveBeenCalled();
+    await act(async () => {
+      complete.resolve(
+        AsyncResult.success({ branch: { status: "unchanged" }, toast: { title: "Committed" } }),
+      );
+    });
+    expect(container.textContent).not.toContain("Generating commit message...");
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the selected repository's operation in its destination environment", async () => {
     await act(async () => {
       row("API").click();

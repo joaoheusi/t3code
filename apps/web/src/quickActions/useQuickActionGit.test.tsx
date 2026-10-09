@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   open: vi.fn(),
   close: vi.fn(),
   permission: vi.fn(),
+  toast: { add: vi.fn(), update: vi.fn(), close: vi.fn() },
 }));
 vi.mock("../state/session", () => ({
   useEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
@@ -50,7 +51,7 @@ vi.mock("../state/use-atom-command", () => ({
 vi.mock("../state/threads", () => ({ threadEnvironment: { updateMetadata: "update" } }));
 vi.mock("../commandPaletteBus", () => ({ openCommandPalette: mocks.open }));
 vi.mock("../components/GitActionsControl", () => ({ PublishRepositoryDialog: () => null }));
-vi.mock("../components/ui/toast", () => ({ toastManager: { add: vi.fn(), update: vi.fn() } }));
+vi.mock("../components/ui/toast", () => ({ toastManager: mocks.toast }));
 import { useQuickActionGit } from "./useQuickActionGit";
 
 const environmentId = EnvironmentId.make("remote");
@@ -105,6 +106,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
   mocks.permission.mockReturnValue(true);
+  mocks.toast.add.mockImplementation(({ title }) => title);
   registry = AtomRegistry.make();
   statuses = new Map([
     ["/worktrees/web", Atom.make(AsyncResult.success(status({ hasWorkingTreeChanges: true })))],
@@ -133,6 +135,79 @@ afterEach(() => {
 });
 
 describe("Git palette actions", () => {
+  it("acknowledges a click before a slow status check and ignores a second click", async () => {
+    let finishRefresh!: (status: AsyncResult.Success<VcsStatusResult>) => void;
+    const refresh = new Promise<AsyncResult.Success<VcsStatusResult>>((resolve) => {
+      finishRefresh = resolve;
+    });
+    mocks.load.mockReturnValueOnce(refresh);
+    const action = item("web");
+    const running = action.run();
+    expect(mocks.toast.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Checking repository status…",
+      }),
+    );
+    expect(mocks.stacked).not.toHaveBeenCalled();
+    await action.run();
+    expect(mocks.load).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finishRefresh(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
+      await running;
+    });
+    expect(mocks.toast.close).toHaveBeenCalledWith("Checking repository status…");
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps progress visible through generation and hooks, then reports completion", async () => {
+    const state = Atom.make({ isRunning: false, currentLabel: "Generating commit message..." });
+    mocks.busy.mockReturnValue(state);
+    mocks.stacked.mockImplementationOnce(async (_registry, _target, input) => {
+      const progress = "Commit, push & PR…";
+      expect(mocks.toast.add).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: progress,
+        }),
+      );
+      input.onProgress({ kind: "phase_started" });
+      expect(mocks.toast.update).toHaveBeenLastCalledWith(progress, {
+        title: "Generating commit message...",
+      });
+      registry.set(state, { isRunning: true, currentLabel: "Running pre-commit..." });
+      input.onProgress({ kind: "hook_started" });
+      expect(mocks.toast.update).toHaveBeenLastCalledWith(progress, {
+        title: "Running pre-commit...",
+      });
+      const updates = mocks.toast.update.mock.calls.length;
+      input.onProgress({ kind: "hook_output" });
+      expect(mocks.toast.update).toHaveBeenCalledTimes(updates);
+      return AsyncResult.success({
+        branch: { status: "unchanged" },
+        toast: { title: "Committed" },
+      });
+    });
+    await act(async () => {
+      await item("web").run();
+    });
+    expect(mocks.toast.update).toHaveBeenLastCalledWith(
+      "Commit, push & PR…",
+      expect.objectContaining({
+        type: "success",
+        title: "Committed",
+      }),
+    );
+  });
+
+  it("cleans up status feedback on failure and allows another attempt", async () => {
+    mocks.load.mockRejectedValueOnce(new Error("Connection lost"));
+    await expect(item("web").run()).rejects.toThrow("Connection lost");
+    expect(mocks.toast.close).toHaveBeenCalledWith("Checking repository status…");
+    await act(async () => {
+      await item("web").run();
+    });
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+  });
+
   it("offers one entry for a mixed repository set and opens the repository picker", async () => {
     expect(view().items).toHaveLength(1);
     expect(view().items[0]!.title).toBe("Sync repositories");

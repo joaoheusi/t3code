@@ -49,6 +49,9 @@ export function useQuickActionMerge() {
     try {
       const details: PullRequestDetail[] = [];
       for (const reference of references) {
+        toastManager.update(loading, {
+          description: `${reference.repository} #${reference.number}`,
+        });
         const result = await loadDetail({
           environmentId,
           input: { ...reference, allowStale: false },
@@ -77,6 +80,9 @@ export function useQuickActionMerge() {
         const failures: string[] = [];
         let merged = 0;
         for (const reference of references) {
+          toastManager.update(progress, {
+            description: `${reference.repository} #${reference.number}`,
+          });
           try {
             const result = await runAction({
               environmentId,
@@ -103,7 +109,7 @@ export function useQuickActionMerge() {
         toastManager.update(progress, {
           type: failures.length ? "error" : "success",
           title: `Merged ${merged} of ${references.length} pull requests`,
-          ...(failures.length ? { description: failures.join("\n") } : {}),
+          description: failures.length ? failures.join("\n") : undefined,
         });
       };
       const targets = references

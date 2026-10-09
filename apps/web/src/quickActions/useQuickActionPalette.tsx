@@ -1,5 +1,5 @@
 import type { KeybindingCommand, QuickAction } from "@t3tools/contracts";
-import { rankQuickActions } from "@t3tools/shared/quickActions";
+import { QUICK_ACTION_STARTER_IDS, rankQuickActions } from "@t3tools/shared/quickActions";
 import { FolderGit2Icon, PlusIcon, SettingsIcon, ZapIcon } from "lucide-react";
 
 import {
@@ -25,6 +25,15 @@ import { useQuickActionLibrary, useRunQuickAction } from "./useQuickActions";
 
 const QUICK_ACTIONS_GROUP = "quick-actions";
 const LIBRARY_GROUP = "quick-actions-library";
+const STARTER_ORDER = new Map<string, number>(
+  [
+    QUICK_ACTION_STARTER_IDS.resolveConflicts,
+    QUICK_ACTION_STARTER_IDS.resolveCi,
+    QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+    QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+    QUICK_ACTION_STARTER_IDS.reviewChanges,
+  ].map((id, index) => [id, index]),
+);
 /** The palette keeps this view live while the library loads; other submenus are snapshots. */
 export const isQuickActionsView = (groups: readonly CommandPaletteGroup[]) =>
   groups.some((group) => group.value === LIBRARY_GROUP);
@@ -168,10 +177,7 @@ export function useQuickActionPalette(input: {
     };
   };
 
-  const items: QuickActionPaletteItem[] = [
-    ...git.items,
-    ...rankQuickActions(library.actions, "", recentQuickActionIds()).map(itemFor),
-  ];
+  const items: QuickActionPaletteItem[] = [...git.items];
   if (scope?.projectId && scope.thread) {
     const mergeTargets = quickActionTargets({ template: "{{pr.url}}" }, scope);
     const projectId = scope.projectId;
@@ -239,6 +245,16 @@ export function useQuickActionPalette(input: {
       });
     }
   }
+  // Keep starters in a fixed order; custom actions retain their favorite/recent ranking.
+  items.push(
+    ...rankQuickActions(library.actions, "", recentQuickActionIds())
+      .sort(
+        (a, b) =>
+          (STARTER_ORDER.get(a.id) ?? STARTER_ORDER.size) -
+          (STARTER_ORDER.get(b.id) ?? STARTER_ORDER.size),
+      )
+      .map(itemFor),
+  );
   const libraryItems: CommandPaletteActionItem[] = [
     {
       kind: "action",

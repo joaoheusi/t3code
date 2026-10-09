@@ -86,6 +86,7 @@ export function MobileGitQuickAction(props: {
   const mounted = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progressLabel, setProgressLabel] = useState("Checking repository status…");
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -97,6 +98,7 @@ export function MobileGitQuickAction(props: {
     if (preparing.current) return;
     preparing.current = true;
     setBusy(true);
+    setProgressLabel("Checking repository status…");
     setError(null);
     const destination = { environmentId: target.environmentId, cwd: repository.cwd };
     const assertWrite = () => {
@@ -144,7 +146,10 @@ export function MobileGitQuickAction(props: {
         started = true;
         try {
           if (!mounted.current) return;
-          if (recheck) await refresh();
+          if (recheck) {
+            setProgressLabel("Checking repository status…");
+            await refresh();
+          }
           if (!mounted.current) return;
           assertWrite();
           if (
@@ -154,6 +159,9 @@ export function MobileGitQuickAction(props: {
           )
             throw new Error("This connection cannot change the thread's branch.");
           setBusy(true);
+          setProgressLabel(
+            current.action.kind === "run_pull" ? "Pulling latest changes…" : "Starting Git action…",
+          );
           if (current.action.kind === "run_pull") {
             const result = await vcsActionManager.track(
               registry,
@@ -175,6 +183,19 @@ export function MobileGitQuickAction(props: {
                 actionId: uuidv4(),
                 action: current.action.action,
                 featureBranch,
+                onProgress: (event) => {
+                  if (
+                    mounted.current &&
+                    (event.kind === "phase_started" ||
+                      event.kind === "hook_started" ||
+                      event.kind === "hook_finished")
+                  ) {
+                    setProgressLabel(
+                      registry.get(vcsActionManager.stateAtom(destination)).currentLabel ??
+                        "Running Git action…",
+                    );
+                  }
+                },
                 ...(thread ? { threadId: thread.id } : {}),
                 projectId: target.projectId,
               },
@@ -221,6 +242,7 @@ export function MobileGitQuickAction(props: {
         requiresDefaultBranchConfirmation(current.action.action, current.status.isDefaultRef)
       ) {
         confirming = true;
+        setProgressLabel("Waiting for confirmation…");
         const branch = current.status.refName!;
         // The prompt stays on this screen, so the exact repository is retained through confirmation.
         Alert.alert(
@@ -302,7 +324,7 @@ export function MobileGitQuickAction(props: {
             ))}
           </PickerSurface>
           {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
-          {busy ? <PickerCaption>Running Git action…</PickerCaption> : null}
+          {busy ? <PickerCaption>{progressLabel}</PickerCaption> : null}
         </ScrollView>
       </View>
     );
@@ -333,7 +355,7 @@ export function MobileGitQuickAction(props: {
         }}
       />
       {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
-      {busy ? <PickerCaption>Running Git action…</PickerCaption> : null}
+      {busy ? <PickerCaption>{progressLabel}</PickerCaption> : null}
     </>
   );
 }
