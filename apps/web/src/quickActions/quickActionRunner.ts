@@ -6,12 +6,13 @@ import { actionDispatcher, actionTargetKey, type ActionInvocation } from "./disp
 import { prepareTask } from "./preparedTasks";
 
 import {
+  describeQuickActionTargets,
   quickActionTargets,
   renderQuickActionSelection as renderSelection,
   renderQuickActionText as renderText,
   type RenderedQuickAction,
 } from "@t3tools/client-runtime/quickActionRunner";
-export { quickActionTargets };
+export { describeQuickActionTargets, quickActionTargets };
 export type {
   QuickActionScope,
   QuickActionChoice,

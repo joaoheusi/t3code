@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, ProjectId, type QuickAction } from "@t3tools/contracts";
-import { renderQuickActionSelection } from "./quickActionRunner";
+import {
+  describeQuickActionTargets,
+  renderQuickActionSelection,
+  type QuickActionVariant,
+} from "./quickActionRunner";
 
 const action: QuickAction = {
   id: "paste",
@@ -43,5 +47,45 @@ describe("quick actions across clients", () => {
     await expect(
       renderQuickActionSelection({ ...input, readClipboard: async () => "" }),
     ).rejects.toThrow("clipboard is empty");
+  });
+});
+
+describe("quick action target summaries", () => {
+  const variant = (
+    number: number,
+    snapshot: Partial<NonNullable<QuickActionVariant["snapshot"]>> | null,
+    bindingId?: string,
+  ): QuickActionVariant => ({
+    key: `${number}|${bindingId ?? ""}`,
+    label: `#${number}`,
+    choice: {
+      ...(bindingId ? { bindingId } : {}),
+      pullRequest: { host: "github.com", repository: "acme/app", number },
+    },
+    snapshot: snapshot as QuickActionVariant["snapshot"],
+  });
+  const fixCi = { template: "Fix {{ci.failures}}" };
+
+  it("counts each pull request once and says how many need the action", () => {
+    expect(
+      describeQuickActionTargets(fixCi, [
+        variant(1, { checksState: "failing" }, "a"),
+        variant(1, { checksState: "failing" }, "b"),
+        variant(2, { checksState: "passing" }),
+        variant(3, { checksState: "failing" }),
+      ]),
+    ).toBe("2 of 3 pull requests need this");
+  });
+  it("falls back to the target count when a pull request is not synced", () => {
+    expect(
+      describeQuickActionTargets(fixCi, [variant(1, { checksState: "failing" }), variant(2, null)]),
+    ).toBe("2 pull requests");
+  });
+  it("only counts targets for actions that do not read CI or conflicts", () => {
+    expect(
+      describeQuickActionTargets({ template: "Review {{pr.url}}" }, [
+        variant(1, { checksState: "failing" }),
+      ]),
+    ).toBe("1 pull request");
   });
 });

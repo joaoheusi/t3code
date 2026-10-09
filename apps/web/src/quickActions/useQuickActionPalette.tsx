@@ -12,6 +12,7 @@ import {
 import { PullRequestGlyph } from "../components/pullRequest/pullRequestIcons";
 import type { ComposerThreadTarget } from "../composerDraftStore";
 import {
+  describeQuickActionTargets,
   quickActionTargets,
   recentQuickActionIds,
   type QuickActionScope,
@@ -121,7 +122,9 @@ export function useQuickActionPalette(input: {
     return {
       ...base,
       kind: "submenu",
-      description: action.description || "Choose where it applies",
+      description:
+        describeQuickActionTargets(action, targets.variants) ??
+        (action.description || "Choose where it applies"),
       addonIcon: <ZapIcon className={ADDON_ICON_CLASS} />,
       multiSelect: {
         actionLabel: "Insert selected",

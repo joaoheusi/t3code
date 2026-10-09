@@ -11,6 +11,7 @@ import type { EnvironmentThreadShell } from "./state/models.ts";
 import {
   quickActionRequirements,
   renderQuickAction,
+  templateVariables,
   type QuickActionVariable,
 } from "@t3tools/shared/quickActions";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
@@ -99,6 +100,69 @@ export function quickActionTargets(
     }
   }
   return { kind: "ready", variants };
+}
+
+/** CI and conflict state from a synced PR snapshot, worded like the desktop palette. */
+export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot"]): string {
+  if (!snapshot) return "Not synced yet";
+  const checks = snapshot.checksState;
+  const mergeability = snapshot.mergeability;
+  return [
+    checks === "failing"
+      ? "CI failing"
+      : checks === "passing"
+        ? "CI passing"
+        : checks === "pending"
+          ? "CI running"
+          : "CI unknown",
+    mergeability === "conflicting"
+      ? "Merge conflicts"
+      : mergeability === "mergeable"
+        ? "No conflicts"
+        : "Conflicts unknown",
+  ].join(" · ");
+}
+
+/**
+ * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
+ * conflicts for `{{pr.conflicts}}`. Null when the action reads neither or the PR is unsynced.
+ */
+export function quickActionTargetNeedsAction(
+  action: Pick<QuickAction, "template">,
+  variant: QuickActionVariant,
+): boolean | null {
+  const used = templateVariables(action.template);
+  const ci = used.includes("ci.failures");
+  const conflicts = used.includes("pr.conflicts");
+  if ((!ci && !conflicts) || !variant.snapshot) return null;
+  return (
+    (ci && variant.snapshot.checksState === "failing") ||
+    (conflicts && variant.snapshot.mergeability === "conflicting")
+  );
+}
+
+/** "2 of 3 pull requests need this", or just the target count when need is unknown. */
+export function describeQuickActionTargets(
+  action: Pick<QuickAction, "template">,
+  variants: readonly QuickActionVariant[],
+): string | null {
+  // A PR in a multi-repo workspace can appear once per repository; count it once.
+  const pullRequests = new Map<string, QuickActionVariant>();
+  for (const variant of variants) {
+    const pr = variant.choice.pullRequest;
+    if (pr) pullRequests.set(`${pr.host}/${pr.repository}#${pr.number}`, variant);
+  }
+  const total = pullRequests.size;
+  if (total === 0) return variants.length > 1 ? `${variants.length} repositories` : null;
+  const noun = total === 1 ? "pull request" : "pull requests";
+  const needs = [...pullRequests.values()].map((variant) =>
+    quickActionTargetNeedsAction(action, variant),
+  );
+  if (needs.some((need) => need === null)) return `${total} ${noun}`;
+  const count = needs.filter(Boolean).length;
+  if (count === 0)
+    return total === 1 ? "Pull request doesn't need this" : `None of ${total} ${noun} need this`;
+  return `${count} of ${total} ${noun} ${count === 1 ? "needs" : "need"} this`;
 }
 
 const pad = (value: number) => String(value).padStart(2, "0");

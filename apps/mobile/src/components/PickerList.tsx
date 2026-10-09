@@ -55,7 +55,7 @@ export function PickerRow(props: {
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
   readonly selected?: boolean;
-  readonly tone?: "accent" | "danger";
+  readonly tone?: "accent" | "danger" | "muted";
   readonly onPress?: () => void;
   readonly onLongPress?: () => void;
   /** Forwarded so a long-press ControlPillMenu can wrap the row. */
@@ -70,7 +70,9 @@ export function PickerRow(props: {
       ? "text-danger"
       : props.tone === "accent"
         ? "text-primary-text"
-        : "text-foreground";
+        : props.tone === "muted"
+          ? "text-foreground-muted"
+          : "text-foreground";
   const leading =
     props.leading ??
     (props.symbol ? (
