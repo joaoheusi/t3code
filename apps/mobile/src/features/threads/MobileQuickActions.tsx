@@ -203,7 +203,8 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       void Haptics.selectionAsync();
       navigation.goBack();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (invocation === generation.current)
+        setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
     }
@@ -325,6 +326,8 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           cancel={{
             label: "Back",
             onPress: () => {
+              // Leaving the picker cancels a pending insert.
+              generation.current++;
               setChoosing(null);
               setError(null);
             },
@@ -365,6 +368,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                   variant.choice.pullRequest ? "arrow.triangle.pull" : "arrow.triangle.branch"
                 }
                 selected={selected.includes(variant.key)}
+                accessibilityRole="checkbox"
                 isLast={index === variants.length - 1}
                 disabled={busy}
                 onPress={() =>
