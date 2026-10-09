@@ -91,6 +91,7 @@ export interface GitLocalStatusOptions {
 }
 
 export interface GitRemoteStatusDetails {
+  baseComparison?: VcsStatusResult["baseComparison"];
   isRepo: boolean;
   defaultBranch: string | null;
   isDefaultBranch: boolean;

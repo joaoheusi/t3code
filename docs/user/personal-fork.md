@@ -18,7 +18,7 @@ On mobile, choose **Actions** next to the composer controls to insert an action.
 
 On web and desktop, the quick action menu also offers **Merge pull requests**. A single PR goes straight to confirmation. For several PRs, select the ones to merge first. Choosing a merge method confirms and runs the merge. Only methods allowed by every selected repository are offered.
 
-The same menu offers the sidebar’s Git action for each repository. Its label follows the current state: **Pull**, **Push**, **Commit & push**, or **Commit, push & PR**. Choose a repository’s action to run it directly. Pushing to the default branch still asks for confirmation.
+On web, desktop, and mobile, the menu has one Git action. For one repository, its label follows the current state: **Pull**, **Push**, **Commit & push**, or **Commit, push & PR**. For several repositories, choose **Sync repositories**, then the repository to act on. The details show changed files and commits to pull or push. Commits on the base branch that are missing from the current branch are shown separately; pulling updates the tracked remote branch and does not merge the base branch. Pushing to the default branch still asks for confirmation.
 
 Manage the library in **Settings → Quick actions**: create, edit, duplicate, favorite, disable, delete, import, and export. Give an action its own shortcut in its editor. Actions belong to one machine and can be limited to one project there. Anyone who can read that machine's settings can read them, so keep secrets out of templates.
 

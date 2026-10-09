@@ -471,6 +471,8 @@ export const make = Effect.gen(function* () {
             previousRemote.aheadCount !== remote.aheadCount ||
             previousRemote.behindCount !== remote.behindCount ||
             previousRemote.aheadOfDefaultCount !== remote.aheadOfDefaultCount ||
+            previousRemote.baseComparison?.ref !== remote.baseComparison?.ref ||
+            previousRemote.baseComparison?.behindCount !== remote.baseComparison?.behindCount ||
             previousRemote.pr?.baseRef !== remote.pr?.baseRef)
         ) {
           yield* refreshLocalStatusCore(cwd);

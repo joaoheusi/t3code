@@ -52,6 +52,7 @@ import {
   getComposerDraftSnapshot,
   insertComposerDraftText,
 } from "../../state/use-composer-drafts";
+import { MobileGitQuickAction } from "./MobileGitQuickAction";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 
 export type QuickActionsTarget = {
@@ -135,6 +136,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     target.threadId ? { environmentId: target.environmentId, threadId: target.threadId } : null,
   );
   const [query, setQuery] = useState("");
+  const [choosingGit, setChoosingGit] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -295,6 +297,17 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       },
     }));
 
+  const gitAction = (
+    <MobileGitQuickAction
+      target={target}
+      query={query}
+      onClose={() => navigation.goBack()}
+      choosing={choosingGit}
+      onChoosingChange={setChoosingGit}
+    />
+  );
+  if (choosingGit) return gitAction;
+
   if (editing && canSave) {
     return (
       <QuickActionEditor
@@ -448,6 +461,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         contentContainerStyle={listStyle}
       >
         <PickerSearchField placeholder="Find an action" value={query} onChangeText={setQuery} />
+        {gitAction}
         {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
         {library.error ? (
           <View className="items-center gap-3 py-8">

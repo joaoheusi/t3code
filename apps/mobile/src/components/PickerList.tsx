@@ -51,6 +51,7 @@ export function PickerCaption(props: { readonly children: ReactNode; readonly to
 export function PickerRow(props: {
   readonly title: string;
   readonly subtitle?: string;
+  readonly multiline?: boolean;
   readonly symbol?: AppSymbolName;
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
@@ -108,6 +109,7 @@ export function PickerRow(props: {
         title={props.title}
         titleClassName={titleClassName}
         subtitle={props.subtitle}
+        subtitleNumberOfLines={props.multiline ? 0 : 2}
         leading={leading}
         trailing={trailing}
         accessibilityRole={role}
@@ -139,11 +141,18 @@ export function PickerRow(props: {
     >
       {leading}
       <View className="min-w-0 flex-1 gap-0.5">
-        <Text className={cn("text-base font-t3-medium", titleClassName)} numberOfLines={1}>
+        <Text
+          className={cn("text-base font-t3-medium", titleClassName)}
+          numberOfLines={props.multiline ? 2 : 1}
+        >
           {props.title}
         </Text>
         {props.subtitle ? (
-          <Text className="text-xs text-foreground-muted" numberOfLines={1} ellipsizeMode="middle">
+          <Text
+            className="text-xs text-foreground-muted"
+            numberOfLines={props.multiline ? 0 : 1}
+            ellipsizeMode="middle"
+          >
             {props.subtitle}
           </Text>
         ) : null}

@@ -1717,27 +1717,40 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return null;
   });
 
+  const compareAgainstBase = Effect.fn("compareAgainstBase")(function* (
+    cwd: string,
+    refName: string,
+  ) {
+    const baseRef = yield* resolveBaseBranchForNoUpstream(cwd, refName, {
+      allowRemoteOfCurrent: true,
+    });
+    if (!baseRef) return null;
+    const result = yield* executeGit(
+      "GitVcsDriver.compareAgainstBase",
+      cwd,
+      ["rev-list", "--left-right", "--count", `HEAD...${baseRef}`],
+      { allowNonZeroExit: true },
+    );
+    if (result.exitCode !== 0) return null;
+    const [aheadCount, behindCount] = result.stdout.trim().split(/\s+/).map(Number);
+    if (
+      aheadCount === undefined ||
+      behindCount === undefined ||
+      !Number.isSafeInteger(aheadCount) ||
+      !Number.isSafeInteger(behindCount) ||
+      aheadCount < 0 ||
+      behindCount < 0
+    )
+      return null;
+    return { ref: baseRef, aheadCount, behindCount };
+  });
+
   const computeAheadCountAgainstBase = Effect.fn("computeAheadCountAgainstBase")(function* (
     cwd: string,
     refName: string,
   ) {
-    const baseRef = yield* resolveBaseBranchForNoUpstream(cwd, refName);
-    if (!baseRef) {
-      return 0;
-    }
-
-    const result = yield* executeGit(
-      "GitVcsDriver.computeAheadCountAgainstBase",
-      cwd,
-      ["rev-list", "--count", `${baseRef}..HEAD`],
-      { allowNonZeroExit: true },
-    );
-    if (result.exitCode !== 0) {
-      return 0;
-    }
-
-    const parsed = Number.parseInt(result.stdout.trim(), 10);
-    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    const comparison = yield* compareAgainstBase(cwd, refName);
+    return comparison?.aheadCount ?? 0;
   });
 
   const readStatusDetailsRemote = Effect.fn("readStatusDetailsRemote")(function* (cwd: string) {
@@ -1790,6 +1803,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     let aheadCount = 0;
     let behindCount = 0;
 
+    const baseComparison = branch
+      ? yield* compareAgainstBase(cwd, branch).pipe(Effect.orElseSucceed(() => null))
+      : null;
+
     if (upstreamRef) {
       const divergence = yield* executeGit(
         "GitVcsDriver.statusDetailsRemote.divergence",
@@ -1805,9 +1822,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         behindCount = Number.isFinite(parsedBehind) ? Math.max(0, parsedBehind) : 0;
       }
     } else if (branch) {
-      aheadCount = yield* computeAheadCountAgainstBase(cwd, branch).pipe(
-        Effect.orElseSucceed(() => 0),
-      );
+      aheadCount = baseComparison?.aheadCount ?? 0;
     }
 
     const defaultBranch = yield* resolveDefaultBranchName(cwd, "origin");
@@ -1815,12 +1830,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       branch !== null &&
       (branch === defaultBranch ||
         (defaultBranch === null && (branch === "main" || branch === "master")));
-    const aheadOfDefaultCount =
-      branch && !isDefaultBranch
-        ? upstreamRef === null
-          ? aheadCount
-          : yield* computeAheadCountAgainstBase(cwd, branch).pipe(Effect.orElseSucceed(() => 0))
-        : 0;
+    const aheadOfDefaultCount = !isDefaultBranch ? (baseComparison?.aheadCount ?? 0) : 0;
 
     return {
       isRepo: true,
@@ -1832,6 +1842,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       aheadCount,
       behindCount,
       aheadOfDefaultCount,
+      baseComparison,
     };
   });
 

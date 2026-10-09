@@ -1396,6 +1396,8 @@ export const make = Effect.gen(function* () {
       aheadCount: details.aheadCount,
       behindCount: details.behindCount,
       aheadOfDefaultCount: details.aheadOfDefaultCount,
+      upstreamRef: details.upstreamRef,
+      baseComparison: details.baseComparison,
       pr,
     } satisfies VcsStatusRemoteResult;
   });

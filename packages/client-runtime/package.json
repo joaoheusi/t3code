@@ -410,6 +410,10 @@
     "./state/mcp-apps": {
       "types": "./src/state/mcpApps.ts",
       "default": "./src/state/mcpApps.ts"
+    },
+    "./quickActionGit": {
+      "types": "./src/quickActionGit.ts",
+      "default": "./src/quickActionGit.ts"
     }
   },
   "scripts": {

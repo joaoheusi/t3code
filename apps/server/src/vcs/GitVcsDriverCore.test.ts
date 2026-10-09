@@ -2284,6 +2284,39 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("reports missing base commits separately from a synced tracked branch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-vcs-driver-remote-");
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        yield* git(cwd, ["push", "-u", "origin", initialBranch]);
+        yield* git(cwd, ["checkout", "-b", "feature/base-status"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "feature"]);
+        yield* git(cwd, ["push", "-u", "origin", "feature/base-status"]);
+        yield* git(cwd, ["checkout", initialBranch]);
+        yield* writeTextFile(cwd, "base.txt", "base\n");
+        yield* git(cwd, ["add", "."]);
+        yield* git(cwd, ["commit", "-m", "base changed"]);
+        yield* git(cwd, ["push"]);
+        yield* git(cwd, ["checkout", "feature/base-status"]);
+        const status = yield* (yield* GitVcsDriver.GitVcsDriver).statusDetailsRemote(cwd, {
+          refreshUpstream: false,
+        });
+        assert.equal(status.upstreamRef, "origin/feature/base-status");
+        assert.equal(status.aheadCount, 0);
+        assert.equal(status.behindCount, 0);
+        assert.deepEqual(status.baseComparison, {
+          ref: `origin/${initialBranch}`,
+          aheadCount: 1,
+          behindCount: 1,
+        });
+      }),
+    );
+
     it.effect("reports default-branch delta separately from upstream delta", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
