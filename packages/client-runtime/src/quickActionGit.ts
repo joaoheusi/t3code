@@ -10,6 +10,8 @@ export interface GitQuickAction {
   kind: "run_action" | "run_pull" | "open_publish" | "show_hint";
   action?: GitStackedAction;
   hint?: string;
+  /** Waiting or no work to do; the disabled action needs no user intervention. */
+  idle?: boolean;
 }
 
 function resolveChangeRequestTerminology(status: VcsStatusResult | null) {
@@ -25,7 +27,13 @@ export function resolveQuickAction(
   hasPrimaryRemote = true,
 ): GitQuickAction {
   if (isBusy) {
-    return { label: "Commit", disabled: true, kind: "show_hint", hint: "Git action in progress." };
+    return {
+      label: "Commit",
+      disabled: true,
+      kind: "show_hint",
+      hint: "Git action in progress.",
+      idle: true,
+    };
   }
 
   if (!gitStatus) {
@@ -85,6 +93,7 @@ export function resolveQuickAction(
           disabled: true,
           kind: "show_hint",
           hint: "Branch is up to date. No action needed.",
+          idle: true,
         };
       }
       return {
@@ -92,6 +101,7 @@ export function resolveQuickAction(
         disabled: true,
         kind: "show_hint",
         hint: "No local commits to push.",
+        idle: true,
       };
     }
     if (hasOpenPr || isDefaultRef) {
@@ -152,6 +162,7 @@ export function resolveQuickAction(
       disabled: true,
       kind: "show_hint",
       hint: "Branch is up to date. No action needed.",
+      idle: true,
     };
   }
 
@@ -169,6 +180,7 @@ export function resolveQuickAction(
     disabled: true,
     kind: "show_hint",
     hint: "Branch is up to date. No action needed.",
+    idle: true,
   };
 }
 
@@ -260,9 +272,11 @@ export function describeQuickActionGit(repository: QuickActionGitRepository): st
       behindCount > 0 ? `${ref} has ${commits(behindCount)} not here` : `Includes latest ${ref}`,
     );
   }
-  if (status.pr?.state === "open") parts.push(`PR #${status.pr.number} open`);
+  const terminology = resolveChangeRequestTerminology(status);
+  if (status.pr?.state === "open")
+    parts.push(`${terminology.shortLabel} #${status.pr.number} open`);
   else if (action.action === "commit_push_pr" || action.action === "create_pr")
-    parts.push("No open PR");
+    parts.push(`No open ${terminology.shortLabel}`);
   if (action.hint) parts.push(action.hint);
   return parts.join(" · ");
 }
@@ -293,9 +307,7 @@ export function summarizeQuickActionGit(repositories: readonly QuickActionGitRep
   ).length;
   const unavailable = repositories.filter(
     (repository) =>
-      repository.unavailable ||
-      (repository.action.disabled &&
-        repository.action.hint !== "Branch is up to date. No action needed."),
+      repository.unavailable || (repository.action.disabled && !repository.action.idle),
   ).length;
   const parts = [`${repositories.length} repositories`];
   if (changed) parts.push(`${changed} changed file${changed === 1 ? "" : "s"}`);

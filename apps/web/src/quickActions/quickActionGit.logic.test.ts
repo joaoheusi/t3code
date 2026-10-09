@@ -32,6 +32,68 @@ const openPr = {
 };
 
 describe("repository quick actions", () => {
+  it.each([
+    { sourceControlProvider: undefined, shortLabel: "PR" },
+    {
+      sourceControlProvider: {
+        kind: "gitlab" as const,
+        name: "GitLab",
+        baseUrl: "https://gitlab.com",
+      },
+      shortLabel: "MR",
+    },
+  ])(
+    "uses $shortLabel consistently in change-request descriptions",
+    ({ sourceControlProvider, shortLabel }) => {
+      for (const pr of [null, openPr]) {
+        const state = status({ hasWorkingTreeChanges: true, sourceControlProvider, pr });
+        const repository = {
+          cwd: "/repo",
+          label: "App",
+          unavailable: null,
+          status: state,
+          action: resolveQuickActionGit(state, false),
+        };
+        expect(describeQuickActionGit(repository)).toContain(
+          pr ? `${shortLabel} #1 open` : `No open ${shortLabel}`,
+        );
+        if (!pr) expect(repository.action.label).toBe(`Commit, push & ${shortLabel}`);
+      }
+    },
+  );
+
+  it("does not report idle or busy repositories as needing attention", () => {
+    const repositories = [
+      { state: status(), busy: false },
+      { state: status({ pr: openPr }), busy: false },
+      { state: status({ hasUpstream: false, pr: openPr }), busy: false },
+      { state: status({ hasUpstream: false }), busy: false },
+      { state: status(), busy: true },
+    ].map(({ state, busy }, index) => ({
+      cwd: `/repo-${index}`,
+      label: `App ${index}`,
+      unavailable: null,
+      status: state,
+      action: resolveQuickActionGit(state, busy),
+    }));
+    expect(summarizeQuickActionGit(repositories).description).toBe(
+      "5 repositories · Choose a repository to see its next action",
+    );
+
+    const diverged = status({ aheadCount: 1, behindCount: 1 });
+    const detached = status({ refName: null });
+    const mixed = [
+      ...repositories,
+      ...[diverged, detached].map((state) => ({
+        ...repositories[0]!,
+        status: state,
+        action: resolveQuickActionGit(state, false),
+      })),
+      { ...repositories[0]!, unavailable: "Checkout failed" },
+    ];
+    expect(summarizeQuickActionGit(mixed).description).toContain("3 need attention");
+  });
+
   it("names the tracked ref separately from missing base commits", () => {
     const state = status({
       behindCount: 2,
