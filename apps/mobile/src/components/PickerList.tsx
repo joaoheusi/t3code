@@ -62,6 +62,8 @@ export function PickerRow(props: {
   /** Forwarded so a long-press ControlPillMenu can wrap the row. */
   readonly onTouchStart?: PressableProps["onTouchStart"];
   readonly disabled?: boolean;
+  /** Use disabled contrast while keeping explanation and management gestures available. */
+  readonly dimmed?: boolean;
   readonly isLast?: boolean;
   readonly accessibilityRole?: AccessibilityRole;
   readonly accessibilityHint?: string;
@@ -116,6 +118,7 @@ export function PickerRow(props: {
         accessibilityHint={props.accessibilityHint}
         accessibilityState={state}
         disabled={props.disabled}
+        style={{ opacity: props.disabled || props.dimmed ? 0.45 : 1 }}
         onPress={props.onPress}
         onLongPress={props.onLongPress}
         onTouchStart={props.onTouchStart}
@@ -137,7 +140,7 @@ export function PickerRow(props: {
       onPress={props.onPress}
       onLongPress={props.onLongPress}
       onTouchStart={props.onTouchStart}
-      style={{ opacity: props.disabled ? 0.45 : 1 }}
+      style={{ opacity: props.disabled || props.dimmed ? 0.45 : 1 }}
     >
       {leading}
       <View className="min-w-0 flex-1 gap-0.5">

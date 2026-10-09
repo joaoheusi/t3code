@@ -301,6 +301,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     <MobileGitQuickAction
       target={target}
       query={query}
+      isLast={ranked.length === 0}
       onClose={() => navigation.goBack()}
       choosing={choosingGit}
       onChoosingChange={setChoosingGit}
@@ -461,7 +462,51 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         contentContainerStyle={listStyle}
       >
         <PickerSearchField placeholder="Find an action" value={query} onChangeText={setQuery} />
-        {gitAction}
+        <PickerSurface>
+          {gitAction}
+          {rows.map((row, index) => (
+            <ControlPillMenu
+              key={row.action.id}
+              accessibilityLabel={`Manage ${row.action.name}`}
+              shouldOpenOnLongPress
+              actions={manageMenu(row.action)}
+              onPressAction={({ nativeEvent }) =>
+                manage(row.action, nativeEvent.event as ManageAction)
+              }
+            >
+              <PickerRow
+                multiline
+                title={row.action.name}
+                subtitle={row.subtitle}
+                symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
+                dimmed={!row.variants}
+                trailing={
+                  row.variants && row.variants.length > 1 ? (
+                    <SymbolView
+                      name="chevron.right"
+                      size={14}
+                      tintColorClassName="accent-icon-muted"
+                      type="monochrome"
+                    />
+                  ) : undefined
+                }
+                isLast={index === rows.length - 1}
+                disabled={busy}
+                accessibilityHint={`${row.variants ? "Inserts the action into the message." : "Not available here."}${canSave ? " Long press to manage it." : ""}`}
+                onPress={() => {
+                  const variants = row.variants;
+                  if (!variants) Alert.alert(row.action.name, row.subtitle);
+                  else if (variants.length === 1)
+                    void run(
+                      row.action,
+                      variants.map((variant) => variant.choice),
+                    );
+                  else setChoosing({ action: row.action, variants, selected: [] });
+                }}
+              />
+            </ControlPillMenu>
+          ))}
+        </PickerSurface>
         {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
         {library.error ? (
           <View className="items-center gap-3 py-8">
@@ -491,51 +536,6 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           </View>
         ) : (
           <>
-            {rows.length > 0 ? (
-              <PickerSurface>
-                {rows.map((row, index) => (
-                  <ControlPillMenu
-                    key={row.action.id}
-                    accessibilityLabel={`Manage ${row.action.name}`}
-                    shouldOpenOnLongPress
-                    actions={manageMenu(row.action)}
-                    onPressAction={({ nativeEvent }) =>
-                      manage(row.action, nativeEvent.event as ManageAction)
-                    }
-                  >
-                    <PickerRow
-                      title={row.action.name}
-                      subtitle={row.subtitle}
-                      symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
-                      tone={row.variants ? undefined : "muted"}
-                      trailing={
-                        row.variants && row.variants.length > 1 ? (
-                          <SymbolView
-                            name="chevron.right"
-                            size={14}
-                            tintColorClassName="accent-icon-muted"
-                            type="monochrome"
-                          />
-                        ) : undefined
-                      }
-                      isLast={index === rows.length - 1}
-                      disabled={busy}
-                      accessibilityHint={`${row.variants ? "Inserts the action into the message." : "Not available here."}${canSave ? " Long press to manage it." : ""}`}
-                      onPress={() => {
-                        const variants = row.variants;
-                        if (!variants) Alert.alert(row.action.name, row.subtitle);
-                        else if (variants.length === 1)
-                          void run(
-                            row.action,
-                            variants.map((variant) => variant.choice),
-                          );
-                        else setChoosing({ action: row.action, variants, selected: [] });
-                      }}
-                    />
-                  </ControlPillMenu>
-                ))}
-              </PickerSurface>
-            ) : null}
             {busy ? (
               <View className="flex-row items-center justify-center gap-2">
                 <ActivityIndicator size="small" />
@@ -559,6 +559,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                       <PickerRow
                         title={action.name}
                         subtitle="Disabled"
+                        dimmed
                         symbol="bolt.circle"
                         isLast={index === disabledActions.length - 1}
                         disabled={busy || !canSave}
