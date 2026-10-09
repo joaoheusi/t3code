@@ -260,6 +260,18 @@ const VcsStatusRemoteShape = {
   aheadCount: NonNegativeInt,
   behindCount: NonNegativeInt,
   aheadOfDefaultCount: Schema.optional(NonNegativeInt),
+  /** Exact tracked ref for pull/push counts; absent on older servers. */
+  upstreamRef: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  /** Base comparison is separate from the tracked branch's pull/push counts. */
+  baseComparison: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        ref: TrimmedNonEmptyStringSchema,
+        aheadCount: NonNegativeInt,
+        behindCount: NonNegativeInt,
+      }),
+    ),
+  ),
   pr: Schema.NullOr(VcsStatusChangeRequest),
 };
 

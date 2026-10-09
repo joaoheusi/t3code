@@ -231,6 +231,32 @@ describe("isTemporaryWorktreeBranch", () => {
 });
 
 describe("applyGitStatusStreamEvent", () => {
+  it("retains tracked-ref and base comparisons through local-only updates", () => {
+    const current = applyGitStatusStreamEvent(null, {
+      _tag: "remoteUpdated",
+      remote: {
+        hasUpstream: true,
+        aheadCount: 1,
+        behindCount: 2,
+        pr: null,
+        upstreamRef: "origin/feature",
+        baseComparison: { ref: "origin/main", aheadCount: 1, behindCount: 3 },
+      },
+    });
+    const result = applyGitStatusStreamEvent(current, {
+      _tag: "localUpdated",
+      local: {
+        isRepo: true,
+        hasPrimaryRemote: true,
+        isDefaultRef: false,
+        refName: "feature",
+        hasWorkingTreeChanges: true,
+        workingTree: { files: [], insertions: 0, deletions: 0 },
+      },
+    });
+    expect(result.upstreamRef).toBe("origin/feature");
+    expect(result.baseComparison).toEqual({ ref: "origin/main", aheadCount: 1, behindCount: 3 });
+  });
   it("treats a remote-only update as a repository when local state is missing", () => {
     const remote: VcsStatusRemoteResult = {
       hasUpstream: true,

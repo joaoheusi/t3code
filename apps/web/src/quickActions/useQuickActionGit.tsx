@@ -25,14 +25,15 @@ import { getChangeRequestTerminology } from "../sourceControlPresentation";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
-import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { vcsActionManager, vcsEnvironment } from "../state/vcs";
 import type { QuickActionScope } from "./quickActionRunner";
 import {
   quickActionGitTargets,
+  describeQuickActionGit,
+  summarizeQuickActionGit,
   resolveQuickActionGit,
   sameQuickActionGit,
-} from "./quickActionGit.logic";
+} from "@t3tools/client-runtime/quickActionGit";
 
 /** Each repository subscribes to the same live status and operation state as its sidebar. */
 export function useQuickActionGit(
@@ -72,10 +73,7 @@ export function useQuickActionGit(
     [scope?.environmentId, targets],
   );
   const repositories = useAtomValue(stateAtom);
-  const loadStatus = useAtomQueryRunner(vcsEnvironment.status, {
-    refresh: true,
-    reportFailure: false,
-  });
+  const loadStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
   const updateMetadata = useAtomCommand(threadEnvironment.updateMetadata, { reportFailure: false });
   const preparing = useRef(new Set<string>());
@@ -282,12 +280,10 @@ export function useQuickActionGit(
           value,
           icon,
           keepOpen: true,
-          title: repositories.length > 1 ? `${action.label} · ${repository.label}` : action.label,
+          title: repositories.length > 1 ? `${repository.label} — ${action.label}` : action.label,
           description: !canWrite
             ? "This connection cannot change source control."
-            : (repository.unavailable ??
-              action.hint ??
-              `${repository.label} · ${repository.status?.refName ?? "Checking status…"}`),
+            : describeQuickActionGit(repository),
           searchTerms: [
             "git",
             "commit",
@@ -304,8 +300,47 @@ export function useQuickActionGit(
       })
     : [];
 
+  const summary = summarizeQuickActionGit(repositories);
+  const entry: CommandPaletteActionItem | null =
+    items.length === 0
+      ? null
+      : {
+          ...items[0]!,
+          value: "quick-action:git",
+          title: summary.label,
+          description: !canWrite
+            ? "This connection cannot change source control."
+            : summary.description,
+          disabled: !canWrite || summary.disabled,
+          searchTerms: [
+            "git",
+            "commit",
+            "push",
+            "pull",
+            "pr",
+            "sync",
+            ...repositories.map((repository) => repository.label),
+          ],
+          run:
+            items.length === 1
+              ? items[0]!.run
+              : async () =>
+                  openCommandPalette({
+                    view: {
+                      addonIcon: items[0]!.icon,
+                      groups: [
+                        {
+                          value: "quick-action-git-repositories",
+                          label: "Choose a repository",
+                          items,
+                        },
+                      ],
+                    },
+                  }),
+        };
   return {
-    items,
+    items: entry ? [entry] : [],
+    repositoryItems: items,
     dialog:
       publishCwd && scope ? (
         <PublishRepositoryDialog

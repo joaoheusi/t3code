@@ -30,7 +30,7 @@ vi.mock("../state/session", () => ({
   readEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
 }));
 vi.mock("../state/vcs", () => ({
-  vcsEnvironment: { status: mocks.status, pull: "pull" },
+  vcsEnvironment: { status: mocks.status, refreshStatus: "refresh", pull: "pull" },
   vcsActionManager: {
     stateAtom: mocks.busy,
     runStackedAction: (target: unknown) => target,
@@ -44,7 +44,8 @@ vi.mock("@t3tools/client-runtime/state/runtime", async (importOriginal) => ({
 }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => mocks.load }));
 vi.mock("../state/use-atom-command", () => ({
-  useAtomCommand: (command: string) => (command === "pull" ? mocks.pull : mocks.update),
+  useAtomCommand: (command: string) =>
+    command === "refresh" ? mocks.load : command === "pull" ? mocks.pull : mocks.update,
 }));
 vi.mock("../state/threads", () => ({ threadEnvironment: { updateMetadata: "update" } }));
 vi.mock("../commandPaletteBus", () => ({ openCommandPalette: mocks.open }));
@@ -98,7 +99,7 @@ function view(): ReturnType<typeof useQuickActionGit> {
   return renderer.root.findByType(Probe).props.view;
 }
 const item = (name: string) =>
-  view().items.find((entry) => entry.value === `quick-action:git:/worktrees/${name}`)!;
+  view().repositoryItems.find((entry) => entry.value === `quick-action:git:/worktrees/${name}`)!;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -132,6 +133,15 @@ afterEach(() => {
 });
 
 describe("Git palette actions", () => {
+  it("offers one entry for a mixed repository set and opens the repository picker", async () => {
+    expect(view().items).toHaveLength(1);
+    expect(view().items[0]!.title).toBe("Sync repositories");
+    await view().items[0]!.run();
+    const picker = (mocks.open.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
+    expect(picker.groups[0]!.items).toHaveLength(2);
+    expect(mocks.stacked).not.toHaveBeenCalled();
+    expect(mocks.pull).not.toHaveBeenCalled();
+  });
   it("disables writes for a read-only connection", async () => {
     mocks.permission.mockImplementation(
       (_environment, permission) => permission !== AuthSourceControlWriteScope,
@@ -189,8 +199,8 @@ describe("Git palette actions", () => {
   );
 
   it("runs each repository's displayed action against its own remote environment checkout", async () => {
-    expect(item("web").title).toBe("Commit, push & PR · web");
-    expect(item("api").title).toBe("Pull · api");
+    expect(item("web").title).toBe("web — Commit, push & PR");
+    expect(item("api").title).toBe("api — Pull");
     await act(async () => {
       await item("web").run();
       await item("api").run();
@@ -211,7 +221,7 @@ describe("Git palette actions", () => {
         AsyncResult.success(status({ hasWorkingTreeChanges: true })),
       ),
     );
-    expect(item("api").title).toBe("Commit, push & PR · api");
+    expect(item("api").title).toBe("api — Commit, push & PR");
   });
 
   it("does not silently change a selected operation after refreshing", async () => {

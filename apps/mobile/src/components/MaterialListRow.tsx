@@ -12,6 +12,7 @@ export function MaterialListRow({
   title,
   titleClassName,
   subtitle,
+  subtitleNumberOfLines = 2,
   leading,
   trailing,
   className,
@@ -20,6 +21,7 @@ export function MaterialListRow({
   readonly title: string;
   readonly titleClassName?: string;
   readonly subtitle?: string | null;
+  readonly subtitleNumberOfLines?: number;
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
 }) {
@@ -46,7 +48,7 @@ export function MaterialListRow({
           {title}
         </AppText>
         {subtitle ? (
-          <AppText className="text-sm text-foreground-muted" numberOfLines={2}>
+          <AppText className="text-sm text-foreground-muted" numberOfLines={subtitleNumberOfLines}>
             {subtitle}
           </AppText>
         ) : null}
