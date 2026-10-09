@@ -12,11 +12,13 @@ Keep the official application available while testing this build. To return to i
 
 ## Quick actions
 
-Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. For actions that target pull requests or several repositories, select one or more items, then choose **Insert selected**. Pull request choices show CI and conflict status.
+Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. Actions with one target insert directly. When several pull requests or repositories fit, select one or more, then choose **Insert selected**. Pull request choices show CI and conflict status.
 
 On mobile, choose **Actions** next to the composer controls to insert an action. Use **+** there to create one, and long press an action to edit, favorite, disable, or delete it.
 
-The quick action menu also offers **Merge pull requests**. Select the PRs, choose a merge method allowed by every selected repository, and confirm. This runs the merge command directly.
+On web and desktop, the quick action menu also offers **Merge pull requests**. A single PR goes straight to confirmation. For several PRs, select the ones to merge first. Choosing a merge method confirms and runs the merge. Only methods allowed by every selected repository are offered.
+
+The same menu offers the sidebar’s Git action for each repository. Its label follows the current state: **Pull**, **Push**, **Commit & push**, or **Commit, push & PR**. Choose a repository’s action to run it directly. Pushing to the default branch still asks for confirmation.
 
 Manage the library in **Settings → Quick actions**: create, edit, duplicate, favorite, disable, delete, import, and export. Give an action its own shortcut in its editor. Actions belong to one machine and can be limited to one project there. Anyone who can read that machine's settings can read them, so keep secrets out of templates.
 

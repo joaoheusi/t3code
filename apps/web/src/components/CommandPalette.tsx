@@ -794,9 +794,20 @@ function OpenCommandPaletteDialog(props: {
         : null,
     [activeThread, quickActionEnvironmentId, quickActionProjectId],
   );
+  const projects = useProjects();
+  const quickActionProject = projects.find(
+    (project) =>
+      project.environmentId === quickActionEnvironmentId && project.id === quickActionProjectId,
+  );
   const quickActions = useQuickActionPalette({
     target: quickActionTarget,
     scope: quickActionScope,
+    gitCwd:
+      activeThread?.worktreePath ??
+      activeDraftThread?.worktreePath ??
+      quickActionProject?.workspaceRoot ??
+      null,
+    onClose: () => setOpen(false),
     onManage: async () => {
       await navigate({ to: "/settings/quick-actions" });
     },
@@ -804,7 +815,6 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/settings/quick-actions", hash: NEW_QUICK_ACTION_HASH });
     },
   });
-  const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -3711,6 +3721,7 @@ function OpenCommandPaletteDialog(props: {
       showBackHint={isSubmenu}
       value={query}
     >
+      {quickActions.dialog}
       {newProjectPathPreview !== null ? (
         <div className="p-2 pb-0">
           <div className="flex min-h-8 items-center gap-2 rounded-sm px-2 py-1.5">

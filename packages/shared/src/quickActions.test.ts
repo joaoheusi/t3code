@@ -54,7 +54,12 @@ describe("quick action templates", () => {
     );
   });
   it("rejects executable fields, shortcuts, duplicate IDs and fork-only exports", () => {
-    const data = JSON.parse(exportPortableActions(QUICK_ACTION_STARTERS.slice(2), EXPORTED_AT));
+    const data = JSON.parse(
+      exportPortableActions(
+        QUICK_ACTION_STARTERS.filter((action) => !quickActionRequirements(action.template).host),
+        EXPORTED_AT,
+      ),
+    );
     data.actions[0].shortcut = "cmd+g";
     expect(() => importPortableActions(JSON.stringify(data))).toThrow("extra fields");
     delete data.actions[0].shortcut;

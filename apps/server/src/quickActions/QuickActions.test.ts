@@ -3,9 +3,10 @@ import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
-import { QUICK_ACTION_STARTERS } from "@t3tools/shared/quickActions";
+import { QUICK_ACTION_STARTERS, QUICK_ACTION_STARTER_IDS } from "@t3tools/shared/quickActions";
 import migration from "../persistence/Migrations/059_ForkQuickActions.ts";
 import starterUpgrade from "../persistence/Migrations/061_ForkQuickActionStarters.ts";
+import reviewThreadsStarter from "../persistence/Migrations/065_AddressReviewThreadsQuickAction.ts";
 import * as QuickActions from "./QuickActions.ts";
 
 const database = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -47,7 +48,7 @@ it.effect("rejects unknown variables and injection-shaped input is stored as tex
     const sql = yield* SqlClient.SqlClient;
     assert.equal(
       (yield* sql<{ count: number }>`SELECT COUNT(*) AS count FROM fork_quick_actions`)[0]?.count,
-      5,
+      QUICK_ACTION_STARTERS.length + 1,
     );
   }).pipe(Effect.provide(layer)),
 );
@@ -87,4 +88,45 @@ it.effect("upgrades only starters that still carry their seeded text", () =>
     assert.equal(upgraded[0]?.revision, seeded.revision + 1);
     assert.equal(upgraded[1]?.template, "My own conflict instruction");
   }).pipe(Effect.provide(layer)),
+);
+
+it.effect(
+  "adds review threads to existing libraries without changing edits or restoring other deleted starters",
+  () =>
+    Effect.gen(function* () {
+      const library = yield* QuickActions.QuickActions;
+      const actions = yield* library.list();
+      const reviewThreads = actions.find(
+        (action) => action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+      )!;
+      const ci = actions.find((action) => action.id === QUICK_ACTION_STARTER_IDS.resolveCi)!;
+      const conflicts = actions.find(
+        (action) => action.id === QUICK_ACTION_STARTER_IDS.resolveConflicts,
+      )!;
+      yield* library.remove({ id: reviewThreads.id, expectedRevision: reviewThreads.revision });
+      yield* library.remove({ id: conflicts.id, expectedRevision: conflicts.revision });
+      const edited = yield* library.save({
+        action: { ...ci, template: "My CI instructions" },
+        expectedRevision: ci.revision,
+      });
+      yield* reviewThreadsStarter;
+      const upgraded = yield* library.list();
+      assert.deepEqual(
+        upgraded.find((action) => action.id === ci.id),
+        edited,
+      );
+      assert.isUndefined(upgraded.find((action) => action.id === conflicts.id));
+      const added = upgraded.find((action) => action.id === reviewThreads.id)!;
+      assert.equal(added.name, "Address review threads");
+      assert.include(added.template, "{{pr.url}}");
+      const custom = yield* library.save({
+        action: { ...added, template: "My review instructions" },
+        expectedRevision: added.revision,
+      });
+      yield* reviewThreadsStarter;
+      assert.deepEqual(
+        (yield* library.list()).find((action) => action.id === added.id),
+        custom,
+      );
+    }).pipe(Effect.provide(layer)),
 );
