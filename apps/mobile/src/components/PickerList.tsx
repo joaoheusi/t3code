@@ -51,6 +51,8 @@ export function PickerCaption(props: { readonly children: ReactNode; readonly to
 export function PickerRow(props: {
   readonly title: string;
   readonly subtitle?: string;
+  /** Danger marks a subtitle that reports a problem. */
+  readonly subtitleTone?: "danger";
   readonly multiline?: boolean;
   readonly symbol?: AppSymbolName;
   readonly leading?: ReactNode;
@@ -111,6 +113,7 @@ export function PickerRow(props: {
         title={props.title}
         titleClassName={titleClassName}
         subtitle={props.subtitle}
+        subtitleClassName={props.subtitleTone === "danger" ? "text-danger" : undefined}
         subtitleNumberOfLines={props.multiline ? 0 : 2}
         leading={leading}
         trailing={trailing}
@@ -152,7 +155,10 @@ export function PickerRow(props: {
         </Text>
         {props.subtitle ? (
           <Text
-            className="text-xs text-foreground-muted"
+            className={cn(
+              "text-xs",
+              props.subtitleTone === "danger" ? "text-danger" : "text-foreground-muted",
+            )}
             numberOfLines={props.multiline ? 0 : 1}
             ellipsizeMode="middle"
           >

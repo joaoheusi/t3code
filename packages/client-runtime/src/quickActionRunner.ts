@@ -3,12 +3,15 @@ import type {
   ActionContextResult,
   EnvironmentId,
   ProjectId,
+  PullRequestActivity,
+  PullRequestMergeability,
   PullRequestRef,
   QuickAction,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "./state/models.ts";
 import {
+  QUICK_ACTION_STARTER_IDS,
   quickActionRequirements,
   renderQuickAction,
   templateVariables,
@@ -119,25 +122,103 @@ export function quickActionTargets(
   return { kind: "ready", variants: applicable };
 }
 
-/** CI and conflict state from a synced PR snapshot, worded like the desktop palette. */
+/** A PR state an action reports in menus; each action shows only the states it acts on. */
+export type QuickActionSignal = "ci" | "conflicts" | "reviewThreads";
+
+/**
+ * CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`. Review threads have no
+ * template variable, so the starter that addresses them is identified by its stable ID.
+ */
+export function quickActionSignals(
+  action: Pick<QuickAction, "id" | "template">,
+): QuickActionSignal[] {
+  const used = templateVariables(action.template);
+  return [
+    ...(used.includes("ci.failures") ? (["ci"] as const) : []),
+    ...(used.includes("pr.conflicts") ? (["conflicts"] as const) : []),
+    ...(action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads
+      ? (["reviewThreads"] as const)
+      : []),
+  ];
+}
+
+/** What a PR is known to look like; absent fields are unknown or still loading. */
+export interface PullRequestSignalState {
+  readonly checks?: "none" | "pending" | "failing" | "passing" | null | undefined;
+  readonly mergeability?: PullRequestMergeability | undefined;
+  readonly reviewThreads?:
+    | { readonly unresolved: number; readonly truncated: boolean }
+    | null
+    | undefined;
+}
+
+export interface PullRequestSignalStatus {
+  readonly signal: QuickActionSignal;
+  readonly label: string;
+  /** `alert` means the PR has the problem; `ok` means it was checked and does not. */
+  readonly tone: "alert" | "ok" | "unknown";
+}
+
+/** One status per requested signal, worded the same on every client. */
+export function pullRequestSignalStatuses(
+  signals: readonly QuickActionSignal[],
+  state: PullRequestSignalState,
+): PullRequestSignalStatus[] {
+  return signals.map((signal): PullRequestSignalStatus => {
+    if (signal === "ci") {
+      const checks = state.checks;
+      return checks === "failing"
+        ? { signal, label: "CI failing", tone: "alert" }
+        : checks === "passing"
+          ? { signal, label: "CI passing", tone: "ok" }
+          : checks === "pending"
+            ? { signal, label: "CI running", tone: "unknown" }
+            : checks === "none"
+              ? { signal, label: "No checks", tone: "ok" }
+              : { signal, label: "CI unknown", tone: "unknown" };
+    }
+    if (signal === "conflicts") {
+      return state.mergeability === "conflicting"
+        ? { signal, label: "Merge conflicts", tone: "alert" }
+        : state.mergeability === "mergeable"
+          ? { signal, label: "No conflicts", tone: "ok" }
+          : { signal, label: "Conflicts unknown", tone: "unknown" };
+    }
+    const threads = state.reviewThreads;
+    if (!threads) return { signal, label: "Review threads unknown", tone: "unknown" };
+    const count = `${threads.unresolved}${threads.truncated ? "+" : ""}`;
+    return threads.unresolved === 0 && !threads.truncated
+      ? { signal, label: "No unresolved threads", tone: "ok" }
+      : threads.unresolved === 0
+        ? { signal, label: "Review threads unknown", tone: "unknown" }
+        : {
+            signal,
+            label: `${count} unresolved ${threads.unresolved === 1 && !threads.truncated ? "thread" : "threads"}`,
+            tone: "alert",
+          };
+  });
+}
+
+/** Unresolved review threads from a PR's activity, or null before it loads. */
+export function unresolvedReviewThreads(
+  activity: Pick<PullRequestActivity, "reviewThreads" | "reviewThreadsTruncated"> | null,
+): PullRequestSignalState["reviewThreads"] {
+  if (!activity) return null;
+  return {
+    unresolved: activity.reviewThreads.filter((thread) => !thread.isResolved).length,
+    truncated: activity.reviewThreadsTruncated === true,
+  };
+}
+
+/** CI and conflict state from a synced PR snapshot, for targets of a merge. */
 export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot"]): string {
   if (!snapshot) return "Not synced yet";
-  const checks = snapshot.checksState;
-  const mergeability = snapshot.mergeability;
-  return [
-    checks === "failing"
-      ? "CI failing"
-      : checks === "passing"
-        ? "CI passing"
-        : checks === "pending"
-          ? "CI running"
-          : "CI unknown",
-    mergeability === "conflicting"
-      ? "Merge conflicts"
-      : mergeability === "mergeable"
-        ? "No conflicts"
-        : "Conflicts unknown",
-  ].join(" · ");
+  return pullRequestSignalStatuses(["ci", "conflicts"], {
+    checks: snapshot.checksState,
+    mergeability: snapshot.mergeability,
+  })
+    .map((status) => status.label)
+    .join(" · ");
 }
 
 /**

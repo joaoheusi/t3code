@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,10 +22,13 @@ import type {
 } from "@t3tools/contracts";
 import {
   describeQuickActionTargets,
-  pullRequestSnapshotStatus,
+  pullRequestSignalStatuses,
+  quickActionSignals,
   quickActionTargets,
   renderQuickActionSelection,
+  unresolvedReviewThreads,
   type QuickActionChoice,
+  type QuickActionSignal,
   type QuickActionVariant,
 } from "@t3tools/client-runtime/quickActionRunner";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -45,6 +48,7 @@ import {
 import { uuidv4 } from "../../lib/uuid";
 import { useEnvironmentServerConfig, useThreadShell } from "../../state/entities";
 import { forkWorkspace, quickActionsEnvironment } from "../../state/forkWorkspace";
+import { pullRequestEnvironment } from "../../state/pullRequests";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import {
@@ -70,12 +74,54 @@ type ActionRow = {
   readonly subtitle: string | undefined;
   /** Null when the action cannot run here; the subtitle says why. */
   readonly variants: readonly QuickActionVariant[] | null;
+  /** The single PR target whose status the row reports. */
+  readonly statusTarget?: QuickActionVariant;
 };
 type Choosing = {
   readonly action: QuickAction;
   readonly variants: readonly QuickActionVariant[];
   readonly selected: readonly string[];
 };
+
+/**
+ * A row whose subtitle adds the PR states its action acts on: failing CI, merge conflicts,
+ * or unresolved review threads. Review threads load only for actions that address them.
+ */
+function QuickActionStatusRow({
+  environmentId,
+  projectId,
+  variant,
+  signals,
+  subtitle,
+  ...row
+}: ComponentProps<typeof PickerRow> & {
+  readonly environmentId: EnvironmentId;
+  readonly projectId: ProjectId;
+  readonly variant: QuickActionVariant | undefined;
+  readonly signals: readonly QuickActionSignal[];
+}) {
+  const pullRequest = variant?.choice.pullRequest;
+  const activity = useEnvironmentQuery(
+    pullRequest && signals.includes("reviewThreads")
+      ? pullRequestEnvironment.activity({ environmentId, input: { ...pullRequest, projectId } })
+      : null,
+  );
+  if (!pullRequest || signals.length === 0) return <PickerRow {...row} subtitle={subtitle} />;
+  const statuses = pullRequestSignalStatuses(signals, {
+    checks: variant.snapshot?.checksState,
+    mergeability: variant.snapshot?.mergeability,
+    reviewThreads: unresolvedReviewThreads(activity.data),
+  });
+  return (
+    <PickerRow
+      {...row}
+      subtitle={[subtitle, ...statuses.map((status) => status.label)].filter(Boolean).join(" · ")}
+      {...(statuses.some((status) => status.tone === "alert")
+        ? { subtitleTone: "danger" as const }
+        : {})}
+    />
+  );
+}
 
 export function useQuickActionsSupported(environmentId: EnvironmentId) {
   return (
@@ -400,14 +446,13 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           </PickerCaption>
           <PickerSurface>
             {variants.map((variant, index) => (
-              <PickerRow
+              <QuickActionStatusRow
                 key={variant.key}
+                environmentId={target.environmentId}
+                projectId={target.projectId}
+                variant={variant}
+                signals={quickActionSignals(action)}
                 title={variant.label ?? action.name}
-                subtitle={
-                  variant.choice.pullRequest
-                    ? pullRequestSnapshotStatus(variant.snapshot)
-                    : undefined
-                }
                 symbol={
                   variant.choice.pullRequest ? "arrow.triangle.pull" : "arrow.triangle.branch"
                 }
@@ -448,8 +493,9 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       return {
         action,
         variants: targets.variants,
+        statusTarget: only,
         subtitle: only.choice.pullRequest
-          ? `${only.label} · ${pullRequestSnapshotStatus(only.snapshot)}`
+          ? (only.label ?? undefined)
           : only.label || action.description || undefined,
       };
     }
@@ -493,7 +539,11 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                 manage(row.action, nativeEvent.event as ManageAction)
               }
             >
-              <PickerRow
+              <QuickActionStatusRow
+                environmentId={target.environmentId}
+                projectId={target.projectId}
+                variant={row.statusTarget}
+                signals={quickActionSignals(row.action)}
                 multiline
                 title={row.action.name}
                 subtitle={row.subtitle}

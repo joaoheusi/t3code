@@ -7,14 +7,16 @@ import { prepareTask } from "./preparedTasks";
 
 import {
   describeQuickActionTargets,
+  quickActionSignals,
   quickActionTargets,
   renderQuickActionSelection as renderSelection,
   renderQuickActionText as renderText,
   type RenderedQuickAction,
 } from "@t3tools/client-runtime/quickActionRunner";
-export { describeQuickActionTargets, quickActionTargets };
+export { describeQuickActionTargets, quickActionSignals, quickActionTargets };
 export type {
   QuickActionScope,
+  QuickActionSignal,
   QuickActionChoice,
   QuickActionVariant,
   QuickActionTargets,
