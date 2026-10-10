@@ -233,6 +233,7 @@ function EditableRepositories(
     environmentId,
     projectId: project.id,
     primaryRoot: project.workspaceRoot,
+    envMode: props.envMode,
   });
   const saveDefault = useSaveRepositoryDefault(environmentId, project.id);
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {

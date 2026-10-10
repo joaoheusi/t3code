@@ -87,13 +87,25 @@ export const repositoryDefaultFrom = (repository: DraftRepository): WorkspaceRep
   mode: repository.mode,
 });
 
-export function draftRepositoryFrom(repository: WorkspaceRepository, id: string): DraftRepository {
+/**
+ * A repository added beside the thread's own checkout follows the thread's workspace
+ * mode, so a worktree thread gets a new worktree in every repository it adds.
+ */
+export function draftRepositoryFrom(
+  repository: WorkspaceRepository,
+  id: string,
+  envMode: "local" | "worktree" = "local",
+): DraftRepository {
   return {
     id,
     label: basename(repository.path),
     path: repository.path,
     commonDir: repository.commonDir,
-    mode: isLinkedWorktree(repository) ? "existing-worktree" : "current",
+    mode: isLinkedWorktree(repository)
+      ? "existing-worktree"
+      : envMode === "worktree"
+        ? "new-worktree"
+        : "current",
     branch: repository.branch,
     head: repository.head,
   };

@@ -46,6 +46,7 @@ import { orchestrationEnvironment } from "../../state/orchestration";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { ForkScreenHeader } from "./ForkScreenHeader";
+import { useNewTaskFlow } from "./new-task-flow-provider";
 import { useMobileRepositories } from "./useMobileRepositories";
 
 export type RepositoriesTarget = {
@@ -108,6 +109,7 @@ function RepositoriesContent(props: {
 }) {
   const insets = useSafeAreaInsets();
   const choice = useMobileRepositories(props.project, props.draftKey);
+  const { workspaceMode } = useNewTaskFlow();
   const config = useEnvironmentServerConfig(props.project.environmentId);
   const projects = useProjects();
   const inspect = useAtomCommand(forkWorkspace.inspect, { reportFailure: false });
@@ -149,7 +151,9 @@ function RepositoriesContent(props: {
         repositories: [
           ...selection.repositories,
           {
-            ...repositoryDefaultFrom(draftRepositoryFrom(repository, repository.path)),
+            ...repositoryDefaultFrom(
+              draftRepositoryFrom(repository, repository.path, workspaceMode),
+            ),
             branch: repository.branch,
             head: repository.head,
           },
