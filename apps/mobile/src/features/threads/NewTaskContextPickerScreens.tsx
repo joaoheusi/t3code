@@ -19,24 +19,24 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { AppText as Text } from "../../components/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
-import { PickerRow, PickerSurface, PickerToggleRow } from "../../components/PickerList";
+import {
+  PickerRow,
+  PickerSearchField,
+  PickerSurface,
+  PickerToggleRow,
+} from "../../components/PickerList";
 import { cn } from "../../lib/cn";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useServerConfigs } from "../../state/entities";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
-import {
-  createNativeMailSearchToolbarItem,
-  NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET,
-  NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
-} from "../layout/native-mail-search-toolbar";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 
@@ -288,7 +288,6 @@ export function BranchPickerScreen(props: {
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const usesNativeMailSearchToolbar = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
   const selectedBranchName =
     props.selectedBranchName ??
     props.branches.find((branch) => branch.current)?.name ??
@@ -296,15 +295,11 @@ export function BranchPickerScreen(props: {
     null;
   const branchListContentStyle = useMemo(
     () => ({
-      paddingBottom: usesNativeMailSearchToolbar
-        ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET + 16
-        : Platform.OS === "ios"
-          ? 16
-          : Math.max(insets.bottom, 16) + 16,
+      paddingBottom: Platform.OS === "ios" ? 16 : Math.max(insets.bottom, 16) + 16,
       paddingHorizontal: 16,
       paddingTop: 16,
     }),
-    [insets.bottom, usesNativeMailSearchToolbar],
+    [insets.bottom],
   );
 
   const renderBranch = useCallback(
@@ -348,20 +343,13 @@ export function BranchPickerScreen(props: {
     props.branches.length === 0 ? (
       <ScrollView
         className="flex-1 bg-sheet android:bg-sheet-solid"
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "never" : "automatic"}
         contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 16, paddingTop: 16 }}
         scrollEnabled={false}
         showsVerticalScrollIndicator={false}
       >
         {branchListHeader}
-        <View
-          className="flex-1 items-center justify-center gap-3 px-4"
-          style={{
-            marginBottom: usesNativeMailSearchToolbar
-              ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
-              : 0,
-          }}
-        >
+        <View className="flex-1 items-center justify-center gap-3 px-4">
           {props.loading ? <ActivityIndicator /> : null}
           <Text className="text-center text-sm text-foreground-muted">
             {props.loading
@@ -389,7 +377,7 @@ export function BranchPickerScreen(props: {
         automaticallyAdjustsScrollIndicatorInsets
         automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         className="flex-1 bg-sheet android:bg-sheet-solid"
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior={Platform.OS === "ios" ? "never" : "automatic"}
         contentContainerStyle={branchListContentStyle}
         data={props.branches}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
@@ -441,45 +429,23 @@ export function BranchPickerScreen(props: {
     );
   }
 
+  // The column safe area includes the sheet header; the lists must not add that inset again.
   return (
-    <>
+    <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-sheet" collapsable={false}>
       <NativeStackScreenOptions
         options={{
           headerShown: true,
           title: props.title,
-          unstable_headerToolbarItems: usesNativeMailSearchToolbar
-            ? () => [
-                createNativeMailSearchToolbarItem({
-                  onSearchTextChange: props.onQueryChange,
-                  placeholder: "Find a branch",
-                  searchTextChangeId: "new-task-branch-search-text",
-                  showsSearchDismissButton: true,
-                }),
-              ]
-            : undefined,
-          headerSearchBarOptions: usesNativeMailSearchToolbar
-            ? undefined
-            : {
-                allowToolbarIntegration: true,
-                autoCapitalize: "none",
-                hideNavigationBar: false,
-                obscureBackground: false,
-                placeholder: "Find a branch",
-                onChangeText: (event) => {
-                  props.onQueryChange(event.nativeEvent.text);
-                },
-                onCancelButtonPress: () => {
-                  props.onQueryChange("");
-                },
-              },
         }}
       />
-      {usesNativeMailSearchToolbar ? null : (
-        <NativeHeaderToolbar placement="bottom">
-          <NativeHeaderToolbar.SearchBarSlot />
-        </NativeHeaderToolbar>
-      )}
+      <View className="px-4 pt-3">
+        <PickerSearchField
+          placeholder="Find a branch"
+          value={props.query}
+          onChangeText={props.onQueryChange}
+        />
+      </View>
       {branchContent}
-    </>
+    </SafeAreaView>
   );
 }

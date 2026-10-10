@@ -1,13 +1,21 @@
+import { HeaderHeightContext } from "@react-navigation/elements";
 import * as Haptics from "expo-haptics";
 import { GlassView } from "expo-glass-effect";
 import { SymbolView } from "../../components/AppSymbol";
-import { useCallback, useEffect, useRef } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, useColorScheme, View } from "react-native";
+import { useCallback, useContext, useEffect, useRef } from "react";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  useColorScheme,
+  View,
+} from "react-native";
 import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/AppText";
-import { APP_BAR_HEIGHT } from "../../lib/layoutMetrics";
+import { APP_BAR_HEIGHT, IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { themeColorWithAlpha } from "../../lib/mobileTheme";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
@@ -24,6 +32,12 @@ export function GitActionProgressOverlay(props: {
 }) {
   const { progress, onDismiss } = props;
   const insets = useSafeAreaInsets();
+  const navigationHeaderHeight = useContext(HeaderHeightContext);
+  // Native column header metrics already include the top safe area.
+  const headerBottom =
+    Platform.OS === "ios"
+      ? (navigationHeaderHeight ?? insets.top + IOS_NAV_BAR_HEIGHT)
+      : insets.top + APP_BAR_HEIGHT;
   const prevPhaseRef = useRef(progress.phase);
 
   useEffect(() => {
@@ -56,7 +70,7 @@ export function GitActionProgressOverlay(props: {
       entering={NATIVE_LIQUID_GLASS_SUPPORTED ? undefined : FadeIn.duration(200)}
       exiting={FadeOut.duration(150)}
       className="absolute inset-x-3 z-[100]"
-      style={{ top: insets.top + APP_BAR_HEIGHT + OVERLAY_TOP_GAP }}
+      style={{ top: headerBottom + OVERLAY_TOP_GAP }}
       pointerEvents="box-none"
     >
       <Pressable onPress={handlePress}>
