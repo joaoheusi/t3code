@@ -5,6 +5,7 @@ import {
   type PullRequestRef,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
+import * as Cause from "effect/Cause";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -69,6 +70,19 @@ afterEach(() => {
 });
 
 describe("merge quick action confirmation", () => {
+  it("propagates a failed refresh to the palette's error handler and allows retry", async () => {
+    loadDetail.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Connection lost"))));
+    await expect(currentMerge()(environmentId, [reference])).rejects.toThrow("Connection lost");
+    expect(toast.close).toHaveBeenCalledWith("Checking pull requests before merging…");
+    expect(openPalette).not.toHaveBeenCalled();
+    expect(runAction).not.toHaveBeenCalled();
+
+    await currentMerge()(environmentId, [reference]);
+    expect(loadDetail).toHaveBeenCalledTimes(2);
+    expect(openPalette).toHaveBeenCalledTimes(1);
+    expect(runAction).not.toHaveBeenCalled();
+  });
+
   it("keeps feedback visible during checking and merging, including failures", async () => {
     let finishCheck!: (detail: AsyncResult.Success<PullRequestDetail>) => void;
     const checked = new Promise<AsyncResult.Success<PullRequestDetail>>((resolve) => {

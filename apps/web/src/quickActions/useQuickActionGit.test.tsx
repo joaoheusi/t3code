@@ -326,4 +326,50 @@ describe("Git palette actions", () => {
     await expect(confirm.run()).rejects.toThrow("status changed");
     expect(mocks.stacked).not.toHaveBeenCalled();
   });
+
+  it.each(["feature", "confirm"])(
+    "allows retrying %s after a failed recheck without allowing duplicate writes",
+    async (choice) => {
+      await act(async () =>
+        registry.set(
+          statuses.get("/worktrees/web")!,
+          AsyncResult.success(
+            status({ refName: "main", isDefaultRef: true, hasWorkingTreeChanges: true }),
+          ),
+        ),
+      );
+      await item("web").run();
+      const confirmation = (mocks.open.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
+      const confirm = confirmation.groups[0]!.items.find((entry) =>
+        entry.value.endsWith(`:${choice}`),
+      )!;
+      if (confirm.kind !== "action") throw new Error("Expected a confirmation action");
+      expect(confirm.keepOpen).toBe(true);
+      let failRefresh!: (error: Error) => void;
+      mocks.load.mockReturnValueOnce(
+        new Promise<never>((_resolve, reject) => {
+          failRefresh = reject;
+        }),
+      );
+      const attempt = confirm.run();
+      await confirm.run();
+      expect(mocks.load).toHaveBeenCalledTimes(2);
+      expect(mocks.close).not.toHaveBeenCalled();
+      expect(mocks.stacked).not.toHaveBeenCalled();
+
+      const rejected = expect(attempt).rejects.toThrow("Connection lost");
+      failRefresh(new Error("Connection lost"));
+      await rejected;
+      expect(mocks.close).not.toHaveBeenCalled();
+
+      await act(async () => {
+        await confirm.run();
+        await confirm.run();
+      });
+      expect(mocks.load).toHaveBeenCalledTimes(3);
+      expect(mocks.close).toHaveBeenCalledTimes(1);
+      expect(mocks.stacked).toHaveBeenCalledTimes(1);
+      expect(mocks.stacked.mock.calls[0]![2].featureBranch).toBe(choice === "feature");
+    },
+  );
 });

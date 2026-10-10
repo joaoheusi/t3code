@@ -147,14 +147,20 @@ export function useQuickActionGit(
         ) => {
           if (started) return;
           started = true;
-          if (recheck) await readCurrentAction();
-          assertWriteAccess();
-          if (
-            featureBranch &&
-            thread &&
-            !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
-          )
-            throw new Error("This connection cannot change the thread's branch.");
+          try {
+            if (recheck) await readCurrentAction();
+            assertWriteAccess();
+            if (
+              featureBranch &&
+              thread &&
+              !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+            )
+              throw new Error("This connection cannot change the thread's branch.");
+          } catch (error) {
+            // No write has started, so the confirmation can safely be retried.
+            started = false;
+            throw error;
+          }
           close();
           const progress = toastManager.add({
             type: "loading",
@@ -274,6 +280,7 @@ export function useQuickActionGit(
                         {
                           kind: "action",
                           value: `${value}:feature`,
+                          keepOpen: true,
                           title: "Create feature ref and continue",
                           description: repository.label,
                           searchTerms: ["feature", "branch"],
@@ -284,6 +291,7 @@ export function useQuickActionGit(
                         {
                           kind: "action",
                           value: `${value}:confirm`,
+                          keepOpen: true,
                           title: copy.continueLabel,
                           description: repository.label,
                           searchTerms: ["confirm", status.refName!],
