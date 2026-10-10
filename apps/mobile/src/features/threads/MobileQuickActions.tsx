@@ -29,7 +29,7 @@ import {
   type QuickActionVariant,
 } from "@t3tools/client-runtime/quickActionRunner";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { rankQuickActions } from "@t3tools/shared/quickActions";
+import { rankQuickActionMenu } from "@t3tools/shared/quickActions";
 
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
@@ -53,6 +53,7 @@ import {
   insertComposerDraftText,
 } from "../../state/use-composer-drafts";
 import { MobileGitQuickAction } from "./MobileGitQuickAction";
+import { MobileMergeQuickAction } from "./MobileMergeQuickAction";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 
 export type QuickActionsTarget = {
@@ -137,6 +138,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   );
   const [query, setQuery] = useState("");
   const [choosingGit, setChoosingGit] = useState(false);
+  const [choosingMerge, setChoosingMerge] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -168,7 +170,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     thread,
   };
   const actions = library.data ?? [];
-  const ranked = rankQuickActions(actions, query);
+  const ranked = rankQuickActionMenu(actions, query);
   const disabledActions = query.trim() ? [] : actions.filter((action) => !action.enabled);
 
   const run = async (action: QuickAction, choices: readonly QuickActionChoice[]) => {
@@ -297,17 +299,33 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       },
     }));
 
+  const showMerge =
+    !!thread &&
+    query
+      .trim()
+      .toLowerCase()
+      .split(/\s+/)
+      .every((token) => "merge pull requests squash rebase".includes(token));
+  const mergeAction = (
+    <MobileMergeQuickAction
+      target={target}
+      isLast={ranked.length === 0}
+      choosing={choosingMerge}
+      onChoosingChange={setChoosingMerge}
+    />
+  );
   const gitAction = (
     <MobileGitQuickAction
       target={target}
       query={query}
-      isLast={ranked.length === 0}
+      isLast={!showMerge && ranked.length === 0}
       onClose={() => navigation.goBack()}
       choosing={choosingGit}
       onChoosingChange={setChoosingGit}
     />
   );
   if (choosingGit) return gitAction;
+  if (choosingMerge) return mergeAction;
 
   if (editing && canSave) {
     return (
@@ -464,6 +482,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         <PickerSearchField placeholder="Find an action" value={query} onChangeText={setQuery} />
         <PickerSurface>
           {gitAction}
+          {showMerge ? mergeAction : null}
           {rows.map((row, index) => (
             <ControlPillMenu
               key={row.action.id}
@@ -523,7 +542,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           <View className="items-center py-8">
             <ActivityIndicator />
           </View>
-        ) : rows.length === 0 && disabledActions.length === 0 ? (
+        ) : rows.length === 0 && disabledActions.length === 0 && !showMerge ? (
           <View className="items-center gap-1 px-6 py-10">
             <Text className="text-center text-base font-t3-medium text-foreground">
               {query.trim() ? "No matching actions" : "No quick actions yet"}

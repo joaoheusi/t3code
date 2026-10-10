@@ -1,3 +1,13 @@
+export {
+  PULL_REQUEST_MERGE_METHOD_LABELS,
+  allowedPullRequestMergeMethods,
+  isPullRequestConflicting,
+  classifyPullRequestChecks,
+  resolveThreadPanelPullRequestAction,
+  type PullRequestActionableDetail,
+  type PullRequestChecksState,
+  type ThreadPanelPullRequestAction,
+} from "@t3tools/client-runtime/pullRequestActions";
 import * as Schema from "effect/Schema";
 
 import {
@@ -36,12 +46,6 @@ import {
 import { inferReviewCommentFenceLanguage, type ReviewCommentContext } from "~/reviewCommentContext";
 import { reviewCommentContextId } from "~/lib/composerContextRecords";
 import { removeInlineContextReference } from "~/lib/composerContextReferences";
-
-export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, string> = {
-  merge: "Merge",
-  squash: "Squash and merge",
-  rebase: "Rebase and merge",
-};
 
 /** Old environments keep their existing actions; new ones must finish stack discovery first. */
 export function allowsSinglePullRequestMerge(input: {
@@ -304,68 +308,12 @@ export function isStackedPullRequestBase(
   return defaultBranch !== baseBranch;
 }
 
-/** The slice of a detail that decides which actions it offers. */
-export type PullRequestActionableDetail = Pick<
-  PullRequestDetail,
-  "state" | "isDraft" | "mergeability" | "capabilities" | "viewerPermissions" | "mergeCapabilities"
->;
-
-/**
- * The host says which strategies it offers at all; the repository narrows that to the ones it
- * actually allows.
- */
-export function allowedPullRequestMergeMethods(
-  detail: Pick<PullRequestActionableDetail, "capabilities" | "mergeCapabilities"> | null,
-): ReadonlyArray<PullRequestMergeMethod> {
-  return detail === null
-    ? []
-    : detail.capabilities.mergeMethods.filter((method) => detail.mergeCapabilities[method]);
-}
-
 /** The reader's preference where the repository allows it, and the first allowed method else. */
 export function resolveSelectedMergeMethod(
   allowedMergeMethods: ReadonlyArray<PullRequestMergeMethod>,
   preferred: PullRequestMergeMethod,
 ): PullRequestMergeMethod {
   return allowedMergeMethods.includes(preferred) ? preferred : (allowedMergeMethods[0] ?? "merge");
-}
-
-/**
- * Two questions, both of which have to say yes: whether this host can do it at all, and whether
- * this account may. A reader with read access on someone else's project sees the pull request and
- * none of the buttons that would only ever be refused.
- */
-function canPerformPullRequestAction(
-  detail: Pick<PullRequestActionableDetail, "capabilities" | "viewerPermissions"> | null,
-  action: PullRequestAction,
-): boolean {
-  return (
-    detail !== null &&
-    detail.capabilities.actions.includes(action) &&
-    detail.viewerPermissions.actions.includes(action)
-  );
-}
-
-export function isPullRequestConflicting(
-  detail: Pick<PullRequestActionableDetail, "state" | "mergeability"> | null,
-): boolean {
-  return detail?.state === "open" && detail.mergeability === "conflicting";
-}
-
-/** The checks as one word. Failing outranks running: a red run is already worth acting on. */
-export type PullRequestChecksState = "none" | "pending" | "failing" | "passing";
-
-export function classifyPullRequestChecks(
-  checks: ReadonlyArray<PullRequestCheck>,
-): PullRequestChecksState {
-  if (checks.length === 0) return "none";
-  if (checks.some((check) => check.status === "failure" || check.status === "cancelled")) {
-    return "failing";
-  }
-  if (checks.some((check) => check.status === "pending" || check.status === "action-required")) {
-    return "pending";
-  }
-  return "passing";
 }
 
 /**
@@ -401,31 +349,6 @@ export function groupPullRequestChecks(checks: ReadonlyArray<PullRequestCheck>) 
     running: checks.filter((check) => check.status === "pending"),
     completed: checks.filter((check) => ["success", "skipped", "neutral"].includes(check.status)),
   };
-}
-
-export type ThreadPanelPullRequestAction = "resolve" | "ready" | "fix" | "merge";
-
-/**
- * Which single action the thread panel's compact pull request row offers, ranked by what
- * unblocks the merge next: conflicts stop everything, a draft is not up for review yet, failing
- * checks want fixing, and only a clean open pull request earns Merge. While checks run the slot
- * stays empty — the row shows their progress instead of an action that would race them.
- */
-export function resolveThreadPanelPullRequestAction(
-  detail: (PullRequestActionableDetail & Pick<PullRequestDetail, "checks">) | null,
-): ThreadPanelPullRequestAction | null {
-  if (detail === null || detail.state !== "open") return null;
-  if (isPullRequestConflicting(detail)) return "resolve";
-  if (detail.isDraft) {
-    return canPerformPullRequestAction(detail, "ready") ? "ready" : null;
-  }
-  const checks = classifyPullRequestChecks(detail.checks);
-  if (checks === "failing") return "fix";
-  if (checks === "pending") return null;
-  return canPerformPullRequestAction(detail, "merge") &&
-    allowedPullRequestMergeMethods(detail).length > 0
-    ? "merge"
-    : null;
 }
 
 /** Chronological ascending, oldest to newest — reversed for the "newest" reading order. */

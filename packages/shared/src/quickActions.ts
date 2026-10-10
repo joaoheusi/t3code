@@ -354,3 +354,29 @@ export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
       "Address the unresolved review threads on {{pr.url}} in this thread. Read each thread and check its feedback against the current code. Fix valid findings, run focused checks, and reply with what changed or a clear reason when no change is needed. Resolve threads only after their feedback has been addressed. Report anything still unresolved. Do not commit, push, merge, request another review, or open another thread unless I ask.",
   }),
 ];
+
+const STARTER_ORDER = new Map<string, number>(
+  [
+    QUICK_ACTION_STARTER_IDS.resolveConflicts,
+    QUICK_ACTION_STARTER_IDS.resolveCi,
+    QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+    QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+    QUICK_ACTION_STARTER_IDS.reviewChanges,
+  ].map((id, index) => [id, index]),
+);
+
+/** Fixed starter order in quick-action menus; typed searches retain relevance ranking. */
+export function rankQuickActionMenu<T extends QuickActionFields>(
+  actions: readonly T[],
+  search: string,
+  recent: readonly string[] = [],
+): T[] {
+  const ranked = rankQuickActions(actions, search, recent);
+  return search.trim()
+    ? ranked
+    : ranked.sort(
+        (a, b) =>
+          (STARTER_ORDER.get(a.id) ?? STARTER_ORDER.size) -
+          (STARTER_ORDER.get(b.id) ?? STARTER_ORDER.size),
+      );
+}

@@ -3,7 +3,9 @@ import {
   exportPortableActions,
   importPortableActions,
   QUICK_ACTION_STARTERS,
+  QUICK_ACTION_STARTER_IDS,
   quickActionRequirements,
+  rankQuickActionMenu,
   rankQuickActions,
   renderQuickAction,
   validateQuickActionTemplate,
@@ -108,5 +110,23 @@ describe("quick action templates", () => {
       evidence: true,
     });
     expect(quickActionRequirements("\\{{ci.failures}}").host).toBe(false);
+  });
+  it("keeps menu starters fixed ahead of custom favorites and recent actions", () => {
+    const custom = { ...QUICK_ACTION_STARTERS[0]!, id: "custom", name: "Custom", favorite: true };
+    const actions = [custom, ...QUICK_ACTION_STARTERS.toReversed()];
+    expect(
+      rankQuickActionMenu(actions, "", [custom.id, QUICK_ACTION_STARTER_IDS.reviewChanges]).map(
+        (action) => action.id,
+      ),
+    ).toEqual([
+      QUICK_ACTION_STARTER_IDS.resolveConflicts,
+      QUICK_ACTION_STARTER_IDS.resolveCi,
+      QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+      QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+      QUICK_ACTION_STARTER_IDS.reviewChanges,
+      custom.id,
+    ]);
+    expect(rankQuickActionMenu(actions, "review")).toEqual(rankQuickActions(actions, "review"));
+    expect(rankQuickActionMenu([{ ...custom, enabled: false }], "")).toEqual([]);
   });
 });
