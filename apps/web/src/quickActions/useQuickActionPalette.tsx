@@ -13,9 +13,11 @@ import { PullRequestGlyph } from "../components/pullRequest/pullRequestIcons";
 import type { ComposerThreadTarget } from "../composerDraftStore";
 import {
   describeQuickActionTargets,
+  quickActionSignals,
   quickActionTargets,
   recentQuickActionIds,
   type QuickActionScope,
+  type QuickActionSignal,
   type QuickActionVariant,
 } from "./quickActionRunner";
 import { useQuickActionGit } from "./useQuickActionGit";
@@ -36,12 +38,20 @@ export const quickActionIdFromCommand = (command: string) =>
 
 type QuickActionPaletteItem = CommandPaletteActionItem | CommandPaletteSubmenuItem;
 
-function targetDescription(variant: QuickActionVariant, scope: QuickActionScope) {
-  return variant.choice.pullRequest && scope.projectId ? (
+/** Merging depends on both CI and conflicts. */
+const MERGE_SIGNALS: readonly QuickActionSignal[] = ["ci", "conflicts"];
+
+function targetDescription(
+  variant: QuickActionVariant,
+  scope: QuickActionScope,
+  signals: readonly QuickActionSignal[],
+) {
+  return variant.choice.pullRequest && scope.projectId && signals.length > 0 ? (
     <QuickActionPullRequestStatus
       environmentId={scope.environmentId}
       reference={{ ...variant.choice.pullRequest, projectId: scope.projectId }}
       snapshot={variant.snapshot ?? null}
+      signals={signals}
     />
   ) : undefined;
 }
@@ -51,6 +61,7 @@ function targetItems(
   prefix: string,
   name: string,
   scope: QuickActionScope,
+  signals: readonly QuickActionSignal[],
   run: (variant: QuickActionVariant) => Promise<void>,
 ): CommandPaletteActionItem[] {
   return variants.map((variant) => ({
@@ -58,7 +69,7 @@ function targetItems(
     value: `${prefix}:${variant.key}`,
     searchTerms: [variant.label ?? name, variant.choice.pullRequest?.repository ?? ""],
     title: variant.label ?? name,
-    description: targetDescription(variant, scope),
+    description: targetDescription(variant, scope, signals),
     icon: variant.choice.pullRequest ? (
       <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
     ) : (
@@ -117,6 +128,7 @@ export function useQuickActionPalette(input: {
         run: async () => {},
       };
     }
+    const signals = quickActionSignals(action);
     const [only] = targets.variants;
     if (targets.variants.length === 1 && only && target && scope) {
       return {
@@ -125,7 +137,7 @@ export function useQuickActionPalette(input: {
         description: only.choice.pullRequest ? (
           <span className="flex items-center gap-2">
             <span>{only.label}</span>
-            {targetDescription(only, scope)}
+            {targetDescription(only, scope, signals)}
           </span>
         ) : (
           action.description || undefined
@@ -161,6 +173,7 @@ export function useQuickActionPalette(input: {
             `quick-action:${action.id}`,
             action.name,
             scope!,
+            signals,
             (variant) => run({ action, choice: variant.choice, scope: scope!, target: target! }),
           ),
         },
@@ -192,7 +205,7 @@ export function useQuickActionPalette(input: {
           ...mergeBase,
           kind: "action",
           title: `Merge ${only.label ?? "pull request"}`,
-          description: targetDescription(only, scope),
+          description: targetDescription(only, scope, MERGE_SIGNALS),
           keepOpen: true,
           run: () => prepare([only]),
         });
@@ -221,6 +234,7 @@ export function useQuickActionPalette(input: {
                 "quick-action:merge",
                 "Merge pull requests",
                 scope,
+                MERGE_SIGNALS,
                 (variant) => prepare([variant]),
               ),
             },

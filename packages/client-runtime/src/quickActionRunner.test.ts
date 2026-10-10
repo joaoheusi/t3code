@@ -9,8 +9,11 @@ import type { EnvironmentThreadShell } from "./state/models.ts";
 import { QUICK_ACTION_STARTERS, QUICK_ACTION_STARTER_IDS } from "@t3tools/shared/quickActions";
 import {
   describeQuickActionTargets,
+  pullRequestSignalStatuses,
+  quickActionSignals,
   quickActionTargets,
   renderQuickActionSelection,
+  unresolvedReviewThreads,
   type QuickActionVariant,
 } from "./quickActionRunner.ts";
 
@@ -173,5 +176,49 @@ describe("quick action target summaries", () => {
         variant(1, { checksState: "failing" }),
       ]),
     ).toBe("1 pull request");
+  });
+});
+
+describe("pull request status per quick action", () => {
+  const starter = (id: string) => QUICK_ACTION_STARTERS.find((entry) => entry.id === id)!;
+  const conflicting = {
+    checks: "none",
+    mergeability: "conflicting",
+    reviewThreads: { unresolved: 2, truncated: false },
+  } as const;
+  const statusOf = (id: string) =>
+    pullRequestSignalStatuses(quickActionSignals(starter(id)), conflicting).map(
+      ({ label, tone }) => `${label}:${tone}`,
+    );
+
+  it("shows each starter only the state it acts on", () => {
+    expect(statusOf(QUICK_ACTION_STARTER_IDS.resolveConflicts)).toEqual(["Merge conflicts:alert"]);
+    expect(statusOf(QUICK_ACTION_STARTER_IDS.resolveCi)).toEqual(["No checks:ok"]);
+    expect(statusOf(QUICK_ACTION_STARTER_IDS.addressReviewThreads)).toEqual([
+      "2 unresolved threads:alert",
+    ]);
+    expect(statusOf(QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough)).toEqual([]);
+  });
+
+  it("counts unresolved review threads, including outdated ones", () => {
+    const thread = (isResolved: boolean, isOutdated = false) =>
+      ({ isResolved, isOutdated }) as never;
+    const threads = unresolvedReviewThreads({
+      reviewThreads: [thread(true), thread(false, true)],
+      reviewThreadsTruncated: false,
+    });
+    expect(pullRequestSignalStatuses(["reviewThreads"], { reviewThreads: threads })).toEqual([
+      { signal: "reviewThreads", label: "1 unresolved thread", tone: "alert" },
+    ]);
+    expect(
+      pullRequestSignalStatuses(["reviewThreads"], {
+        reviewThreads: unresolvedReviewThreads({ reviewThreads: [thread(true)] }),
+      })[0]?.tone,
+    ).toBe("ok");
+    expect(
+      pullRequestSignalStatuses(["reviewThreads"], {
+        reviewThreads: unresolvedReviewThreads(null),
+      })[0]?.tone,
+    ).toBe("unknown");
   });
 });
