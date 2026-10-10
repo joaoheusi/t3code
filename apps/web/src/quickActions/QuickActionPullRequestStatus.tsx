@@ -35,9 +35,7 @@ function SignalStatus({ status }: { readonly status: PullRequestSignalStatus }) 
       className={
         status.tone === "alert"
           ? "flex items-center gap-1 text-destructive"
-          : status.tone === "ok" && status.signal === "ci"
-            ? "flex items-center gap-1 text-success"
-            : "flex items-center gap-1"
+          : "flex items-center gap-1"
       }
     >
       {Icon ? <Icon aria-hidden className="size-3 text-current" /> : null}
