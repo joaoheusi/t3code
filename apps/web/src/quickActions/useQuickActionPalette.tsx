@@ -1,5 +1,5 @@
 import type { KeybindingCommand, QuickAction } from "@t3tools/contracts";
-import { rankQuickActions } from "@t3tools/shared/quickActions";
+import { rankQuickActionMenu } from "@t3tools/shared/quickActions";
 import { FolderGit2Icon, PlusIcon, SettingsIcon, ZapIcon } from "lucide-react";
 
 import {
@@ -168,10 +168,7 @@ export function useQuickActionPalette(input: {
     };
   };
 
-  const items: QuickActionPaletteItem[] = [
-    ...git.items,
-    ...rankQuickActions(library.actions, "", recentQuickActionIds()).map(itemFor),
-  ];
+  const items: QuickActionPaletteItem[] = [...git.items];
   if (scope?.projectId && scope.thread) {
     const mergeTargets = quickActionTargets({ template: "{{pr.url}}" }, scope);
     const projectId = scope.projectId;
@@ -239,6 +236,7 @@ export function useQuickActionPalette(input: {
       });
     }
   }
+  items.push(...rankQuickActionMenu(library.actions, "", recentQuickActionIds()).map(itemFor));
   const libraryItems: CommandPaletteActionItem[] = [
     {
       kind: "action",

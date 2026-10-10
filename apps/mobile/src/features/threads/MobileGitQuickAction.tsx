@@ -1,6 +1,6 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, ScrollView, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, View } from "react-native";
 import { Atom, AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import {
@@ -72,7 +72,7 @@ export function MobileGitQuickAction(props: {
               cwd: repository.cwd,
             }),
           ).isRunning;
-          return { ...repository, status, action: resolveQuickActionGit(status, busy) };
+          return { ...repository, status, busy, action: resolveQuickActionGit(status, busy) };
         }),
       ),
     [target.environmentId, targets],
@@ -85,7 +85,8 @@ export function MobileGitQuickAction(props: {
   const preparing = useRef(false);
   const mounted = useRef(true);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busyCwd, setBusyCwd] = useState<string | null>(null);
+  const busy = busyCwd !== null;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -96,7 +97,7 @@ export function MobileGitQuickAction(props: {
   const run = async (repository: QuickActionGitRepository) => {
     if (preparing.current) return;
     preparing.current = true;
-    setBusy(true);
+    setBusyCwd(repository.cwd);
     setError(null);
     const destination = { environmentId: target.environmentId, cwd: repository.cwd };
     const assertWrite = () => {
@@ -144,7 +145,9 @@ export function MobileGitQuickAction(props: {
         started = true;
         try {
           if (!mounted.current) return;
-          if (recheck) await refresh();
+          if (recheck) {
+            await refresh();
+          }
           if (!mounted.current) return;
           assertWrite();
           if (
@@ -153,7 +156,7 @@ export function MobileGitQuickAction(props: {
             !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
           )
             throw new Error("This connection cannot change the thread's branch.");
-          setBusy(true);
+          setBusyCwd(repository.cwd);
           if (current.action.kind === "run_pull") {
             const result = await vcsActionManager.track(
               registry,
@@ -213,7 +216,7 @@ export function MobileGitQuickAction(props: {
             }),
           );
           preparing.current = false;
-          if (mounted.current) setBusy(false);
+          if (mounted.current) setBusyCwd(null);
         }
       };
       if (
@@ -232,7 +235,7 @@ export function MobileGitQuickAction(props: {
               style: "cancel",
               onPress: () => {
                 preparing.current = false;
-                setBusy(false);
+                setBusyCwd(null);
               },
             },
             ...(thread && !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
@@ -262,7 +265,7 @@ export function MobileGitQuickAction(props: {
     } finally {
       if (!confirming) {
         preparing.current = false;
-        if (mounted.current) setBusy(false);
+        if (mounted.current) setBusyCwd(null);
       }
     }
   };
@@ -291,6 +294,15 @@ export function MobileGitQuickAction(props: {
                     : describeQuickActionGit(repository)
                 }
                 symbol="arrow.triangle.branch"
+                leading={
+                  repository.busy || busyCwd === repository.cwd ? (
+                    <ActivityIndicator
+                      size="small"
+                      colorClassName="accent-icon-muted"
+                      accessibilityLabel="Git action in progress"
+                    />
+                  ) : undefined
+                }
                 disabled={
                   busy || !canWrite || !!repository.unavailable || repository.action.disabled
                 }
@@ -302,7 +314,6 @@ export function MobileGitQuickAction(props: {
             ))}
           </PickerSurface>
           {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
-          {busy ? <PickerCaption>Running Git action…</PickerCaption> : null}
         </ScrollView>
       </View>
     );
@@ -325,6 +336,15 @@ export function MobileGitQuickAction(props: {
         title={summary.label}
         subtitle={!canWrite ? "This connection cannot change source control." : summary.description}
         symbol="bolt.circle"
+        leading={
+          busy || repositories.some((repository) => repository.busy) ? (
+            <ActivityIndicator
+              size="small"
+              colorClassName="accent-icon-muted"
+              accessibilityLabel="Git action in progress"
+            />
+          ) : undefined
+        }
         isLast={props.isLast}
         disabled={busy || !canWrite || summary.disabled}
         onPress={() => {
@@ -333,7 +353,6 @@ export function MobileGitQuickAction(props: {
         }}
       />
       {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
-      {busy ? <PickerCaption>Running Git action…</PickerCaption> : null}
     </>
   );
 }

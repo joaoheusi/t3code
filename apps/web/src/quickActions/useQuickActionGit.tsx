@@ -19,6 +19,7 @@ import {
   resolveThreadBranchMetadataPatch,
   resolveThreadBranchUpdate,
 } from "../components/GitActionsControl.logic";
+import { Spinner } from "../components/ui/spinner";
 import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
 import { getChangeRequestTerminology } from "../sourceControlPresentation";
@@ -67,7 +68,7 @@ export function useQuickActionGit(
           const busy = environmentId
             ? get(vcsActionManager.stateAtom({ environmentId, cwd: target.cwd })).isRunning
             : false;
-          return { ...target, status, action: resolveQuickActionGit(status, busy) };
+          return { ...target, status, busy, action: resolveQuickActionGit(status, busy) };
         }),
       ),
     [scope?.environmentId, targets],
@@ -96,36 +97,46 @@ export function useQuickActionGit(
           if (!readEnvironmentScope(environmentId, AuthSourceControlWriteScope))
             throw new Error("This connection cannot change source control.");
         };
-        const icon =
-          action.kind === "run_pull" ? (
-            <CloudDownloadIcon className={ITEM_ICON_CLASS} />
-          ) : action.action === "commit" ? (
-            <GitCommitIcon className={ITEM_ICON_CLASS} />
-          ) : (
-            <CloudUploadIcon className={ITEM_ICON_CLASS} />
-          );
+        const icon = repository.busy ? (
+          <Spinner size="md" tone="muted" aria-label="Git action in progress" />
+        ) : action.kind === "run_pull" ? (
+          <CloudDownloadIcon className={ITEM_ICON_CLASS} />
+        ) : action.action === "commit" ? (
+          <GitCommitIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudUploadIcon className={ITEM_ICON_CLASS} />
+        );
 
         const readCurrentAction = async () => {
           assertWriteAccess();
-          const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
-          if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
-          assertWriteAccess();
-          const current = resolveQuickActionGit(
-            fresh.value,
-            registry.get(vcsActionManager.stateAtom(target)).isRunning,
-          );
-          if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
-          if (
-            !sameQuickActionGit(
-              action,
-              current,
-              repository.status?.refName ?? null,
-              fresh.value.refName,
-            )
-          ) {
-            throw new Error("Repository status changed. Choose the updated action.");
+          const progress = toastManager.add({
+            type: "loading",
+            title: "Checking repository status…",
+            description: repository.label,
+          });
+          try {
+            const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
+            if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
+            assertWriteAccess();
+            const current = resolveQuickActionGit(
+              fresh.value,
+              registry.get(vcsActionManager.stateAtom(target)).isRunning,
+            );
+            if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
+            if (
+              !sameQuickActionGit(
+                action,
+                current,
+                repository.status?.refName ?? null,
+                fresh.value.refName,
+              )
+            ) {
+              throw new Error("Repository status changed. Choose the updated action.");
+            }
+            return { status: fresh.value, action: current };
+          } finally {
+            toastManager.close(progress);
           }
-          return { status: fresh.value, action: current };
         };
 
         let started = false;
@@ -136,18 +147,25 @@ export function useQuickActionGit(
         ) => {
           if (started) return;
           started = true;
-          if (recheck) await readCurrentAction();
-          assertWriteAccess();
-          if (
-            featureBranch &&
-            thread &&
-            !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
-          )
-            throw new Error("This connection cannot change the thread's branch.");
+          try {
+            if (recheck) await readCurrentAction();
+            assertWriteAccess();
+            if (
+              featureBranch &&
+              thread &&
+              !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+            )
+              throw new Error("This connection cannot change the thread's branch.");
+          } catch (error) {
+            // No write has started, so the confirmation can safely be retried.
+            started = false;
+            throw error;
+          }
           close();
           const progress = toastManager.add({
             type: "loading",
-            title: `${action.label} · ${repository.label}`,
+            title: `${action.label}…`,
+            description: repository.label,
           });
           try {
             if (kind === "pull") {
@@ -171,6 +189,19 @@ export function useQuickActionGit(
                   actionId: randomUUID(),
                   action: kind,
                   featureBranch,
+                  onProgress: (event) => {
+                    if (
+                      event.kind === "phase_started" ||
+                      event.kind === "hook_started" ||
+                      event.kind === "hook_finished"
+                    ) {
+                      toastManager.update(progress, {
+                        title:
+                          registry.get(vcsActionManager.stateAtom(target)).currentLabel ??
+                          `${action.label}…`,
+                      });
+                    }
+                  },
                   ...(thread ? { threadId: thread.id } : {}),
                   ...(scope.projectId ? { projectId: scope.projectId } : {}),
                 },
@@ -249,6 +280,7 @@ export function useQuickActionGit(
                         {
                           kind: "action",
                           value: `${value}:feature`,
+                          keepOpen: true,
                           title: "Create feature ref and continue",
                           description: repository.label,
                           searchTerms: ["feature", "branch"],
@@ -259,6 +291,7 @@ export function useQuickActionGit(
                         {
                           kind: "action",
                           value: `${value}:confirm`,
+                          keepOpen: true,
                           title: copy.continueLabel,
                           description: repository.label,
                           searchTerms: ["confirm", status.refName!],
@@ -307,6 +340,11 @@ export function useQuickActionGit(
       : {
           ...items[0]!,
           value: "quick-action:git",
+          icon: repositories.some((repository) => repository.busy) ? (
+            <Spinner size="md" tone="muted" aria-label="Git action in progress" />
+          ) : (
+            items[0]!.icon
+          ),
           title: summary.label,
           description: !canWrite
             ? "This connection cannot change source control."

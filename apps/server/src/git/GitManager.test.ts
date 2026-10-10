@@ -3146,6 +3146,53 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     }),
   );
 
+  it.effect("generates each commit from fresh changes in the same thread", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const inputs: TextGeneration.CommitMessageGenerationInput[] = [];
+      const { manager } = yield* makeManager({
+        textGeneration: {
+          generateCommitMessage: (input) => {
+            inputs.push(input);
+            return Effect.succeed({
+              subject: input.stagedPatch.includes("+second change")
+                ? "Add second change"
+                : "Add first change",
+              body: "",
+            });
+          },
+        },
+      });
+      NodeFS.writeFileSync(NodePath.join(repoDir, "README.md"), "hello\nfirst change\n");
+      const threadId = ThreadId.make("thread:successive-commits");
+      yield* manager.runStackedAction({
+        cwd: repoDir,
+        action: "commit",
+        actionId: "first",
+        threadId,
+      });
+      NodeFS.writeFileSync(
+        NodePath.join(repoDir, "README.md"),
+        "hello\nfirst change\nsecond change\n",
+      );
+      yield* manager.runStackedAction({
+        cwd: repoDir,
+        action: "commit",
+        actionId: "second",
+        threadId,
+      });
+
+      expect(inputs).toHaveLength(2);
+      expect(inputs[0]!.branch).toBe(inputs[1]!.branch);
+      expect(inputs[0]!.stagedPatch).toContain("+first change");
+      expect(inputs[1]!.stagedPatch).toContain("+second change");
+      expect(inputs[1]!.stagedPatch).not.toContain("+first change");
+      const log = yield* runGit(repoDir, ["log", "-2", "--pretty=%s"]);
+      expect(log.stdout.trim().split("\n")).toEqual(["Add second change", "Add first change"]);
+    }),
+  );
+
   it.effect("preserves custom style when instructions are empty", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
