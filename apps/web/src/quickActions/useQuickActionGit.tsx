@@ -19,6 +19,7 @@ import {
   resolveThreadBranchMetadataPatch,
   resolveThreadBranchUpdate,
 } from "../components/GitActionsControl.logic";
+import { Spinner } from "../components/ui/spinner";
 import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
 import { getChangeRequestTerminology } from "../sourceControlPresentation";
@@ -67,7 +68,7 @@ export function useQuickActionGit(
           const busy = environmentId
             ? get(vcsActionManager.stateAtom({ environmentId, cwd: target.cwd })).isRunning
             : false;
-          return { ...target, status, action: resolveQuickActionGit(status, busy) };
+          return { ...target, status, busy, action: resolveQuickActionGit(status, busy) };
         }),
       ),
     [scope?.environmentId, targets],
@@ -96,14 +97,15 @@ export function useQuickActionGit(
           if (!readEnvironmentScope(environmentId, AuthSourceControlWriteScope))
             throw new Error("This connection cannot change source control.");
         };
-        const icon =
-          action.kind === "run_pull" ? (
-            <CloudDownloadIcon className={ITEM_ICON_CLASS} />
-          ) : action.action === "commit" ? (
-            <GitCommitIcon className={ITEM_ICON_CLASS} />
-          ) : (
-            <CloudUploadIcon className={ITEM_ICON_CLASS} />
-          );
+        const icon = repository.busy ? (
+          <Spinner size="md" tone="muted" aria-label="Git action in progress" />
+        ) : action.kind === "run_pull" ? (
+          <CloudDownloadIcon className={ITEM_ICON_CLASS} />
+        ) : action.action === "commit" ? (
+          <GitCommitIcon className={ITEM_ICON_CLASS} />
+        ) : (
+          <CloudUploadIcon className={ITEM_ICON_CLASS} />
+        );
 
         const readCurrentAction = async () => {
           assertWriteAccess();
@@ -330,6 +332,11 @@ export function useQuickActionGit(
       : {
           ...items[0]!,
           value: "quick-action:git",
+          icon: repositories.some((repository) => repository.busy) ? (
+            <Spinner size="md" tone="muted" aria-label="Git action in progress" />
+          ) : (
+            items[0]!.icon
+          ),
           title: summary.label,
           description: !canWrite
             ? "This connection cannot change source control."
