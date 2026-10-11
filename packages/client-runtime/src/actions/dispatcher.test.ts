@@ -97,7 +97,50 @@ describe("action insertion", () => {
       sent = ready.dispatcher.capture("host:original", "action", 1)!;
     ready.dispatcher.insert(sent, "inserted", "selection");
     expect(ready.dispatcher.submit(sent)).toBe(true);
+    expect(ready.dispatcher.submit(sent)).toBe(false);
     expect(ready.sends()).toBe(1);
+  });
+  it("never sends through an editor that replaced the one it inserted into", () => {
+    const state = setup(),
+      invocation = state.dispatcher.capture("host:original", "action", 1)!;
+    state.dispatcher.insert(invocation, "inserted", "selection");
+    let replacementSends = 0;
+    state.dispatcher.register("host:original", {
+      read: () => ({ text: "", revision: 0, selection: { start: 0, end: 0 } }),
+      available: () => true,
+      replace: () => true,
+      submit: () => {
+        replacementSends++;
+        return true;
+      },
+    });
+    expect(state.dispatcher.submit(invocation)).toBe(false);
+    expect(replacementSends).toBe(0);
+    expect(state.sends()).toBe(0);
+  });
+  it("allows a retry after a blocked send", () => {
+    let allowSend = false,
+      sends = 0;
+    const dispatcher = new ActionDispatcher(
+      () => 0,
+      () => "1",
+    );
+    dispatcher.register("host:original", {
+      read: () => ({ text: "", revision: 0, selection: { start: 0, end: 0 } }),
+      available: () => true,
+      replace: () => true,
+      submit: () => {
+        if (allowSend) sends++;
+        return allowSend;
+      },
+    });
+    const invocation = dispatcher.capture("host:original", "action", 1)!;
+    dispatcher.insert(invocation, "inserted", "selection");
+    expect(dispatcher.submit(invocation)).toBe(false);
+    allowSend = true;
+    expect(dispatcher.submit(invocation)).toBe(true);
+    expect(dispatcher.submit(invocation)).toBe(false);
+    expect(sends).toBe(1);
   });
   it("cancels and expires without modifying the editor", () => {
     const state = setup(),
