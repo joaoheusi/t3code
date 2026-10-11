@@ -30,8 +30,10 @@ export function useAddRepository(input: {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly primaryRoot: string;
+  /** The thread's workspace mode, which added repositories start with. */
+  readonly envMode: "local" | "worktree";
 }) {
-  const { draftKey, environmentId, projectId, primaryRoot } = input;
+  const { draftKey, environmentId, projectId, primaryRoot, envMode } = input;
   const inspect = useAtomCommand(forkWorkspace.inspect, { reportFailure: false });
   const discover = useAtomCommand(forkWorkspace.discover, { reportFailure: false });
   // The "No project" scratch folder is a project too, but never a repository to add.
@@ -59,10 +61,10 @@ export function useAddRepository(input: {
         .addDraftRepository(
           draftKey,
           { environmentId, projectId },
-          draftRepositoryFrom(repository, randomUUID()),
+          draftRepositoryFrom(repository, randomUUID(), envMode),
         );
     },
-    [draftKey, environmentId, inspect, primaryRoot, projectId],
+    [draftKey, envMode, environmentId, inspect, primaryRoot, projectId],
   );
 
   const showDiscovered = useCallback(

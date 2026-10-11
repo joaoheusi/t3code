@@ -174,6 +174,8 @@ type NewTaskFlowContextValue = {
   readonly selectedProjectKey: string | null;
   readonly selectedModelKey: string | null;
   readonly workspaceMode: WorkspaceMode;
+  /** False while a t3.json default may still change the resolved workspace mode. */
+  readonly workspaceModeSettled: boolean;
   /** False for threads without a project: their folder has no branch or worktree. */
   readonly canChooseWorkspace: boolean;
   readonly repositoryFolder: boolean;
@@ -1361,6 +1363,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedProjectKey,
       selectedModelKey,
       workspaceMode,
+      workspaceModeSettled: defaultWorkspaceModeSettled,
       canChooseWorkspace,
       repositoryFolder,
       workspaceSelectionLocked,
@@ -1476,6 +1479,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       startFromOrigin,
       submitting,
       workspaceMode,
+      defaultWorkspaceModeSettled,
       canChooseWorkspace,
       repositoryFolder,
       workspaceSelectionLocked,

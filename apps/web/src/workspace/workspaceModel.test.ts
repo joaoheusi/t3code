@@ -3,6 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { WorkspaceRepository } from "@t3tools/contracts";
 
 import {
+  draftRepositoryFrom,
   draftRepositoryFromBinding,
   primaryBindingRequest,
   repositoriesSummary,
@@ -149,6 +150,31 @@ describe("workspace configuration", () => {
         found("/org/api", "/org/api/.git"),
       ]).map((entry) => entry.path),
     ).toEqual(["/org/api", "/org/web"]);
+  });
+
+  it("starts an added repository in the thread's workspace mode", () => {
+    const inspected = (path: string, gitDir = `${path}/.git`): WorkspaceRepository => ({
+      path,
+      commonDir: `${path}/.git`,
+      gitDir,
+      branch: "main",
+      head: "abc",
+      dirty: false,
+      operation: null,
+      unmergedPaths: [],
+    });
+    expect(draftRepositoryFrom(inspected("/repos/api"), "api", "worktree").mode).toBe(
+      "new-worktree",
+    );
+    expect(draftRepositoryFrom(inspected("/repos/api"), "api", "local").mode).toBe("current");
+    // A linked worktree is already its own checkout, whatever the thread's mode.
+    expect(
+      draftRepositoryFrom(
+        inspected("/repos/api-wt", "/repos/api/.git/worktrees/wt"),
+        "wt",
+        "worktree",
+      ).mode,
+    ).toBe("existing-worktree");
   });
 
   it("summarizes repositories without listing them all", () => {

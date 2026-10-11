@@ -88,6 +88,8 @@ export function useInitialRepositories(
   project: EnvironmentProject | null,
   draftKey: string | null,
   initial: { readonly projectId: string; readonly paths: readonly string[] } | undefined,
+  /** The thread's workspace mode once settled, which the added repositories start with. */
+  envMode: "local" | "worktree" | null,
 ) {
   const choice = useMobileRepositories(project, draftKey);
   const inspect = useAtomCommand(forkWorkspace.inspect, { reportFailure: false });
@@ -98,6 +100,7 @@ export function useInitialRepositories(
     !!project &&
     !!draftKey &&
     project.id === initial.projectId &&
+    envMode !== null &&
     choice.supported &&
     (!choice.discovery.isPending || !!choice.discovery.data);
   const key = ready ? `${draftKey}:${initial.paths.join("\n")}` : null;
@@ -117,7 +120,9 @@ export function useInitialRepositories(
         seen.add(result.value.commonDir);
         return [
           {
-            ...repositoryDefaultFrom(draftRepositoryFrom(result.value, result.value.path)),
+            ...repositoryDefaultFrom(
+              draftRepositoryFrom(result.value, result.value.path, envMode ?? "local"),
+            ),
             branch: result.value.branch,
             head: result.value.head,
           },

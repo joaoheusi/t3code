@@ -217,7 +217,12 @@ export function NewTaskDraftScreen(props: {
   const controlsBottomPadding = Math.max(insets.bottom, 10);
   const keyboardOpenedOffset = Math.max(0, controlsBottomPadding - 8);
   const { projectScopes, selectedProject, selectedProjectKey, setProject } = flow;
-  useInitialRepositories(selectedProject, flow.draftKey, props.initialRepositories);
+  useInitialRepositories(
+    selectedProject,
+    flow.draftKey,
+    props.initialRepositories,
+    flow.workspaceModeSettled ? flow.workspaceMode : null,
+  );
   const { connectedEnvironments } = useRemoteConnectionStatus();
   const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
     selectedProject?.environmentId ?? null,
