@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import {
   describeQuickActionGit,
+  quickActionGitRowTitle,
   quickActionGitTargets,
   resolveQuickActionGit,
   sameQuickActionGit,
@@ -287,7 +288,7 @@ export function MobileGitQuickAction(props: {
               <PickerRow
                 multiline
                 key={repository.cwd}
-                title={`${repository.label} — ${repository.action.label}`}
+                title={quickActionGitRowTitle(repository)}
                 subtitle={
                   !canWrite
                     ? "This connection cannot change source control."

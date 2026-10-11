@@ -313,12 +313,22 @@ export function summarizeQuickActionGit(repositories: readonly QuickActionGitRep
   if (changed) parts.push(`${changed} changed file${changed === 1 ? "" : "s"}`);
   if (ahead) parts.push(`${commits(ahead)} to push`);
   if (behind) parts.push(`${commits(behind)} to pull`);
+  // Every repository is waiting or has no work, so there is nothing to choose.
+  const settled =
+    repositories.length > 0 &&
+    !pending &&
+    repositories.every((repository) => !repository.unavailable && repository.action.idle);
   if (pending) parts.push("Checking status…");
   else if (unavailable) parts.push(`${unavailable} need attention`);
-  if (parts.length === 1) parts.push("Choose a repository to see its next action");
+  if (parts.length === 1)
+    parts.push(settled ? "Up to date" : "Choose a repository to see its next action");
   return {
     label: "Sync repositories",
     description: repositories.length === 0 ? "Open a repository first" : parts.join(" · "),
-    disabled: repositories.length === 0,
+    disabled: repositories.length === 0 || settled,
   };
 }
+
+/** A repository's row among several; one with no work to do doesn't name an action. */
+export const quickActionGitRowTitle = (repository: QuickActionGitRepository) =>
+  repository.action.idle ? repository.label : `${repository.label} — ${repository.action.label}`;

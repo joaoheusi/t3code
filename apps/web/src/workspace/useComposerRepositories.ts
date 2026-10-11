@@ -120,17 +120,8 @@ export function useSaveRepositoryDefault(
           },
         },
       });
-      toastManager.add(
-        result._tag === "Failure"
-          ? { type: "error", title: "Couldn't save the project's repositories" }
-          : {
-              type: "success",
-              title:
-                repositories === null
-                  ? "New threads use the project's usual repositories"
-                  : "New threads in this project start with these repositories",
-            },
-      );
+      if (result._tag === "Failure")
+        toastManager.add({ type: "error", title: "Couldn't save the project's repositories" });
     },
     [environmentId, projectId, settings, updateSettings],
   );

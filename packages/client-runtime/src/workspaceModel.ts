@@ -111,6 +111,15 @@ export function draftRepositoryFrom(
   };
 }
 
+/** A repository checked out the thread's way. A linked worktree is already its own checkout. */
+export const withMode = (repository: DraftRepository, envMode: "local" | "worktree") =>
+  repository.mode === "existing-worktree"
+    ? repository
+    : {
+        ...repository,
+        mode: envMode === "worktree" ? ("new-worktree" as const) : ("current" as const),
+      };
+
 const randomHex = (length: number) =>
   Array.from(globalThis.crypto.getRandomValues(new Uint8Array(length)), (byte) =>
     byte.toString(16).padStart(2, "0"),
@@ -184,6 +193,11 @@ export function workspaceConfiguration(input: {
   readonly repositories: readonly DraftRepository[];
   readonly expectedRevision: number;
   readonly startFromOrigin?: boolean;
+  /**
+   * The thread's workspace mode, which every chosen repository follows. Omitted when
+   * replaying recorded bindings, which keep the modes they were prepared with.
+   */
+  readonly envMode?: "local" | "worktree";
 }): WorkspaceConfiguration {
   const { primary, root, expectedRevision } = input;
   const taken = new Set<string>();
@@ -208,11 +222,10 @@ export function workspaceConfiguration(input: {
     root && isInsideFolder(root.sourcePath, repository.path)
       ? root.mode === "mirror"
         ? { ...repository, mode: "new-worktree" as const, branch: null, head: "" }
-        : {
-            ...repository,
-            mode: repository.mode === "existing-worktree" ? repository.mode : ("current" as const),
-          }
-      : repository,
+        : withMode(repository, "local")
+      : input.envMode
+        ? withMode(repository, input.envMode)
+        : repository,
   );
   const bindings = [
     ...(primary ? [primary] : []),

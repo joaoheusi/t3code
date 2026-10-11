@@ -31,6 +31,7 @@ import type { QuickActionScope } from "./quickActionRunner";
 import {
   quickActionGitTargets,
   describeQuickActionGit,
+  quickActionGitRowTitle,
   summarizeQuickActionGit,
   resolveQuickActionGit,
   sameQuickActionGit,
@@ -313,7 +314,7 @@ export function useQuickActionGit(
           value,
           icon,
           keepOpen: true,
-          title: repositories.length > 1 ? `${repository.label} — ${action.label}` : action.label,
+          title: repositories.length > 1 ? quickActionGitRowTitle(repository) : action.label,
           description: !canWrite
             ? "This connection cannot change source control."
             : describeQuickActionGit(repository),

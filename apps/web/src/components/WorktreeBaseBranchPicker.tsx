@@ -9,6 +9,8 @@ import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { resolveBranchTriggerLabel, sanitizeNewRefName } from "./BranchToolbar.logic";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { Button } from "./ui/button";
+import { ComposerControl } from "./chat/ComposerControl";
+import { ComposerContextLabel } from "./ComposerContextLabel";
 import { ComboboxTrigger } from "./ui/combobox";
 
 /** Select a future worktree's base without changing the project's current checkout. */
@@ -21,6 +23,8 @@ export function WorktreeBaseBranchPicker({
   onStartFromOriginChange,
   disabled = false,
   id,
+  compact = false,
+  placeholder,
 }: {
   environmentId: EnvironmentId;
   cwd: string | null;
@@ -30,6 +34,10 @@ export function WorktreeBaseBranchPicker({
   onStartFromOriginChange: (checked: boolean) => void;
   disabled?: boolean;
   id?: string;
+  /** A small trigger matching the composer's branch control, for rows in a list. */
+  compact?: boolean;
+  /** Shown before a branch is chosen, when no branch still means something. */
+  placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -50,13 +58,16 @@ export function WorktreeBaseBranchPicker({
   const selectedRef =
     branches.refs.find((branch) => branch.name === value) ??
     selectedRefQuery.data?.refs.find((branch) => branch.name === value);
-  const label = resolveBranchTriggerLabel({
-    activeWorktreePath: null,
-    effectiveEnvMode: "worktree",
-    resolvedActiveBranch: value || null,
-    resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
-    startFromOrigin,
-  });
+  const label =
+    !value && placeholder
+      ? placeholder
+      : resolveBranchTriggerLabel({
+          activeWorktreePath: null,
+          effectiveEnvMode: "worktree",
+          resolvedActiveBranch: value || null,
+          resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
+          startFromOrigin,
+        });
   const branchByName = useMemo(
     () => new Map(branches.refs.map((branch) => [branch.name, branch])),
     [branches.refs],
@@ -111,16 +122,31 @@ export function WorktreeBaseBranchPicker({
         ) : null;
       }}
     >
-      <ComboboxTrigger
-        id={id}
-        disabled={disabled || !cwd}
-        render={<Button variant="outline" size="sm" />}
-        className="w-full justify-between "
-      >
-        <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <MiddleTruncate value={label} className="flex-1 text-left" />
-        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      </ComboboxTrigger>
+      {compact ? (
+        <ComboboxTrigger
+          id={id}
+          disabled={disabled || !cwd}
+          render={<ComposerControl size="xs" />}
+          className="min-w-0 max-w-full active:scale-100"
+        >
+          <GitBranchIcon className="size-3 shrink-0 opacity-70" />
+          <ComposerContextLabel>
+            <MiddleTruncate value={label} className="w-full" />
+          </ComposerContextLabel>
+          <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+        </ComboboxTrigger>
+      ) : (
+        <ComboboxTrigger
+          id={id}
+          disabled={disabled || !cwd}
+          render={<Button variant="outline" size="sm" />}
+          className="w-full justify-between "
+        >
+          <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <MiddleTruncate value={label} className="flex-1 text-left" />
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        </ComboboxTrigger>
+      )}
     </BranchPicker>
   );
 }

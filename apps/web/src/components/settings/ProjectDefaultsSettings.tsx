@@ -257,7 +257,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       mixed={mixedRepositories}
       id={searchableSetting("thread-repositories").id}
       title="Repositories"
-      description="Repositories new threads in this project start with. Save them from the repositories button under the composer."
+      description="Repositories new threads in this project start with. Choose them in the repositories popover under the composer, then check “Use for new threads in this project”."
       control={
         <span className="truncate text-muted-foreground text-sm">
           {mixedRepositories

@@ -1,6 +1,6 @@
 import type { EnvironmentId, ProjectId, WorkspaceRepository } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { FolderGit2Icon, FolderOpenIcon, FolderSearchIcon } from "lucide-react";
+import { FolderGit2Icon, FolderSearchIcon } from "lucide-react";
 import { useCallback } from "react";
 
 import { openCommandPalette } from "../commandPaletteBus";
@@ -9,7 +9,6 @@ import {
   ITEM_ICON_CLASS,
   type CommandPaletteActionItem,
 } from "../components/CommandPalette.logic";
-import { ProjectFavicon } from "../components/ProjectFavicon";
 import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
 import { useProjects, useServerConfigs } from "../state/entities";
@@ -21,9 +20,9 @@ import { useWorkspaceUiStore } from "./workspaceStores";
 const parentFolder = (path: string) => path.replace(/[\\/][^\\/]+[\\/]?$/, "") || path;
 
 /**
- * Picks another repository on the thread's machine. Projects there come first since
- * most second repositories already are one; any folder works, and a folder that is
- * not itself a repository is searched for repositories inside it.
+ * Adds another repository on the thread's machine. Projects there are the usual
+ * candidates; `browse` picks any folder, and a folder that is not itself a repository
+ * is searched for repositories inside it.
  */
 export function useAddRepository(input: {
   readonly draftKey: string;
@@ -116,56 +115,18 @@ export function useAddRepository(input: {
     [addRepository, discover, environmentId, inspect, showDiscovered],
   );
 
-  return useCallback(
+  const browse = useCallback(
     () =>
       openCommandPalette({
-        view: {
-          addonIcon: <FolderGit2Icon className={ADDON_ICON_CLASS} />,
-          groups: [
-            ...(projects.length > 0
-              ? [
-                  {
-                    value: "repository-projects",
-                    label: "Projects on this machine",
-                    items: projects.map((project): CommandPaletteActionItem => ({
-                      kind: "action",
-                      value: `project:${project.id}`,
-                      searchTerms: [project.title, project.workspaceRoot],
-                      title: project.title,
-                      description: project.workspaceRoot,
-                      icon: <ProjectFavicon project={project} className={ITEM_ICON_CLASS} />,
-                      run: () => addPath(project.workspaceRoot),
-                    })),
-                  },
-                ]
-              : []),
-            {
-              value: "repository-folders",
-              label: "Other folders",
-              items: [
-                {
-                  kind: "action",
-                  value: "browse-folder",
-                  searchTerms: ["browse", "folder", "path", "disk", "find repositories"],
-                  title: "Browse for a folder…",
-                  description: "A repository, or a folder that contains repositories",
-                  icon: <FolderOpenIcon className={ITEM_ICON_CLASS} />,
-                  keepOpen: true,
-                  run: async () =>
-                    openCommandPalette({
-                      pickFolder: {
-                        environmentId,
-                        initialPath: parentFolder(primaryRoot),
-                        submitLabel: "Use folder",
-                        onPick: (path) => void addPath(path),
-                      },
-                    }),
-                },
-              ],
-            },
-          ],
+        pickFolder: {
+          environmentId,
+          initialPath: parentFolder(primaryRoot),
+          submitLabel: "Use folder",
+          onPick: (path) => void addPath(path),
         },
       }),
-    [addPath, environmentId, primaryRoot, projects],
+    [addPath, environmentId, primaryRoot],
   );
+
+  return { projects, addPath, browse };
 }

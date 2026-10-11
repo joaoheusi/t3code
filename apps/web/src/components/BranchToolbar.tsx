@@ -7,7 +7,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { RepositoriesControl } from "../workspace/RepositoriesControl";
+import { RepositoriesControl, useThreadRepositories } from "../workspace/RepositoriesControl";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
@@ -699,6 +699,17 @@ export const BranchToolbar = memo(function BranchToolbar({
     ],
   );
 
+  const composerKey = draftId ?? scopedThreadKey(threadRef);
+  const threadBranch =
+    activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null;
+  const repositories = useThreadRepositories({
+    environmentId,
+    threadId,
+    composerKey,
+    project: activeProject ?? null,
+    isGitRepo: showGitControls,
+  });
+
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
   );
@@ -840,14 +851,38 @@ export const BranchToolbar = memo(function BranchToolbar({
         <RepositoriesControl
           environmentId={environmentId}
           threadId={threadId}
-          composerKey={draftId ?? scopedThreadKey(threadRef)}
+          composerKey={composerKey}
           project={activeProject}
           isGitRepo={showGitControls}
+          repositories={repositories}
           envMode={effectiveEnvMode}
+          envModeLocked={envModeLocked}
           onEnvModeChange={onEnvModeChange}
           startFromOrigin={startFromOrigin}
           worktreePath={activeWorktreePath}
-          branch={activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null}
+          branch={threadBranch}
+          primaryBranch={
+            showGitControls && repositories.multiple ? (
+              <BranchToolbarBranchSelector
+                forceNewWorktree={forceNewWorktree}
+                ref={branchSelectorRef}
+                className="min-w-0"
+                environmentId={environmentId}
+                threadId={threadId}
+                {...(draftId ? { draftId } : {})}
+                envLocked={envLocked}
+                effectiveEnvModeOverride={effectiveEnvMode}
+                {...(activeThreadBranchOverride !== undefined
+                  ? { activeThreadBranchOverride }
+                  : {})}
+                {...(onActiveThreadBranchOverrideChange
+                  ? { onActiveThreadBranchOverrideChange }
+                  : {})}
+                startFromOrigin={startFromOrigin}
+                onStartFromOriginChange={onStartFromOriginChange}
+              />
+            ) : null
+          }
         />
       ) : null}
 
@@ -863,7 +898,8 @@ export const BranchToolbar = memo(function BranchToolbar({
         />
       ) : null}
 
-      {showGitControls ? (
+      {/* With several repositories, each one's branch is chosen in the repositories popover. */}
+      {showGitControls && !repositories.multiple ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}

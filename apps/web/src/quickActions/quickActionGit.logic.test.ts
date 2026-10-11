@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   quickActionGitTargets,
   describeQuickActionGit,
+  quickActionGitRowTitle,
   summarizeQuickActionGit,
   resolveQuickActionGit,
   sameQuickActionGit,
@@ -76,9 +77,22 @@ describe("repository quick actions", () => {
       status: state,
       action: resolveQuickActionGit(state, busy),
     }));
-    expect(summarizeQuickActionGit(repositories).description).toBe(
-      "5 repositories · Choose a repository to see its next action",
-    );
+    // Nothing to choose when every repository is waiting or up to date.
+    expect(summarizeQuickActionGit(repositories)).toMatchObject({
+      description: "5 repositories · Up to date",
+      disabled: true,
+    });
+    expect(quickActionGitRowTitle(repositories[0]!)).toBe("App 0");
+    const pushable = status({ aheadCount: 1, pr: openPr });
+    const withWork = [
+      ...repositories,
+      { ...repositories[0]!, status: pushable, action: resolveQuickActionGit(pushable, false) },
+    ];
+    expect(summarizeQuickActionGit(withWork)).toMatchObject({
+      description: "6 repositories · 1 commit to push",
+      disabled: false,
+    });
+    expect(quickActionGitRowTitle(withWork[5]!)).toBe("App 0 — Push");
 
     const diverged = status({ aheadCount: 1, behindCount: 1 });
     const detached = status({ refName: null });

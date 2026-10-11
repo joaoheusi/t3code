@@ -9336,6 +9336,7 @@ export default function ChatView(props: ChatViewProps) {
                   mode: envMode === "worktree" ? "mirror" : "current",
                 },
                 repositories: pendingRepositories,
+                envMode: sendEnvMode,
                 startFromOrigin:
                   sendEnvMode === "worktree"
                     ? startFromOrigin
@@ -9351,6 +9352,7 @@ export default function ChatView(props: ChatViewProps) {
                   branch: activeThreadBranch,
                 }),
                 repositories: pendingRepositories,
+                envMode: sendEnvMode,
                 startFromOrigin:
                   sendEnvMode === "worktree"
                     ? startFromOrigin
