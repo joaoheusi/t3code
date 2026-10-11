@@ -1,7 +1,8 @@
-import { type StaticScreenProps } from "@react-navigation/native";
+import { StackActions, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { useState } from "react";
+import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -45,7 +46,9 @@ import { forkWorkspace } from "../../state/forkWorkspace";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
 import { ForkScreenHeader } from "./ForkScreenHeader";
+import { BranchPickerScreen } from "./NewTaskContextPickerScreens";
 import { useNewTaskFlow } from "./new-task-flow-provider";
 import { useMobileRepositories } from "./useMobileRepositories";
 
@@ -53,6 +56,11 @@ export type RepositoriesTarget = {
   readonly environmentId: EnvironmentId;
   readonly projectId: ProjectId;
   readonly draftKey: string;
+};
+
+export type RepositoryBranchTarget = RepositoriesTarget & {
+  /** The added repository whose new worktree's base is being chosen. */
+  readonly path: string;
 };
 
 export type ThreadRepositoriesTarget = {
@@ -109,7 +117,8 @@ function RepositoriesContent(props: {
 }) {
   const insets = useSafeAreaInsets();
   const choice = useMobileRepositories(props.project, props.draftKey);
-  const { workspaceMode } = useNewTaskFlow();
+  const { workspaceMode, workspaceModeSettled } = useNewTaskFlow();
+  const navigation = useNavigation();
   const config = useEnvironmentServerConfig(props.project.environmentId);
   const projects = useProjects();
   const inspect = useAtomCommand(forkWorkspace.inspect, { reportFailure: false });
@@ -122,11 +131,14 @@ function RepositoriesContent(props: {
   const { repositories, selection } = choice;
   const limit = selection.folder ? REPOSITORY_LIMIT : REPOSITORY_LIMIT - 1;
   const full = repositories.length >= limit;
+  // An added repository records the thread's mode, so it waits for a t3.json default.
+  const canAdd = !full && workspaceModeSettled;
   const hasSavedDefault =
     (config?.settings.projectSettingsOverrides[props.project.id]?.workspaceRepositories?.length ??
       0) > 0;
 
   const add = async (repositoryPath: string) => {
+    if (!canAdd) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -248,6 +260,8 @@ function RepositoriesContent(props: {
             const followsFolder =
               selection.folder && isInsideFolder(props.project.workspaceRoot, repository.path);
             const canSwitch = repository.mode !== "existing-worktree" && !followsFolder;
+            // A new worktree's base is chosen on its own screen; the row opens it.
+            const choosesBase = repository.mode === "new-worktree" && !followsFolder;
             return (
               <PickerRow
                 key={repository.path}
@@ -255,8 +269,22 @@ function RepositoriesContent(props: {
                 subtitle={
                   followsFolder
                     ? "Follows the folder setting"
-                    : `${CHECKOUT_MODE_LABEL[repository.mode]} · ${shortPath(repository.path)}`
+                    : `${CHECKOUT_MODE_LABEL[repository.mode]}${choosesBase ? ` from ${repository.branch ?? "default branch"}` : ""} · ${shortPath(repository.path)}`
                 }
+                {...(choosesBase
+                  ? {
+                      accessibilityHint: "Chooses the branch its new worktree starts from",
+                      onPress: () =>
+                        navigation.dispatch(
+                          StackActions.push("NewTaskRepositoryBranch", {
+                            environmentId: props.project.environmentId,
+                            projectId: props.project.id,
+                            draftKey: props.draftKey,
+                            path: repository.path,
+                          }),
+                        ),
+                    }
+                  : {})}
                 leading={
                   <RemoveButton
                     label={repository.label}
@@ -324,7 +352,7 @@ function RepositoriesContent(props: {
               title={project.title}
               subtitle={shortPath(project.workspaceRoot)}
               symbol="plus"
-              disabled={busy || full}
+              disabled={busy || !canAdd}
               onPress={() => void add(project.workspaceRoot)}
             />
           ))}
@@ -346,10 +374,10 @@ function RepositoriesContent(props: {
             ) : (
               <Pressable
                 accessibilityRole="button"
-                disabled={!path.trim() || full}
+                disabled={!path.trim() || !canAdd}
                 hitSlop={8}
                 onPress={() => void add(path)}
-                style={{ opacity: !path.trim() || full ? 0.4 : 1 }}
+                style={{ opacity: !path.trim() || !canAdd ? 0.4 : 1 }}
               >
                 <Text className="text-base font-t3-medium text-primary-text">Add</Text>
               </Pressable>
@@ -384,6 +412,60 @@ function RepositoriesContent(props: {
         </PickerCaption>
       </ScrollView>
     </View>
+  );
+}
+
+/** Chooses the branch an added repository's new worktree starts from. */
+export function RepositoryBranchScreen({ route }: StaticScreenProps<RepositoryBranchTarget>) {
+  const target = route.params;
+  const navigation = useNavigation();
+  const flow = useNewTaskFlow();
+  const project = useProject({ environmentId: target.environmentId, projectId: target.projectId });
+  const choice = useMobileRepositories(project ?? null, target.draftKey);
+  const repository = choice.repositories.find((entry) => entry.path === target.path) ?? null;
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 150);
+  const branches = usePaginatedBranches({
+    environmentId: target.environmentId,
+    cwd: repository ? target.path : null,
+    query: debouncedQuery,
+  });
+  const visibleBranches = branches.refs.filter(
+    (branch) => !branch.isRemote && branch.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const update = (patch: { readonly branch?: string; readonly startFromOrigin?: boolean }) =>
+    choice.setSelection({
+      ...choice.selection,
+      repositories: choice.selection.repositories.map((entry) =>
+        entry.path === target.path ? { ...entry, ...patch } : entry,
+      ),
+    });
+  return (
+    <BranchPickerScreen
+      title="Base branch"
+      project={null}
+      branches={visibleBranches}
+      selectedBranchName={repository?.branch ?? null}
+      query={query}
+      onQueryChange={setQuery}
+      loading={
+        query.trim() !== debouncedQuery.trim() || (branches.isPending && branches.data === null)
+      }
+      error={repository ? branches.error : "This repository is no longer part of the task."}
+      refreshing={branches.isFetchingNextPage}
+      hasMore={branches.data?.nextCursor != null}
+      onRefresh={branches.refresh}
+      onLoadMore={branches.loadNext}
+      onSelect={(branch: VcsRef) => {
+        void Haptics.selectionAsync();
+        update({ branch: branch.name });
+        navigation.goBack();
+      }}
+      worktree={{
+        startFromOrigin: repository?.startFromOrigin ?? flow.startFromOrigin,
+        onChangeStartFromOrigin: (startFromOrigin) => update({ startFromOrigin }),
+      }}
+    />
   );
 }
 

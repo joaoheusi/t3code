@@ -66,6 +66,7 @@ export function useMobileRepositories(project: EnvironmentProject | null, draftK
       ...draftRepositoryFromDefault(entry),
       branch: entry.branch ?? null,
       head: entry.head ?? "",
+      ...(entry.startFromOrigin !== undefined ? { startFromOrigin: entry.startFromOrigin } : {}),
     })),
     setSelection: (value: MobileRepositorySelection) => {
       if (!draftKey) return;

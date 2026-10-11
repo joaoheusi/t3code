@@ -133,6 +133,7 @@ import { FORM_SHEET_PRESENTATION_OPTIONS } from "./native/sheet-surface";
 import { QuickActionsScreen } from "./features/threads/MobileQuickActions";
 import {
   RepositoriesScreen,
+  RepositoryBranchScreen,
   ThreadRepositoriesScreen,
 } from "./features/threads/MobileRepositories";
 import { useThreadOutboxDrain } from "./state/use-thread-outbox-drain";
@@ -491,6 +492,11 @@ const NewTaskSheetStack = createNativeStackNavigator({
       screen: RepositoriesScreen,
       linking: "draft/repositories",
       options: { title: "Repositories" },
+    }),
+    NewTaskRepositoryBranch: createNativeStackScreen({
+      screen: RepositoryBranchScreen,
+      linking: "draft/repositories/branch",
+      options: { title: "Base branch" },
     }),
     NewTaskQuickActions: createNativeStackScreen({
       screen: QuickActionsScreen,
