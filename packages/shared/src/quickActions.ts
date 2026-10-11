@@ -236,6 +236,7 @@ export function importPortableActions(json: string): QuickActionFields[] {
       template,
       favorite,
       enabled,
+      autoSend: false,
       projectId: null,
     };
   });
@@ -299,6 +300,7 @@ const starter = (
   projectId: null,
   favorite: false,
   enabled: true,
+  autoSend: false,
   ...fields,
 });
 

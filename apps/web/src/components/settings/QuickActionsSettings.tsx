@@ -310,7 +310,7 @@ function QuickActionsEnvironmentSettings(props: {
               <SettingsSection title="Using quick actions">
                 <SettingsRow
                   title="Insert into the composer"
-                  description="Type / in the composer, or open the list from anywhere in a thread. Text is inserted for you to review; nothing is sent."
+                  description="Type / in the composer, or open the list from anywhere in a thread. Text is inserted for you to review unless the action sends immediately."
                   control={
                     <span className="text-xs text-muted-foreground">
                       {shortcutLabelForCommand(keybindings, "quickActions.toggle") ?? "No shortcut"}
@@ -449,6 +449,7 @@ function QuickActionRow(props: {
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary">{props.projectTitle ?? "All projects"}</Badge>
           {context ? <Badge variant="outline">{context}</Badge> : null}
+          {action.autoSend ? <Badge variant="outline">Sends immediately</Badge> : null}
           {props.shortcutLabel ? <Badge variant="outline">{props.shortcutLabel}</Badge> : null}
         </div>
       }
@@ -546,6 +547,7 @@ function QuickActionEditorDialog(props: {
     projectId: source ? source.projectId : props.defaultProjectId,
     favorite: source?.favorite ?? false,
     enabled: source?.enabled ?? true,
+    autoSend: source?.autoSend ?? false,
     // A duplicate never copies the original's shortcut.
     shortcut: editing
       ? (keybindingValueForCommand(keybindings, quickActionCommand(editing.id)) ?? "")
@@ -632,6 +634,7 @@ function QuickActionEditorDialog(props: {
       projectId: draft.projectId,
       favorite: draft.favorite,
       enabled: draft.enabled,
+      autoSend: draft.autoSend,
     };
     const saved = await save({
       environmentId,
@@ -686,7 +689,7 @@ function QuickActionEditorDialog(props: {
         <DialogHeader>
           <DialogTitle>{editing ? "Edit quick action" : "New quick action"}</DialogTitle>
           <DialogDescription>
-            Text you can insert into any thread's composer on this machine.
+            Text you can insert into, or send from, any thread's composer on this machine.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -838,9 +841,21 @@ function QuickActionEditorDialog(props: {
                 >
                   {shortcutConflicts.length > 0
                     ? `Also used by ${shortcutConflicts.slice(0, 3).join(", ")}. The latest binding wins.`
-                    : "Inserts this action directly. Backspace clears it."}
+                    : `${draft.autoSend ? "Sends" : "Inserts"} this action directly. Backspace clears it.`}
                 </p>
               </Field>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
+                <span className="space-y-0.5">
+                  <span className="block">Send immediately</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Sends the message after inserting, without waiting for you to review it.
+                  </span>
+                </span>
+                <Switch
+                  checked={draft.autoSend}
+                  onCheckedChange={(checked) => set({ autoSend: Boolean(checked) })}
+                />
+              </label>
               <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
                 <span>Show first in lists</span>
                 <Switch

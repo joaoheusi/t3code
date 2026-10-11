@@ -55,6 +55,7 @@ import {
   captureComposerDraftInsertion,
   getComposerDraftSnapshot,
   insertComposerDraftText,
+  setComposerSendRequested,
 } from "../../state/use-composer-drafts";
 import { MobileGitQuickAction } from "./MobileGitQuickAction";
 import { MobileMergeQuickAction } from "./MobileMergeQuickAction";
@@ -171,6 +172,7 @@ const newAction = (projectId: ProjectId): Editing => ({
     projectId,
     enabled: true,
     favorite: false,
+    autoSend: false,
   },
 });
 
@@ -255,6 +257,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           ? { text: insertion.text, start: insertion.text.length, end: insertion.text.length }
           : insertion,
       );
+      if (current.autoSend) setComposerSendRequested(target.draftKey, true);
       void Haptics.selectionAsync();
       navigation.goBack();
     } catch (cause) {
@@ -721,6 +724,11 @@ function QuickActionEditor(props: {
           }
         </PickerCaption>
         <PickerSurface>
+          <PickerToggleRow
+            title="Send immediately"
+            value={action.autoSend}
+            onValueChange={(autoSend) => update({ autoSend })}
+          />
           <PickerToggleRow
             title="Favorite"
             value={action.favorite}

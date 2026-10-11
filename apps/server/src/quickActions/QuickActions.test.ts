@@ -53,6 +53,27 @@ it.effect("rejects unknown variables and injection-shaped input is stored as tex
   }).pipe(Effect.provide(layer)),
 );
 
+it.effect("reads records saved before auto-send as insert-only and persists the flag", () =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const library = yield* QuickActions.QuickActions;
+    const { autoSend: _autoSend, ...legacy } = {
+      ...QUICK_ACTION_STARTERS[0]!,
+      id: "legacy",
+      revision: 1,
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    };
+    yield* sql`INSERT INTO fork_quick_actions (id, project_id, record_json, revision)
+      VALUES (${legacy.id}, NULL, ${JSON.stringify(legacy)}, 1)`;
+    const stored = (yield* library.list()).find((action) => action.id === "legacy")!;
+    assert.equal(stored.autoSend, false);
+    const { revision, createdAt: _createdAt, updatedAt: _updatedAt, ...fields } = stored;
+    yield* library.save({ action: { ...fields, autoSend: true }, expectedRevision: revision });
+    assert.equal((yield* library.list()).find((action) => action.id === "legacy")?.autoSend, true);
+  }).pipe(Effect.provide(layer)),
+);
+
 it.effect("imports atomically and rolls back earlier records when any ID collides", () =>
   Effect.gen(function* () {
     const library = yield* QuickActions.QuickActions;

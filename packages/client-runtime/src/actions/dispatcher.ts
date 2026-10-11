@@ -7,6 +7,8 @@ export interface ActionEditor {
   readonly read: () => ActionEditorSnapshot;
   readonly available: () => boolean;
   readonly replace: (start: number, end: number, text: string) => boolean;
+  /** Sends the draft as if the user pressed send. Returns false when sending is blocked. */
+  readonly submit: () => boolean;
 }
 export interface ActionInvocation {
   readonly id: string;
@@ -23,12 +25,18 @@ export type ActionInsertionResult =
   | "expired"
   | "already-inserted";
 
-/** The dispatcher owns insertion only. It has no provider, thread-create, or Git dependency. */
+/** The dispatcher owns insertion and its optional send. It has no provider, thread-create, or Git dependency. */
 export class ActionDispatcher {
   private readonly editors = new Map<string, ActionEditor>();
   private readonly invocations = new Map<
     string,
-    { invocation: ActionInvocation; consumed: boolean }
+    {
+      invocation: ActionInvocation;
+      consumed: boolean;
+      /** The editor that accepted the insertion; only it may send. */
+      insertedInto?: ActionEditor;
+      submitted?: boolean;
+    }
   >();
   private readonly now: () => number;
   private readonly nextId: () => string;
@@ -101,6 +109,22 @@ export class ActionDispatcher {
       record.consumed = false;
       return "unavailable-target";
     }
+    record.insertedInto = editor;
     return "inserted";
+  }
+  /**
+   * Sends the draft an invocation inserted into, once, and only through the editor that
+   * accepted the insertion. A blocked send can be retried.
+   */
+  submit(invocation: ActionInvocation): boolean {
+    const record = this.invocations.get(invocation.id);
+    if (!record || record.invocation !== invocation || record.submitted) return false;
+    const editor = record.insertedInto;
+    if (!editor || this.editors.get(invocation.target) !== editor || !editor.available())
+      return false;
+    // Claim first so a synchronous re-entry cannot send twice.
+    record.submitted = true;
+    if (!editor.submit()) record.submitted = false;
+    return record.submitted;
   }
 }

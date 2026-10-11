@@ -40,8 +40,9 @@ export function noteQuickActionUse(id: string) {
 }
 
 /**
- * Inserts into the composer captured before any async work. If that draft changed
- * or its composer is gone, the text waits on the original thread as a banner.
+ * Inserts into the composer captured before any async work, then sends it when the
+ * action auto-sends. If that draft changed or its composer is gone, the text waits
+ * on the original thread as a banner and is never sent automatically.
  */
 export function insertQuickActionText(input: {
   readonly target: ComposerThreadTarget;
@@ -58,6 +59,7 @@ export function insertQuickActionText(input: {
     : "unavailable-target";
   if (result === "inserted" || result === "already-inserted") {
     noteQuickActionUse(action.id);
+    if (result === "inserted" && action.autoSend && invocation) actionDispatcher.submit(invocation);
     return true;
   }
   prepareTask(input.target, {

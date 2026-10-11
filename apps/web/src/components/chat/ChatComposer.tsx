@@ -4060,6 +4060,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   }, [isLiteralPendingAnswer, readComposerSnapshot, resolveComposerTrigger]);
 
+  // Quick actions send after async context loads, so they read the latest submit.
+  const submitComposerRef = useRef<(() => boolean) | null>(null);
   // The `/query` token is already gone; the rendered text goes where it was, unless
   // the draft moved on while context loaded. Then it waits in a composer banner.
   const insertQuickActionAtCaret = useCallback(
@@ -4086,6 +4088,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           applyPromptReplacement(insertAt, insertAt, rendered.text)
         ) {
           noteQuickActionUse(item.action.id);
+          if (item.action.autoSend) submitComposerRef.current?.();
           return;
         }
         prepareTask(composerDraftTarget, {
@@ -4378,14 +4381,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       event?: { preventDefault: () => void },
       dispatchMode?: ComposerDispatchMode,
       submissionIntent?: ComposerSubmissionIntent,
-    ) => {
+    ): boolean => {
       if (
         noProviderAvailable ||
         isSendDisabled ||
         !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
       ) {
         event?.preventDefault();
-        return;
+        return false;
       }
       // A send while a pasted image is still compressing would strand that
       // image: the turn snapshot wouldn't include it, and it would surface
@@ -4401,7 +4404,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           title: "Still compressing a pasted image.",
           description: "Send again once its thumbnail appears.",
         });
-        return;
+        return false;
       }
       // A pasted chip's bytes arrive over the network, so the same hazard applies for longer:
       // sending now would snapshot a chip with no attachment behind it.
@@ -4412,7 +4415,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           title: "Still bringing a pasted attachment into this message.",
           description: "Send again once its chip resolves.",
         });
-        return;
+        return false;
       }
       const submission = submitComposerDraft({
         prompt: promptRef.current,
@@ -4436,10 +4439,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       setComposerSubmissionError(submission.validationMessage);
-      if (!submission.didDispatch) return;
+      if (!submission.didDispatch) return false;
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
       }
+      return true;
     },
     [
       activeThreadId,
@@ -4470,6 +4474,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
     [phase, settings.followUpBehavior, submitComposer],
   );
+  useEffect(() => {
+    submitComposerRef.current = submitComposer;
+  }, [submitComposer]);
   const submitCitationAndSend = useCallback(() => {
     submitComposer(
       undefined,
@@ -6410,6 +6417,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           if (!inserted) composerEditorRef.current?.beginAtomicEdit?.(false);
           return inserted;
         },
+        submit: () => submitComposerRef.current?.() ?? false,
       }),
     [
       composerDraftTarget,

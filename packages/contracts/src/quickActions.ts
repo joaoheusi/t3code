@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { NonNegativeInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
@@ -16,6 +17,8 @@ export const QuickActionFields = Schema.Struct({
   projectId: Schema.NullOr(ProjectId),
   enabled: Schema.Boolean,
   favorite: Schema.Boolean,
+  /** Sends the composer right after inserting. Records saved before this field read as false. */
+  autoSend: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
 });
 export type QuickActionFields = typeof QuickActionFields.Type;
 export const QuickAction = Schema.Struct({
