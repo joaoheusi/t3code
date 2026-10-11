@@ -1211,6 +1211,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
                         }
                       : {}),
                     repositories: repositoryChoice.repositories,
+                    envMode: mode,
                     expectedRevision: 0,
                     startFromOrigin: workspaceSelection?.startFromOrigin ?? startFromOrigin,
                   }),

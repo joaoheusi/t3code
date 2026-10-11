@@ -16,7 +16,7 @@ import {
   type VcsRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { GitBranchIcon } from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -66,7 +66,7 @@ import {
 } from "./ThreadStatusIndicators";
 
 import { ComboboxItem, ComboboxTrigger } from "./ui/combobox";
-import { ComposerControl } from "./chat/ComposerControl";
+import { ComposerControl, ComposerControlChevron } from "./chat/ComposerControl";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { stackedThreadToast, toastManager } from "./ui/toast";
@@ -781,9 +781,7 @@ export function BranchToolbarBranchSelector({
             <ComposerContextLabel displayMode={displayMode}>
               <MiddleTruncate value={triggerLabel} className="w-full" />
             </ComposerContextLabel>
-            {displayMode !== "panel" ? (
-              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
-            ) : null}
+            {displayMode !== "panel" ? <ComposerControlChevron size="xs" /> : null}
           </ComboboxTrigger>
         </span>
         {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (

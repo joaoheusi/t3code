@@ -11,12 +11,14 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import {
-  BookmarkIcon,
+  ArrowLeftIcon,
   CopyIcon,
   FileDiffIcon,
   FolderGit2Icon,
+  FolderOpenIcon,
   FolderPlusIcon,
   FolderTreeIcon,
+  GitBranchIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SquareTerminalIcon,
@@ -28,18 +30,15 @@ import { memo, useState, type ReactNode } from "react";
 import { ComposerControl, ComposerControlChevron } from "../components/chat/ComposerControl";
 import { useComposerMenuProps } from "../components/chat/composerEventScope";
 import { ComposerContextLabel } from "../components/ComposerContextLabel";
+import { ProjectFavicon } from "../components/ProjectFavicon";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
+import { Command, CommandInput, CommandItem, CommandList } from "../components/ui/command";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../components/ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../components/ui/popover";
-import {
-  Select,
-  SelectItem,
-  SelectPopup,
-  SelectTrigger,
-  SelectValue,
-} from "../components/ui/select";
 import { Spinner } from "../components/ui/spinner";
+import { Toggle, ToggleGroup } from "../components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { toastManager } from "../components/ui/toast";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
@@ -49,7 +48,9 @@ import { useRightPanelStore } from "../rightPanelStore";
 import { useThreadShell } from "../state/entities";
 import { forkWorkspace } from "../state/forkWorkspace";
 import { orchestrationEnvironment } from "../state/orchestration";
+import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
+import { vcsEnvironment } from "../state/vcs";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { WorktreeBaseBranchPicker } from "../components/WorktreeBaseBranchPicker";
 import { useRepositoryStatus } from "./ThreadRepositoriesSection";
@@ -68,7 +69,6 @@ import {
   isInsideFolder,
   primaryBindingRequest,
   repositoriesSummary,
-  repositoryDefaultFrom,
   workspaceConfiguration,
   workspaceProgress,
   WORKSPACE_STATE_LABEL,
@@ -76,7 +76,7 @@ import {
 } from "./workspaceModel";
 import { useWorkspaceUiStore } from "./workspaceStores";
 
-interface RepositoriesControlProps {
+interface RepositoriesProps {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
   /** The composer's key: the draft ID before the thread exists, the thread's key after. */
@@ -87,26 +87,20 @@ interface RepositoriesControlProps {
     readonly workspaceRoot: string;
   };
   readonly isGitRepo: boolean;
-  readonly envMode: "local" | "worktree";
-  readonly startFromOrigin: boolean;
-  readonly onEnvModeChange: (mode: "local" | "worktree") => void;
-  readonly worktreePath: string | null;
-  readonly branch: string | null;
 }
 
-export const FOLDER_MODE_LABEL = { local: "Current folder", worktree: "New worktrees" } as const;
-
 /**
- * The thread's repositories, next to its workspace and branch. Before the first
- * message the user picks them here; afterwards this shows them and their actions.
- * A project folder that holds repositories rather than being one lists them here too.
+ * The repositories a thread works in: chosen before the first message, fixed after.
+ * The toolbar reads this too, since a thread with several repositories picks each
+ * one's base branch in the repositories popover instead of the toolbar.
  */
-export const RepositoriesControl = memo(function RepositoriesControl(
-  props: RepositoriesControlProps,
+export function useThreadRepositories(
+  props: Omit<RepositoriesProps, "project"> & {
+    readonly project: RepositoriesProps["project"] | null;
+  },
 ) {
   const version = useMultiRepositoryVersion(props.environmentId);
-  const threadRef = scopeThreadRef(props.environmentId, props.threadId);
-  const shell = useThreadShell(threadRef);
+  const shell = useThreadShell(scopeThreadRef(props.environmentId, props.threadId));
   const workspace = shell?.workspace;
   const started = Boolean(
     shell && (shell.latestRun !== null || shell.itemCount > 0 || shell.runtime !== null),
@@ -122,42 +116,81 @@ export const RepositoriesControl = memo(function RepositoriesControl(
     workspace,
     choosing: editable,
   });
-  const menuProps = useComposerMenuProps();
-  const [open, setOpen] = useState(false);
-  if (version < 1) return null;
   const configured = hasRepositorySet(workspace);
-  if (!configured && !(editable && (props.isGitRepo || selection.folder))) return null;
-
+  const visible =
+    version >= 1 &&
+    props.project !== null &&
+    (configured || (editable && (props.isGitRepo || selection.folder)));
   const folder = configured ? workspace!.root !== undefined : selection.folder;
   const labels = configured
     ? workspace!.bindings.map((binding) => binding.label)
     : folder
       ? selection.repositories.map((repository) => repository.label)
-      : [props.project.title, ...selection.repositories.map((repository) => repository.label)];
+      : [
+          props.project?.title ?? "",
+          ...selection.repositories.map((repository) => repository.label),
+        ];
+  return {
+    workspace,
+    started,
+    editable,
+    selection,
+    visible,
+    folder,
+    labels,
+    /** More than the project's own checkout, so the popover owns every repository's base. */
+    multiple: visible && (folder || labels.length > 1),
+  };
+}
+
+interface RepositoriesControlProps extends RepositoriesProps {
+  readonly repositories: ReturnType<typeof useThreadRepositories>;
+  readonly envMode: "local" | "worktree";
+  readonly envModeLocked: boolean;
+  readonly startFromOrigin: boolean;
+  readonly onEnvModeChange: (mode: "local" | "worktree") => void;
+  readonly worktreePath: string | null;
+  readonly branch: string | null;
+  /** The project checkout's own branch control, shown on its row. */
+  readonly primaryBranch: ReactNode;
+}
+
+/**
+ * The thread's repositories, next to its workspace and branch. Before the first
+ * message the user picks them here; afterwards this shows them and their actions.
+ * A project folder that holds repositories rather than being one lists them here too.
+ */
+export const RepositoriesControl = memo(function RepositoriesControl(
+  props: RepositoriesControlProps,
+) {
+  const { workspace, started, editable, visible, folder, labels, multiple } = props.repositories;
+  const menuProps = useComposerMenuProps();
+  const [open, setOpen] = useState(false);
+  if (!visible) return null;
+
   const progress = workspace ? workspaceProgress(workspace) : null;
   const preparing = workspace && ["planned", "validating", "preparing"].includes(workspace.state);
   const failed = workspace?.state === "failed";
   const summary = folder
     ? `${props.project.title} · ${labels.length} ${labels.length === 1 ? "repository" : "repositories"}`
     : repositoriesSummary(labels);
-  const trigger =
-    folder || labels.length > 1 ? (
-      <>
-        {preparing ? (
-          <Spinner size="xs" />
-        ) : failed ? (
-          <TriangleAlertIcon className="size-3 text-destructive" />
-        ) : folder ? (
-          <FolderTreeIcon className="size-3" />
-        ) : (
-          <FolderGit2Icon className="size-3" />
-        )}
-        <ComposerContextLabel>{summary}</ComposerContextLabel>
-        <ComposerControlChevron size="xs" />
-      </>
-    ) : (
-      <FolderPlusIcon className="size-3" />
-    );
+  const trigger = multiple ? (
+    <>
+      {preparing ? (
+        <Spinner size="xs" />
+      ) : failed ? (
+        <TriangleAlertIcon className="size-3 text-destructive" />
+      ) : folder ? (
+        <FolderTreeIcon className="size-3" />
+      ) : (
+        <FolderGit2Icon className="size-3" />
+      )}
+      <ComposerContextLabel>{summary}</ComposerContextLabel>
+      <ComposerControlChevron size="xs" />
+    </>
+  ) : (
+    <FolderPlusIcon className="size-3" />
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -168,7 +201,7 @@ export const RepositoriesControl = memo(function RepositoriesControl(
               render={
                 <ComposerControl
                   size="xs"
-                  aria-label={folder || labels.length > 1 ? "Repositories" : "Add repositories"}
+                  aria-label={multiple ? "Repositories" : "Add repositories"}
                   data-composer-context-control
                 />
               }
@@ -180,19 +213,14 @@ export const RepositoriesControl = memo(function RepositoriesControl(
         <TooltipPopup>
           {preparing && progress
             ? `Preparing ${progress.ready} of ${progress.total} repositories`
-            : folder || labels.length > 1
+            : multiple
               ? summary
               : "Add repositories to this thread"}
         </TooltipPopup>
       </Tooltip>
       <PopoverPopup side="top" align="start" width="lg" padding="compact" {...menuProps}>
         {editable ? (
-          <EditableRepositories
-            {...props}
-            selection={selection}
-            folder={folder}
-            onDone={() => setOpen(false)}
-          />
+          <EditableRepositories {...props} onDone={() => setOpen(false)} />
         ) : (
           <ThreadRepositories
             detail={
@@ -212,35 +240,31 @@ export const RepositoriesControl = memo(function RepositoriesControl(
 
 function PopoverHeading(props: { title: string; detail: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 px-1 pt-1 pb-2">
+    <div className="flex items-baseline justify-between gap-3 px-2 pt-1 pb-2">
       <span className="font-medium text-sm">{props.title}</span>
       <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
     </div>
   );
 }
 
-function EditableRepositories(
-  props: RepositoriesControlProps & {
-    readonly selection: ReturnType<typeof useComposerRepositories>;
-    readonly folder: boolean;
-    readonly onDone: () => void;
-  },
-) {
-  const { environmentId, threadId, composerKey, project, selection, folder } = props;
+function EditableRepositories(props: RepositoriesControlProps & { readonly onDone: () => void }) {
+  const { environmentId, threadId, composerKey, project, envMode } = props;
+  const { selection, folder } = props.repositories;
   const workspace = useThreadShell(scopeThreadRef(environmentId, threadId))?.workspace;
   const settings = useEnvironmentSettings(environmentId);
-  const openAdd = useAddRepository({
+  const add = useAddRepository({
     draftKey: composerKey,
     environmentId,
     projectId: project.id,
     primaryRoot: project.workspaceRoot,
-    envMode: props.envMode,
+    envMode,
   });
   const saveDefault = useSaveRepositoryDefault(environmentId, project.id);
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
     reportFailure: false,
   });
   const [saving, setSaving] = useState(false);
+  const [adding, setAdding] = useState(false);
   const { repositories } = selection;
   // Edits apply to the draft's own copy of the list, made on the first change.
   const seed = () => {
@@ -261,24 +285,22 @@ function EditableRepositories(
       : primaryBindingRequest({
           label: project.title,
           workspaceRoot: project.workspaceRoot,
-          envMode: props.envMode,
+          envMode,
           worktreePath: props.worktreePath,
           branch: props.branch,
         });
   // Added repositories start new worktrees the way the thread's own checkout would.
   const threadStartsFromOrigin =
-    props.envMode === "worktree"
+    envMode === "worktree"
       ? props.startFromOrigin
       : resolveProjectSettings(settings, project.id).settings.newWorktreesStartFromOrigin;
   const inFolder = (repository: DraftRepository) =>
     folder && isInsideFolder(project.workspaceRoot, repository.path);
+  // Every repository follows the thread's mode, so a default is just which ones.
   const isDefault =
+    selection.saved.length > 0 &&
     selection.saved.length === repositories.length &&
-    repositories.every((repository, index) => {
-      const saved = selection.saved[index]!;
-      const next = repositoryDefaultFrom(repository);
-      return saved.path === next.path && saved.mode === next.mode;
-    });
+    repositories.every((repository, index) => selection.saved[index]!.path === repository.path);
 
   // Before the first message the selection is prepared on Send. A thread that already
   // exists, because an earlier preparation failed, prepares again from here.
@@ -297,11 +319,12 @@ function EditableRepositories(
             ? {
                 root: {
                   sourcePath: project.workspaceRoot,
-                  mode: props.envMode === "worktree" ? "mirror" : "current",
+                  mode: envMode === "worktree" ? "mirror" : "current",
                 },
               }
             : {}),
           repositories,
+          envMode,
           expectedRevision: workspace.revision,
           startFromOrigin: threadStartsFromOrigin,
         }),
@@ -320,86 +343,110 @@ function EditableRepositories(
     props.onDone();
   };
 
+  if (adding)
+    return (
+      <AddRepositoryPicker
+        projects={add.projects.filter(
+          (candidate) =>
+            !repositories.some((repository) => repository.path === candidate.workspaceRoot),
+        )}
+        onPick={async (path) => {
+          seed();
+          await add.addPath(path);
+          setAdding(false);
+        }}
+        onBrowse={() => {
+          seed();
+          props.onDone();
+          add.browse();
+        }}
+        onBack={() => setAdding(false)}
+      />
+    );
+
   return (
     <div className="flex flex-col">
-      <PopoverHeading title="Repositories" detail="The agent works across all of them" />
+      <ToggleGroup
+        aria-label="How repositories are checked out"
+        className="mb-2 w-full *:flex-1"
+        disabled={props.envModeLocked}
+        value={[envMode]}
+        onValueChange={(next) => {
+          const mode = next[0];
+          if (mode === "local" || mode === "worktree") props.onEnvModeChange(mode);
+        }}
+      >
+        <Toggle value="worktree">New worktrees</Toggle>
+        <Toggle value="local">{folder ? "Current folder" : "Current checkouts"}</Toggle>
+      </ToggleGroup>
       <ul className="flex flex-col gap-0.5">
         {folder ? (
           <RepositoryRow
             icon={<FolderTreeIcon className="size-3.5 shrink-0 text-muted-foreground" />}
             label={project.title}
-            detail={project.workspaceRoot}
-            trailing={
-              <Select
-                value={props.envMode}
-                onValueChange={(mode) =>
-                  props.onEnvModeChange(mode === "worktree" ? "worktree" : "local")
-                }
-              >
-                <SelectTrigger size="xs" aria-label={`Checkout for ${project.title}`}>
-                  <SelectValue>{FOLDER_MODE_LABEL[props.envMode]}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value="local">{FOLDER_MODE_LABEL.local}</SelectItem>
-                  <SelectItem value="worktree">{FOLDER_MODE_LABEL.worktree}</SelectItem>
-                </SelectPopup>
-              </Select>
-            }
+            path={project.workspaceRoot}
           />
         ) : (
           <RepositoryRow
             label={recordedPrimary?.label ?? project.title}
-            detail={primary!.sourcePath}
-            trailing={
-              <span className="shrink-0 text-muted-foreground text-xs">
-                {CHECKOUT_MODE_LABEL[primary!.mode]}
-              </span>
-            }
+            path={primary!.sourcePath}
+            trailing={props.primaryBranch}
           />
         )}
         {repositories.map((repository) => (
           <RepositoryRow
             key={repository.id}
             label={repository.label}
-            detail={
-              inFolder(repository)
-                ? repository.path.slice(project.workspaceRoot.replace(/[\\/]+$/, "").length + 1)
-                : repository.path
-            }
+            path={repository.path}
             nested={inFolder(repository)}
             trailing={
               <>
-                {inFolder(repository) ? null : repository.mode === "existing-worktree" ? (
-                  <span className="shrink-0 text-muted-foreground text-xs">
-                    {CHECKOUT_MODE_LABEL["existing-worktree"]}
-                  </span>
-                ) : (
-                  <Select
-                    value={repository.mode}
-                    onValueChange={(mode) => {
+                {inFolder(repository) ? (
+                  envMode === "worktree" ? (
+                    <BranchLabel>Default branch</BranchLabel>
+                  ) : (
+                    <CheckoutBranchLabel
+                      environmentId={environmentId}
+                      path={repository.path}
+                      branch={repository.branch}
+                    />
+                  )
+                ) : repository.mode === "existing-worktree" ? (
+                  <BranchLabel>{CHECKOUT_MODE_LABEL["existing-worktree"]}</BranchLabel>
+                ) : envMode === "worktree" ? (
+                  <WorktreeBaseBranchPicker
+                    compact
+                    // A repository from the project's default has no base until one is picked.
+                    placeholder="Default branch"
+                    environmentId={environmentId}
+                    cwd={repository.path}
+                    value={repository.branch ?? ""}
+                    onValueChange={(branch) => {
                       seed();
                       useWorkspaceUiStore
                         .getState()
-                        .updateDraftRepository(composerKey, repository.id, {
-                          mode: mode === "new-worktree" ? "new-worktree" : "current",
-                        });
+                        .updateDraftRepository(composerKey, repository.id, { branch });
                     }}
-                  >
-                    <SelectTrigger size="xs" aria-label={`Checkout for ${repository.label}`}>
-                      <SelectValue>{CHECKOUT_MODE_LABEL[repository.mode]}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      <SelectItem value="current">{CHECKOUT_MODE_LABEL.current}</SelectItem>
-                      <SelectItem value="new-worktree">
-                        {CHECKOUT_MODE_LABEL["new-worktree"]}
-                        {repository.branch ? ` from ${repository.branch}` : ""}
-                      </SelectItem>
-                    </SelectPopup>
-                  </Select>
+                    startFromOrigin={repository.startFromOrigin ?? threadStartsFromOrigin}
+                    onStartFromOriginChange={(startFromOrigin) => {
+                      seed();
+                      useWorkspaceUiStore
+                        .getState()
+                        .updateDraftRepository(composerKey, repository.id, { startFromOrigin });
+                    }}
+                  />
+                ) : (
+                  <CheckoutBranchLabel
+                    environmentId={environmentId}
+                    path={repository.path}
+                    branch={repository.branch}
+                  />
                 )}
                 <Button
                   size="icon-xs"
                   variant="ghost-muted"
+                  // The chevron and X glyphs carry their own whitespace; this evens the visible gap.
+                  className="-ms-0.75"
                   aria-label={`Remove ${repository.label}`}
                   onClick={() => {
                     seed();
@@ -412,72 +459,42 @@ function EditableRepositories(
                 </Button>
               </>
             }
-          >
-            {repository.mode === "new-worktree" && !inFolder(repository) ? (
-              <WorktreeBaseBranchPicker
-                environmentId={environmentId}
-                cwd={repository.path}
-                value={repository.branch ?? ""}
-                onValueChange={(branch) => {
-                  seed();
-                  useWorkspaceUiStore
-                    .getState()
-                    .updateDraftRepository(composerKey, repository.id, { branch });
-                }}
-                startFromOrigin={repository.startFromOrigin ?? threadStartsFromOrigin}
-                onStartFromOriginChange={(startFromOrigin) => {
-                  seed();
-                  useWorkspaceUiStore
-                    .getState()
-                    .updateDraftRepository(composerKey, repository.id, { startFromOrigin });
-                }}
-              />
-            ) : null}
-          </RepositoryRow>
+          />
         ))}
       </ul>
       {selection.untouched &&
       selection.saved.length === 0 &&
       selection.foundCount > REPOSITORY_LIMIT ? (
-        <p className="px-1 pt-1 text-muted-foreground text-xs">
+        <p className="px-2 pt-1 text-muted-foreground text-xs">
           Showing the first {REPOSITORY_LIMIT} of {selection.foundCount} repositories in this
           folder.
         </p>
       ) : null}
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        <Button
-          size="sm"
-          variant="ghost"
-          // The project's own checkout takes one of the thread's places unless it's a folder.
-          disabled={repositories.length >= REPOSITORY_LIMIT - (folder ? 0 : 1)}
-          onClick={() => {
-            seed();
-            props.onDone();
-            openAdd();
-          }}
-        >
-          <PlusIcon />
-          Add repository
-        </Button>
-        {isDefault ? null : (
-          <Button size="sm" variant="ghost" onClick={() => void saveDefault(repositories)}>
-            <BookmarkIcon />
-            Save as project default
-          </Button>
-        )}
-        {selection.saved.length > 0 ? (
-          <Button size="sm" variant="ghost" onClick={() => void saveDefault(null)}>
-            Clear project default
-          </Button>
-        ) : null}
-      </div>
-      <p className="mt-2 border-t px-1 pt-2 text-muted-foreground text-xs">
-        {folder && props.envMode === "worktree"
-          ? `Each repository gets a new worktree from its default branch at its place in a copy of ${basename(project.workspaceRoot)}. Files outside the repositories aren't copied.`
-          : workspace
-            ? "Each repository keeps its own branch. New worktrees start from the latest commit."
-            : "Prepared when you send. New worktrees start from the latest commit; uncommitted changes stay where they are."}
-      </p>
+      <button
+        type="button"
+        className="mt-0.5 flex min-h-8 items-center gap-2 rounded-md ps-2 pe-1 text-muted-foreground text-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+        // The project's own checkout takes one of the thread's places unless it's a folder.
+        disabled={repositories.length >= REPOSITORY_LIMIT - (folder ? 0 : 1)}
+        onClick={() => setAdding(true)}
+      >
+        <PlusIcon className="size-3.5 shrink-0" />
+        Add a repository
+      </button>
+      {folder && envMode === "worktree" ? (
+        <p className="px-2 pt-1 text-muted-foreground text-xs">
+          Files outside the repositories aren't copied into the new{" "}
+          {basename(project.workspaceRoot)} folder.
+        </p>
+      ) : null}
+      {repositories.length > 0 ? (
+        <label className="mt-2 flex cursor-pointer items-center gap-2 border-t ps-1.75 pe-1 pt-2 text-xs">
+          <Checkbox
+            checked={isDefault}
+            onCheckedChange={(checked) => void saveDefault(checked ? repositories : null)}
+          />
+          Use for new threads in this project
+        </label>
+      ) : null}
       {workspace ? (
         <Button
           size="sm"
@@ -492,31 +509,127 @@ function EditableRepositories(
   );
 }
 
+/** Projects on this machine to add, then any folder. */
+function AddRepositoryPicker(props: {
+  readonly projects: ReturnType<typeof useAddRepository>["projects"];
+  readonly onPick: (path: string) => Promise<void>;
+  readonly onBrowse: () => void;
+  readonly onBack: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [pending, setPending] = useState(false);
+  const search = query.trim().toLocaleLowerCase();
+  const candidates = props.projects.filter((project) =>
+    `${project.title} ${project.workspaceRoot}`.toLocaleLowerCase().includes(search),
+  );
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-1 pb-1">
+        <Button size="icon-xs" variant="ghost-muted" aria-label="Back" onClick={props.onBack}>
+          <ArrowLeftIcon />
+        </Button>
+        <span className="font-medium text-sm">Add a repository</span>
+      </div>
+      <Command mode="none" value={query} onValueChange={setQuery} aria-label="Add a repository">
+        <CommandInput placeholder="Search projects…" disabled={pending} />
+        <CommandList className="max-h-64 overflow-y-auto">
+          {candidates.map((project) => (
+            <CommandItem
+              key={project.id}
+              value={project.id}
+              disabled={pending}
+              onClick={() => {
+                setPending(true);
+                void props.onPick(project.workspaceRoot).finally(() => setPending(false));
+              }}
+            >
+              <ProjectFavicon project={project} className="size-4 shrink-0" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate">{project.title}</span>
+                <span className="truncate text-muted-foreground text-xs">
+                  {project.workspaceRoot}
+                </span>
+              </span>
+            </CommandItem>
+          ))}
+          <CommandItem value="browse" disabled={pending} onClick={props.onBrowse}>
+            <FolderOpenIcon aria-hidden className="size-4 shrink-0" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span>Browse for a folder…</span>
+              <span className="truncate text-muted-foreground text-xs">
+                A repository, or a folder that contains repositories
+              </span>
+            </span>
+          </CommandItem>
+        </CommandList>
+      </Command>
+    </div>
+  );
+}
+
+/** The branch a current checkout is on, read live when the repository came from a default. */
+function CheckoutBranchLabel(props: {
+  environmentId: EnvironmentId;
+  path: string;
+  branch: string | null;
+}) {
+  const status = useEnvironmentQuery(
+    props.branch === null
+      ? vcsEnvironment.status({ environmentId: props.environmentId, input: { cwd: props.path } })
+      : null,
+  );
+  return (
+    <BranchLabel>
+      {props.branch ?? (status.data ? (status.data.refName ?? "Detached HEAD") : "…")}
+    </BranchLabel>
+  );
+}
+
+function BranchLabel(props: { children: ReactNode }) {
+  return (
+    <span className="flex h-6 min-w-0 items-center gap-1.5 ps-1.75 pe-1.5 text-muted-foreground/70 text-xs">
+      <GitBranchIcon className="size-3 shrink-0" />
+      <span className="truncate">{props.children}</span>
+    </span>
+  );
+}
+
 function RepositoryRow(props: {
   label: string;
-  detail: string;
+  /** Shown on hover; rows stay one line. */
+  path?: string;
+  detail?: string;
   icon?: ReactNode;
   /** Indented under the folder it lives in. */
   nested?: boolean;
   status?: ReactNode;
-  trailing: ReactNode;
-  /** Settings shown under the row, such as a new worktree's base branch. */
-  children?: ReactNode;
+  trailing?: ReactNode;
 }) {
   return (
-    <li className={cn("flex flex-col gap-1 rounded-md px-1", props.nested && "ps-4")}>
-      <div className="flex min-h-8 items-center gap-2">
-        {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-1.5 truncate text-sm">
-            {props.label}
-            {props.status}
-          </span>
+    <li className={cn("flex min-h-8 items-center gap-2 ps-2 pe-1", props.nested && "ps-6")}>
+      {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-1.5 text-sm">
+          {props.path ? (
+            <Tooltip>
+              <TooltipTrigger render={<span className="truncate" />}>{props.label}</TooltipTrigger>
+              <TooltipPopup>{props.path}</TooltipPopup>
+            </Tooltip>
+          ) : (
+            <span className="truncate">{props.label}</span>
+          )}
+          {props.status}
+        </span>
+        {props.detail ? (
           <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">{props.trailing}</div>
+        ) : null}
       </div>
-      {props.children ? <div className="ps-5.5 pb-1">{props.children}</div> : null}
+      {/* Branch controls keep 6px between icon, name, and chevron, like the read-only labels. */}
+      {props.trailing ? (
+        <div className="flex min-w-0 max-w-[60%] items-center justify-end **:data-[slot=combobox-trigger]:gap-1.5 [&_[data-slot=combobox-trigger]>svg:first-child]:me-0">
+          {props.trailing}
+        </div>
+      ) : null}
     </li>
   );
 }

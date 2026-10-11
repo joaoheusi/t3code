@@ -111,6 +111,25 @@ describe("workspace configuration", () => {
     });
   });
 
+  it("checks every chosen repository out the thread's way, except linked worktrees", () => {
+    const repositories = [
+      repository("api", "current"),
+      repository("sdk", "new-worktree"),
+      repository("wt", "existing-worktree"),
+    ];
+    const modes = (envMode?: "local" | "worktree") =>
+      workspaceConfiguration({
+        primary: null,
+        repositories,
+        expectedRevision: 0,
+        ...(envMode ? { envMode } : {}),
+      }).bindings.map((binding) => binding.mode);
+    expect(modes("worktree")).toEqual(["new-worktree", "new-worktree", "existing-worktree"]);
+    expect(modes("local")).toEqual(["current", "current", "existing-worktree"]);
+    // Replaying recorded bindings keeps the modes they were prepared with.
+    expect(modes()).toEqual(["current", "new-worktree", "existing-worktree"]);
+  });
+
   it("gives a folder's mode to the repositories inside it and keeps the mirror's name free", () => {
     const configuration = workspaceConfiguration({
       primary: null,

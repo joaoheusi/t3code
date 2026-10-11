@@ -34,6 +34,7 @@ import {
   PickerRow,
   PickerSearchField,
   PickerSurface,
+  PickerToggleRow,
 } from "../../components/PickerList";
 import { randomHex, uuidv4 } from "../../lib/uuid";
 import {
@@ -126,22 +127,24 @@ function RepositoriesContent(props: {
   const [query, setQuery] = useState("");
   const [path, setPath] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const { repositories, selection } = choice;
   const limit = selection.folder ? REPOSITORY_LIMIT : REPOSITORY_LIMIT - 1;
   const full = repositories.length >= limit;
   // An added repository records the thread's mode, so it waits for a t3.json default.
   const canAdd = !full && workspaceModeSettled;
-  const hasSavedDefault =
-    (config?.settings.projectSettingsOverrides[props.project.id]?.workspaceRepositories?.length ??
-      0) > 0;
+  const saved = config?.settings.projectSettingsOverrides[props.project.id]?.workspaceRepositories;
+  // Every repository follows the task's mode, so a default is just which ones.
+  const isDefault =
+    !!saved &&
+    saved.length > 0 &&
+    saved.length === repositories.length &&
+    repositories.every((repository, index) => saved[index]!.path === repository.path);
 
   const add = async (repositoryPath: string) => {
     if (!canAdd) return;
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
       const result = await inspect({
         environmentId: props.project.environmentId,
@@ -184,7 +187,6 @@ function RepositoriesContent(props: {
     if (!config) return;
     setBusy(true);
     setError(null);
-    setNotice(null);
     const result = await save({
       environmentId: props.project.environmentId,
       input: {
@@ -204,16 +206,8 @@ function RepositoriesContent(props: {
     });
     setBusy(false);
     if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
-    else setNotice(clear ? "Project default cleared." : "Saved as the project default.");
   };
 
-  const setMode = (repositoryPath: string, mode: "current" | "new-worktree") =>
-    choice.setSelection({
-      ...selection,
-      repositories: selection.repositories.map((entry) =>
-        entry.path === repositoryPath ? { ...entry, mode } : entry,
-      ),
-    });
   const removeRepository = (repositoryPath: string) =>
     choice.setSelection({
       ...selection,
@@ -259,9 +253,15 @@ function RepositoriesContent(props: {
           {repositories.map((repository, index) => {
             const followsFolder =
               selection.folder && isInsideFolder(props.project.workspaceRoot, repository.path);
-            const canSwitch = repository.mode !== "existing-worktree" && !followsFolder;
+            // Every repository follows the task's mode; a linked worktree stays itself.
+            const mode =
+              repository.mode === "existing-worktree"
+                ? repository.mode
+                : workspaceMode === "worktree"
+                  ? "new-worktree"
+                  : "current";
             // A new worktree's base is chosen on its own screen; the row opens it.
-            const choosesBase = repository.mode === "new-worktree" && !followsFolder;
+            const choosesBase = mode === "new-worktree" && !followsFolder;
             return (
               <PickerRow
                 key={repository.path}
@@ -269,7 +269,7 @@ function RepositoriesContent(props: {
                 subtitle={
                   followsFolder
                     ? "Follows the folder setting"
-                    : `${CHECKOUT_MODE_LABEL[repository.mode]}${choosesBase ? ` from ${repository.branch ?? "default branch"}` : ""} · ${shortPath(repository.path)}`
+                    : `${CHECKOUT_MODE_LABEL[mode]}${choosesBase ? ` from ${repository.branch ?? "default branch"}` : ""} · ${shortPath(repository.path)}`
                 }
                 {...(choosesBase
                   ? {
@@ -291,16 +291,6 @@ function RepositoriesContent(props: {
                     disabled={busy}
                     onPress={() => removeRepository(repository.path)}
                   />
-                }
-                trailing={
-                  canSwitch ? (
-                    <CheckoutModeToggle
-                      label={repository.label}
-                      mode={repository.mode === "new-worktree" ? "new-worktree" : "current"}
-                      disabled={busy}
-                      onChange={(mode) => setMode(repository.path, mode)}
-                    />
-                  ) : undefined
                 }
                 isLast={index === repositories.length - 1}
               />
@@ -389,27 +379,17 @@ function RepositoriesContent(props: {
         ) : null}
         {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
 
-        <Text className="mt-4 px-4 text-xs font-t3-medium uppercase tracking-wide text-foreground-muted">
-          Project default
-        </Text>
-        <PickerSurface>
-          <PickerRow
-            title="Save as project default"
-            tone="accent"
-            disabled={busy}
-            onPress={() => void saveDefault(false)}
-          />
-          <PickerRow
-            title="Clear project default"
-            tone="accent"
-            isLast
-            disabled={busy || !hasSavedDefault}
-            onPress={() => void saveDefault(true)}
-          />
-        </PickerSurface>
-        <PickerCaption>
-          {notice ?? "New tasks in this project start with the saved repositories."}
-        </PickerCaption>
+        {repositories.length > 0 ? (
+          <PickerSurface>
+            <PickerToggleRow
+              title="Use for new tasks in this project"
+              value={isDefault}
+              disabled={busy}
+              onValueChange={(value) => void saveDefault(!value)}
+              isLast
+            />
+          </PickerSurface>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -495,58 +475,6 @@ function RemoveButton(props: {
         type="monochrome"
       />
     </Pressable>
-  );
-}
-
-const CHECKOUT_MODE_ICON = {
-  current: "folder",
-  "new-worktree": "arrow.triangle.branch",
-} as const;
-
-/** Two icon segments: work in the current checkout, or in a new worktree. */
-function CheckoutModeToggle(props: {
-  readonly label: string;
-  readonly mode: "current" | "new-worktree";
-  readonly disabled?: boolean;
-  readonly onChange: (mode: "current" | "new-worktree") => void;
-}) {
-  return (
-    <View
-      accessibilityRole="radiogroup"
-      accessibilityLabel={`Checkout for ${props.label}`}
-      className="flex-row rounded-full bg-subtle p-0.5"
-      style={{ opacity: props.disabled ? 0.45 : 1 }}
-    >
-      {(["current", "new-worktree"] as const).map((mode) => {
-        const selected = props.mode === mode;
-        return (
-          <Pressable
-            key={mode}
-            accessibilityRole="radio"
-            accessibilityLabel={CHECKOUT_MODE_LABEL[mode]}
-            accessibilityState={{ checked: selected, disabled: props.disabled }}
-            disabled={props.disabled || selected}
-            hitSlop={4}
-            onPress={() => {
-              void Haptics.selectionAsync();
-              props.onChange(mode);
-            }}
-            className={
-              selected
-                ? "h-7 w-9 items-center justify-center rounded-full bg-card"
-                : "h-7 w-9 items-center justify-center rounded-full active:opacity-60"
-            }
-          >
-            <SymbolView
-              name={CHECKOUT_MODE_ICON[mode]}
-              size={14}
-              tintColorClassName={selected ? "accent-icon" : "accent-icon-muted"}
-              type="monochrome"
-            />
-          </Pressable>
-        );
-      })}
-    </View>
   );
 }
 
