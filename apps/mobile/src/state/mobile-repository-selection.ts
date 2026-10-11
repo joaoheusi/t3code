@@ -8,6 +8,7 @@ export const MobileRepositorySelection = Schema.Struct({
       ...WorkspaceRepositoryDefault.fields,
       branch: Schema.optional(Schema.NullOr(Schema.String)),
       head: Schema.optional(Schema.String),
+      startFromOrigin: Schema.optional(Schema.Boolean),
     }),
   ),
 });

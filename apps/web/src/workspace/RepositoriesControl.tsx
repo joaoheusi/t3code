@@ -51,6 +51,7 @@ import { forkWorkspace } from "../state/forkWorkspace";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
+import { WorktreeBaseBranchPicker } from "../components/WorktreeBaseBranchPicker";
 import { useRepositoryStatus } from "./ThreadRepositoriesSection";
 import { useAddRepository } from "./useAddRepository";
 import {
@@ -264,6 +265,11 @@ function EditableRepositories(
           worktreePath: props.worktreePath,
           branch: props.branch,
         });
+  // Added repositories start new worktrees the way the thread's own checkout would.
+  const threadStartsFromOrigin =
+    props.envMode === "worktree"
+      ? props.startFromOrigin
+      : resolveProjectSettings(settings, project.id).settings.newWorktreesStartFromOrigin;
   const inFolder = (repository: DraftRepository) =>
     folder && isInsideFolder(project.workspaceRoot, repository.path);
   const isDefault =
@@ -297,10 +303,7 @@ function EditableRepositories(
             : {}),
           repositories,
           expectedRevision: workspace.revision,
-          startFromOrigin:
-            props.envMode === "worktree"
-              ? props.startFromOrigin
-              : resolveProjectSettings(settings, project.id).settings.newWorktreesStartFromOrigin,
+          startFromOrigin: threadStartsFromOrigin,
         }),
       },
     });
@@ -377,11 +380,9 @@ function EditableRepositories(
                       seed();
                       useWorkspaceUiStore
                         .getState()
-                        .setDraftRepositoryMode(
-                          composerKey,
-                          repository.id,
-                          mode === "new-worktree" ? "new-worktree" : "current",
-                        );
+                        .updateDraftRepository(composerKey, repository.id, {
+                          mode: mode === "new-worktree" ? "new-worktree" : "current",
+                        });
                     }}
                   >
                     <SelectTrigger size="xs" aria-label={`Checkout for ${repository.label}`}>
@@ -411,7 +412,28 @@ function EditableRepositories(
                 </Button>
               </>
             }
-          />
+          >
+            {repository.mode === "new-worktree" && !inFolder(repository) ? (
+              <WorktreeBaseBranchPicker
+                environmentId={environmentId}
+                cwd={repository.path}
+                value={repository.branch ?? ""}
+                onValueChange={(branch) => {
+                  seed();
+                  useWorkspaceUiStore
+                    .getState()
+                    .updateDraftRepository(composerKey, repository.id, { branch });
+                }}
+                startFromOrigin={repository.startFromOrigin ?? threadStartsFromOrigin}
+                onStartFromOriginChange={(startFromOrigin) => {
+                  seed();
+                  useWorkspaceUiStore
+                    .getState()
+                    .updateDraftRepository(composerKey, repository.id, { startFromOrigin });
+                }}
+              />
+            ) : null}
+          </RepositoryRow>
         ))}
       </ul>
       {selection.untouched &&
@@ -478,18 +500,23 @@ function RepositoryRow(props: {
   nested?: boolean;
   status?: ReactNode;
   trailing: ReactNode;
+  /** Settings shown under the row, such as a new worktree's base branch. */
+  children?: ReactNode;
 }) {
   return (
-    <li className={cn("flex min-h-8 items-center gap-2 rounded-md px-1", props.nested && "ps-4")}>
-      {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1.5 truncate text-sm">
-          {props.label}
-          {props.status}
-        </span>
-        <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
+    <li className={cn("flex flex-col gap-1 rounded-md px-1", props.nested && "ps-4")}>
+      <div className="flex min-h-8 items-center gap-2">
+        {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <span className="flex items-center gap-1.5 truncate text-sm">
+            {props.label}
+            {props.status}
+          </span>
+          <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">{props.trailing}</div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">{props.trailing}</div>
+      {props.children ? <div className="ps-5.5 pb-1">{props.children}</div> : null}
     </li>
   );
 }

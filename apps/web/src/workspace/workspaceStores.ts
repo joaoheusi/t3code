@@ -1,7 +1,7 @@
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { create } from "zustand";
 
-import type { CheckoutMode, DraftRepository } from "./workspaceModel";
+import type { DraftRepository } from "./workspaceModel";
 
 interface DraftRepositorySelection {
   readonly environmentId: EnvironmentId;
@@ -26,7 +26,12 @@ interface WorkspaceUiState {
     repository: DraftRepository,
   ) => void;
   removeDraftRepository: (key: string, id: string) => void;
-  setDraftRepositoryMode: (key: string, id: string, mode: CheckoutMode) => void;
+  /** Changes how one chosen repository is checked out: its mode, or a new worktree's base. */
+  updateDraftRepository: (
+    key: string,
+    id: string,
+    patch: Partial<Pick<DraftRepository, "mode" | "branch" | "startFromOrigin">>,
+  ) => void;
   setDraftRepositories: (key: string, selection: DraftRepositorySelection | null) => void;
   setPendingSend: (threadKey: string, prompt: string | null) => void;
   setActiveRepository: (threadKey: string, bindingId: string) => void;
@@ -66,7 +71,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
         draftRepositories: { ...state.draftRepositories, [key]: { ...current, repositories } },
       };
     }),
-  setDraftRepositoryMode: (key, id, mode) =>
+  updateDraftRepository: (key, id, patch) =>
     set((state) => {
       const current = state.draftRepositories[key];
       if (!current) return state;
@@ -76,7 +81,7 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
           [key]: {
             ...current,
             repositories: current.repositories.map((entry) =>
-              entry.id === id ? { ...entry, mode } : entry,
+              entry.id === id ? { ...entry, ...patch } : entry,
             ),
           },
         },
