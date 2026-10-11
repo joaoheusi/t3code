@@ -9,7 +9,7 @@ import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { resolveBranchTriggerLabel, sanitizeNewRefName } from "./BranchToolbar.logic";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { Button } from "./ui/button";
-import { ComposerControl } from "./chat/ComposerControl";
+import { ComposerControl, ComposerControlChevron } from "./chat/ComposerControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { ComboboxTrigger } from "./ui/combobox";
 
@@ -133,7 +133,7 @@ export function WorktreeBaseBranchPicker({
           <ComposerContextLabel>
             <MiddleTruncate value={label} className="w-full" />
           </ComposerContextLabel>
-          <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+          <ComposerControlChevron size="xs" />
         </ComboboxTrigger>
       ) : (
         <ComboboxTrigger

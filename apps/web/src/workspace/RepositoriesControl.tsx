@@ -240,7 +240,7 @@ export const RepositoriesControl = memo(function RepositoriesControl(
 
 function PopoverHeading(props: { title: string; detail: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 px-1 pt-1 pb-2">
+    <div className="flex items-baseline justify-between gap-3 px-2 pt-1 pb-2">
       <span className="font-medium text-sm">{props.title}</span>
       <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
     </div>
@@ -445,6 +445,8 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
                 <Button
                   size="icon-xs"
                   variant="ghost-muted"
+                  // The chevron and X glyphs carry their own whitespace; this evens the visible gap.
+                  className="-ms-0.75"
                   aria-label={`Remove ${repository.label}`}
                   onClick={() => {
                     seed();
@@ -463,30 +465,29 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
       {selection.untouched &&
       selection.saved.length === 0 &&
       selection.foundCount > REPOSITORY_LIMIT ? (
-        <p className="px-1 pt-1 text-muted-foreground text-xs">
+        <p className="px-2 pt-1 text-muted-foreground text-xs">
           Showing the first {REPOSITORY_LIMIT} of {selection.foundCount} repositories in this
           folder.
         </p>
       ) : null}
-      <Button
-        size="sm"
-        variant="ghost"
-        className="mt-1 self-start"
+      <button
+        type="button"
+        className="mt-0.5 flex min-h-8 items-center gap-2 rounded-md ps-2 pe-1 text-muted-foreground text-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         // The project's own checkout takes one of the thread's places unless it's a folder.
         disabled={repositories.length >= REPOSITORY_LIMIT - (folder ? 0 : 1)}
         onClick={() => setAdding(true)}
       >
-        <PlusIcon />
+        <PlusIcon className="size-3.5 shrink-0" />
         Add a repository
-      </Button>
+      </button>
       {folder && envMode === "worktree" ? (
-        <p className="px-1 pt-1 text-muted-foreground text-xs">
+        <p className="px-2 pt-1 text-muted-foreground text-xs">
           Files outside the repositories aren't copied into the new{" "}
           {basename(project.workspaceRoot)} folder.
         </p>
       ) : null}
       {repositories.length > 0 ? (
-        <label className="mt-2 flex cursor-pointer items-center gap-2 border-t px-1 pt-2.5 text-xs">
+        <label className="mt-2 flex cursor-pointer items-center gap-2 border-t ps-1.75 pe-1 pt-2 text-xs">
           <Checkbox
             checked={isDefault}
             onCheckedChange={(checked) => void saveDefault(checked ? repositories : null)}
@@ -586,11 +587,9 @@ function CheckoutBranchLabel(props: {
 
 function BranchLabel(props: { children: ReactNode }) {
   return (
-    <span className="flex min-w-0 items-center gap-1 px-1.75 text-muted-foreground/70 text-xs">
+    <span className="flex h-6 min-w-0 items-center gap-1.5 ps-1.75 pe-1.5 text-muted-foreground/70 text-xs">
       <GitBranchIcon className="size-3 shrink-0" />
       <span className="truncate">{props.children}</span>
-      {/* The pickers' chevron width, so branch names line up across rows. */}
-      <span className="size-3 shrink-0" />
     </span>
   );
 }
@@ -607,7 +606,7 @@ function RepositoryRow(props: {
   trailing?: ReactNode;
 }) {
   return (
-    <li className={cn("flex min-h-8 items-center gap-2 rounded-md px-1", props.nested && "ps-4")}>
+    <li className={cn("flex min-h-8 items-center gap-2 ps-2 pe-1", props.nested && "ps-6")}>
       {props.icon ?? <FolderGit2Icon className="size-3.5 shrink-0 text-muted-foreground" />}
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-1.5 text-sm">
@@ -625,8 +624,9 @@ function RepositoryRow(props: {
           <span className="truncate text-muted-foreground text-xs">{props.detail}</span>
         ) : null}
       </div>
+      {/* Branch controls keep 6px between icon, name, and chevron, like the read-only labels. */}
       {props.trailing ? (
-        <div className="flex min-w-0 max-w-[60%] items-center justify-end gap-1">
+        <div className="flex min-w-0 max-w-[60%] items-center justify-end **:data-[slot=combobox-trigger]:gap-1.5 [&_[data-slot=combobox-trigger]>svg:first-child]:me-0">
           {props.trailing}
         </div>
       ) : null}
