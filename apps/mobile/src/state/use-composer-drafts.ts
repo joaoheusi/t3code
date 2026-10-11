@@ -77,6 +77,16 @@ export function setComposerContextImporting(draftKey: string, importing: boolean
   appAtomRegistry.set(composerContextImportsAtom, next);
 }
 
+/** Drafts a quick action asked to send; the thread composer sends once it is back in view. */
+export const composerSendRequestsAtom = Atom.make<Record<string, boolean>>({}).pipe(Atom.keepAlive);
+
+export function setComposerSendRequested(draftKey: string, requested: boolean): void {
+  const next = { ...appAtomRegistry.get(composerSendRequestsAtom) };
+  if (requested) next[draftKey] = true;
+  else delete next[draftKey];
+  appAtomRegistry.set(composerSendRequestsAtom, next);
+}
+
 let lastComposerSelection: { draftKey: string; text: string; start: number; end: number } | null =
   null;
 

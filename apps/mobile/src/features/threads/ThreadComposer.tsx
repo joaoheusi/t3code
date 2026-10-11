@@ -60,7 +60,9 @@ import {
   composerDraftsAtom,
   setComposerDraftText,
   composerContextImportsAtom,
+  composerSendRequestsAtom,
   countComposerDraftAttachmentsAfterSelection,
+  setComposerSendRequested,
 } from "../../state/use-composer-drafts";
 import { appAtomRegistry } from "../../state/atom-registry";
 import type { ComposerDocumentAttachment } from "../../lib/composerContext";
@@ -645,6 +647,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       voiceInput.blocksSubmission,
     ],
   );
+  // A quick action that sends asks here, after its text is already in this draft.
+  const sendRequested = useAtomValue(composerSendRequestsAtom)[composerDraftKey] === true;
+  useEffect(() => {
+    if (!sendRequested) return;
+    setComposerSendRequested(composerDraftKey, false);
+    void handleSend();
+  }, [composerDraftKey, handleSend, sendRequested]);
 
   // ── Model menu ───────────────────────────────────────────
   // A session that hands the conversation to another provider lets the picker

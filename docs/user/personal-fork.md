@@ -12,7 +12,7 @@ Keep the official application available while testing this build. To return to i
 
 ## Quick actions
 
-Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserting never sends; you review the text first. Actions with one target insert directly. When several pull requests or repositories fit, select one or more, then choose **Insert selected**. Pull request choices show CI and conflict status.
+Quick actions are saved instructions you insert into a thread's composer. Type `/` in the composer to see them next to the other commands, or press **⌘G** (**Ctrl+G** on Windows and Linux) anywhere in a thread. They also appear when you search the command palette (**⌘K**). Inserted text waits for you to review it. To skip the review, turn on **Send immediately** in an action's editor; it then sends as soon as it is inserted, and follows your follow-up setting while the agent is working. If the draft changed while the action loaded, it waits in a banner instead and is not sent. Actions with one target insert directly. When several pull requests or repositories fit, select one or more, then choose **Insert selected**. Pull request choices show CI and conflict status.
 
 On mobile, choose **Actions** next to the composer controls to insert an action. Use **+** there to create one, and long press an action to edit, favorite, disable, or delete it.
 
@@ -59,7 +59,7 @@ Claude and Codex can work across repositories outside the thread's folder. Other
 
 **Fix** and **Resolve** on a pull request in the thread details panel draft a task in this thread's composer, with the failing checks or conflict state attached. Nothing is sent and no checkout changes. Use the menu next to them to work in a new thread instead. From the pull requests page, you pick the thread first.
 
-The text of these tasks is your **Resolve CI** and **Resolve merge conflicts** quick actions, so editing those changes what the buttons insert. The attached context includes check names, descriptions, and run links, not full CI logs. Logs, comments, and filenames are untrusted text.
+The text of these tasks is your **Resolve CI** and **Resolve merge conflicts** quick actions, so editing those changes what the buttons insert. The buttons never send, even when **Send immediately** is on. The attached context includes check names, descriptions, and run links, not full CI logs. Logs, comments, and filenames are untrusted text.
 
 ## Remote clients
 

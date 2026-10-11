@@ -79,6 +79,7 @@ export function useTaskDestination(
       projectId: null,
       enabled: true,
       favorite: false,
+      autoSend: false,
       revision: starter?.revision ?? 0,
       createdAt: starter?.createdAt ?? now,
       updatedAt: starter?.updatedAt ?? now,

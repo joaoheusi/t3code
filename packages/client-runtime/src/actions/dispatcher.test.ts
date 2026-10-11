@@ -6,7 +6,8 @@ describe("action insertion", () => {
     let text = "before SELECT after",
       revision = 0,
       ready = true,
-      clock = 0;
+      clock = 0,
+      sends = 0;
     const replacements: string[] = [];
     const editor: ActionEditor = {
       read: () => ({ text, revision, selection: { start: 7, end: 13 } }),
@@ -15,6 +16,10 @@ describe("action insertion", () => {
         text = text.slice(0, start) + value + text.slice(end);
         revision++;
         replacements.push(text);
+        return true;
+      },
+      submit: () => {
+        sends++;
         return true;
       },
     };
@@ -29,6 +34,7 @@ describe("action insertion", () => {
       unregister,
       replacements,
       text: () => text,
+      sends: () => sends,
       change: () => {
         text = "new user edits";
         revision++;
@@ -70,9 +76,28 @@ describe("action insertion", () => {
         other = "wrong";
         return true;
       },
+      submit: () => {
+        other = "sent";
+        return true;
+      },
     });
     expect(state.dispatcher.insert(invocation, "task", "append")).toBe("unavailable-target");
+    expect(state.dispatcher.submit(invocation)).toBe(false);
     expect(other).toBe("other");
+  });
+  it("sends only after its own insertion into a still-available composer", () => {
+    const state = setup(),
+      invocation = state.dispatcher.capture("host:original", "action", 1)!;
+    expect(state.dispatcher.submit(invocation)).toBe(false);
+    expect(state.dispatcher.insert(invocation, "inserted", "selection")).toBe("inserted");
+    state.unavailable();
+    expect(state.dispatcher.submit(invocation)).toBe(false);
+    expect(state.sends()).toBe(0);
+    const ready = setup(),
+      sent = ready.dispatcher.capture("host:original", "action", 1)!;
+    ready.dispatcher.insert(sent, "inserted", "selection");
+    expect(ready.dispatcher.submit(sent)).toBe(true);
+    expect(ready.sends()).toBe(1);
   });
   it("cancels and expires without modifying the editor", () => {
     const state = setup(),

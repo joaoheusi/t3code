@@ -291,6 +291,7 @@ try {
     projectId: null,
     enabled: true,
     favorite: false,
+    autoSend: false,
   };
   await client((rpc) =>
     Effect.gen(function* () {

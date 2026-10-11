@@ -7,6 +7,8 @@ export interface ActionEditor {
   readonly read: () => ActionEditorSnapshot;
   readonly available: () => boolean;
   readonly replace: (start: number, end: number, text: string) => boolean;
+  /** Sends the draft as if the user pressed send. Returns false when sending is blocked. */
+  readonly submit: () => boolean;
 }
 export interface ActionInvocation {
   readonly id: string;
@@ -23,7 +25,7 @@ export type ActionInsertionResult =
   | "expired"
   | "already-inserted";
 
-/** The dispatcher owns insertion only. It has no provider, thread-create, or Git dependency. */
+/** The dispatcher owns insertion and its optional send. It has no provider, thread-create, or Git dependency. */
 export class ActionDispatcher {
   private readonly editors = new Map<string, ActionEditor>();
   private readonly invocations = new Map<
@@ -102,5 +104,13 @@ export class ActionDispatcher {
       return "unavailable-target";
     }
     return "inserted";
+  }
+  /** Sends the draft an invocation inserted into, only while that composer is still the target. */
+  submit(invocation: ActionInvocation): boolean {
+    const record = this.invocations.get(invocation.id);
+    if (!record || record.invocation !== invocation || !record.consumed) return false;
+    const editor = this.editors.get(invocation.target);
+    if (!editor?.available()) return false;
+    return editor.submit();
   }
 }

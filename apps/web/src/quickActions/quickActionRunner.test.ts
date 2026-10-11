@@ -29,6 +29,7 @@ const action = (template: string): QuickAction => ({
   projectId: null,
   enabled: true,
   favorite: false,
+  autoSend: false,
   revision: 1,
   createdAt: "",
   updatedAt: "",
