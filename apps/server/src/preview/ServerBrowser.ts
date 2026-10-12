@@ -2405,6 +2405,8 @@ const make = Effect.gen(function* () {
         if (pending) yield* Effect.promise(() => pending.catch(constVoid));
         const current = tabs.get(id);
         if (current?.desktop) return;
+        // A desktop that already let go again leaves the headless page in place.
+        if (!(yield* desktopChannel.isAttached(key))) return;
         if (current) dropTab(current, false, true);
         const { sessions } = yield* manager.list({ threadId: ThreadId.make(key.threadId) });
         const snapshot = sessions.find(

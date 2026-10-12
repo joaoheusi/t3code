@@ -1550,11 +1550,17 @@ it.live("an agent tab that started headless moves to the desktop page once it mo
       // A stalled viewer must still learn the tab moved.
       stallViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
       while (desktopDetaches.listenerCount("attach") === 0) yield* Effect.yieldNow;
+      // An attach the desktop already took back leaves the headless page alone.
+      desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
+      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      expect(contexts[0]!.close).not.toHaveBeenCalled();
       // The user opens the thread; the desktop draws its own page for the tab.
       desktopTabs.add(tabId);
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
       while (desktopConnections.length === 0) yield* Effect.yieldNow;
       expect(contexts[0]!.close).toHaveBeenCalled();
+      // No second headless page replaced the first.
+      expect(contexts).toHaveLength(1);
       const backlog = yield* Queue.clear(viewer.output);
       expect(backlog.map((item) => item._tag)).toEqual(["reconnect"]);
       // The agent now drives the page the user sees, with the user's cookies.
