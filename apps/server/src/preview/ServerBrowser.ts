@@ -683,14 +683,15 @@ const make = Effect.gen(function* () {
   /** Whether the preview session for a tab still exists. */
   const sessionOpen = (tab: ServerTab) => !closedSessions.has(tabKey(tab.threadId, tab.tabId));
 
-  const dropTab = (tab: ServerTab, closeSession: boolean) => {
+  const dropTab = (tab: ServerTab, closeSession: boolean, movingToDesktop = false) => {
     const key = tabKey(tab.threadId, tab.tabId);
     if (tabs.get(key) !== tab) return;
     tabs.delete(key);
     tab.closing = true;
     clearAbortedNavigation(tab);
     // A desktop page outlives the connection unless its session closed with it.
-    const end = tab.desktop && !closeSession && sessionOpen(tab) ? "reconnect" : "gone";
+    const end =
+      (tab.desktop || movingToDesktop) && !closeSession && sessionOpen(tab) ? "reconnect" : "gone";
     for (const viewer of tab.viewers) viewer.push({ _tag: end });
     void tab.control.close().catch(constVoid);
     // The desktop owns its page; letting go only ends this connection.
@@ -2213,7 +2214,12 @@ const make = Effect.gen(function* () {
           if (next._tag === "frame") runFork(next.ack);
           // State a stalled viewer cannot miss replaces its backlog. It runs
           // synchronously so an older replacement can never land after a newer one.
-          else if (next._tag === "gone" || next._tag === "control" || next._tag === "fileChooser") {
+          else if (
+            next._tag === "gone" ||
+            next._tag === "reconnect" ||
+            next._tag === "control" ||
+            next._tag === "fileChooser"
+          ) {
             const dropped = Effect.runSyncExit(Queue.clear(output));
             if (dropped._tag === "Failure") return;
             Queue.offerUnsafe(output, next);
@@ -2385,13 +2391,23 @@ const make = Effect.gen(function* () {
     ),
     Effect.forkScoped,
   );
-  // The page came back, for example after its DevTools closed. Reconnect now
-  // rather than on the next viewer or agent, or the tab's URL and title stop
-  // reaching every client in the meantime.
+  // The page came back, for example after its DevTools closed, or the desktop
+  // mounted a tab that started headless because no window showed its thread in
+  // time. The desktop page is the one the user sees and signs in to, so a
+  // headless twin must give way, or the agent drives separate cookies and DOM.
+  // Reconnect now rather than on the next viewer or agent, or the tab's URL and
+  // title stop reaching every client in the meantime.
   yield* desktopChannel.attached.pipe(
     Stream.runForEach((key) =>
       Effect.gen(function* () {
-        if (tabs.has(tabKey(key.threadId, key.tabId))) return;
+        const id = tabKey(key.threadId, key.tabId);
+        const pending = pendingTabs.get(id);
+        if (pending) yield* Effect.promise(() => pending.catch(constVoid));
+        const current = tabs.get(id);
+        if (current?.desktop) return;
+        // A desktop that already let go again leaves the headless page in place.
+        if (!(yield* desktopChannel.isAttached(key))) return;
+        if (current) dropTab(current, false, true);
         const { sessions } = yield* manager.list({ threadId: ThreadId.make(key.threadId) });
         const snapshot = sessions.find(
           (session) => session.tabId === key.tabId && session.runtime === "server",
