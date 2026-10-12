@@ -1547,16 +1547,16 @@ it.live("an agent tab that started headless moves to the desktop page once it mo
       const { browser, broker, tabId } = yield* ready;
       expect(contexts).toHaveLength(1);
       const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
+      // A stalled viewer must still learn the tab moved.
+      stallViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
       while (desktopDetaches.listenerCount("attach") === 0) yield* Effect.yieldNow;
       // The user opens the thread; the desktop draws its own page for the tab.
       desktopTabs.add(tabId);
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
-      let end = yield* Queue.take(viewer.output);
-      while (end._tag !== "reconnect" && end._tag !== "gone")
-        end = yield* Queue.take(viewer.output);
-      expect(end._tag).toBe("reconnect");
       while (desktopConnections.length === 0) yield* Effect.yieldNow;
       expect(contexts[0]!.close).toHaveBeenCalled();
+      const backlog = yield* Queue.clear(viewer.output);
+      expect(backlog.map((item) => item._tag)).toEqual(["reconnect"]);
       // The agent now drives the page the user sees, with the user's cookies.
       const desktopPage = desktopConnections[0]!.context.page;
       const evaluated = desktopPage.evaluate.mock.calls.length;
