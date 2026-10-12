@@ -173,7 +173,9 @@ describe("merge quick action confirmation", () => {
 
   it("does not offer a confirmation when fresh status blocks merging", async () => {
     loadDetail.mockResolvedValue(AsyncResult.success(detail({ isDraft: true })));
-    await expect(currentMerge()(environmentId, [reference])).rejects.toThrow("not ready to merge");
+    await expect(currentMerge()(environmentId, [reference])).rejects.toThrow(
+      "acme/web #7: Still a draft.",
+    );
     expect(openPalette).not.toHaveBeenCalled();
     expect(runAction).not.toHaveBeenCalled();
   });
