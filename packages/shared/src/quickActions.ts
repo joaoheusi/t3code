@@ -13,6 +13,7 @@ export const QUICK_ACTION_VARIABLES = [
   "pr.url",
   "ci.failures",
   "pr.conflicts",
+  "pr.reviewThreads",
 ] as const;
 export type QuickActionVariable = (typeof QUICK_ACTION_VARIABLES)[number];
 const variableNames = new Set<string>(QUICK_ACTION_VARIABLES);
@@ -43,7 +44,8 @@ export interface QuickActionRequirements {
   readonly thread: boolean;
   readonly pullRequest: boolean;
   readonly repository: boolean;
-  /** CI or conflict evidence; inserted as a separate block after the draft. */
+  readonly reviewThreads: boolean;
+  /** CI, conflict, or review thread evidence; inserted as a separate block after the draft. */
   readonly evidence: boolean;
 }
 export function quickActionRequirements(template: string): QuickActionRequirements {
@@ -60,12 +62,14 @@ export function quickActionRequirements(template: string): QuickActionRequiremen
       "pr.url",
       "ci.failures",
       "pr.conflicts",
+      "pr.reviewThreads",
     ),
     thread: used.has("thread.title"),
-    pullRequest: any("pr.url", "ci.failures", "pr.conflicts"),
+    pullRequest: any("pr.url", "ci.failures", "pr.conflicts", "pr.reviewThreads"),
     // Local conflict state belongs to one checkout, so conflicts need a repository too.
     repository: any("repo.name", "repo.path", "repo.branch", "pr.conflicts"),
-    evidence: any("ci.failures", "pr.conflicts"),
+    reviewThreads: used.has("pr.reviewThreads"),
+    evidence: any("ci.failures", "pr.conflicts", "pr.reviewThreads"),
   };
 }
 

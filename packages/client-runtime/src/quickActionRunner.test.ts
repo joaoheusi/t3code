@@ -13,6 +13,8 @@ import {
   quickActionSignals,
   quickActionTargets,
   renderQuickActionSelection,
+  pullRequestTargetKey,
+  renderQuickActionText,
   unresolvedReviewThreads,
   type QuickActionVariant,
 } from "./quickActionRunner.ts";
@@ -59,6 +61,44 @@ describe("quick actions across clients", () => {
     await expect(
       renderQuickActionSelection({ ...input, readClipboard: async () => "" }),
     ).rejects.toThrow("clipboard is empty");
+  });
+});
+
+describe("review thread evidence", () => {
+  it("asks the host for review threads only when the template reads them", async () => {
+    const requests: unknown[] = [];
+    const render = (template: string) =>
+      renderQuickActionText({
+        ...input,
+        action: { ...action, template },
+        choice: { pullRequest: { host: "github.com", repository: "acme/app", number: 7 } },
+        readClipboard: async () => "",
+        resolveContext: async (_environmentId, context) => {
+          requests.push(context);
+          return {
+            threadTitle: null,
+            workspaceRevision: null,
+            repositories: [],
+            pullRequest: {
+              url: "https://github.com/acme/app/pull/7",
+              headSha: "abc",
+              observedAt: "",
+              failures: "",
+              conflicts: "",
+              ...("reviewThreads" in context ? { reviewThreads: "1. src/a.ts:4" } : {}),
+            },
+            notices: [],
+          };
+        },
+      });
+    const rendered = await render("Fix these.\n\n{{pr.reviewThreads}}");
+    expect(rendered.text).toBe("Fix these.\n\n1. src/a.ts:4");
+    expect(rendered.append).toBe(true);
+    await render("Review {{pr.url}}");
+    expect(requests.map((request) => "reviewThreads" in (request as object))).toEqual([
+      true,
+      false,
+    ]);
   });
 });
 
@@ -113,6 +153,12 @@ describe("CI and merge conflict action availability", () => {
     });
   });
 
+  it("keeps a PR eligible when the action also reads review threads", () => {
+    const links = [link(8, "passing", "mergeable")];
+    expect(targets("{{ci.failures}} {{pr.reviewThreads}}", links).kind).toBe("ready");
+    expect(targets("{{pr.conflicts}} {{pr.reviewThreads}}", links).kind).toBe("ready");
+  });
+
   it("only selects the repositories that need the chosen action", () => {
     const links = [link(1, "passing", "conflicting"), link(2, "failing", "mergeable")];
     const failing = targets(ci.template, links);
@@ -127,6 +173,24 @@ describe("CI and merge conflict action availability", () => {
     expect(combined.kind === "ready" && combined.variants).toHaveLength(2);
     const review = targets("Review {{pr.url}}", links);
     expect(review.kind === "ready" && review.variants).toHaveLength(2);
+  });
+
+  it("rules out a PR without checks once fresh state shows it", () => {
+    const unsynced = link(8, undefined, "mergeable");
+    expect(targets(ci.template, [unsynced]).kind).toBe("ready");
+    const fresh = new Map([
+      [pullRequestTargetKey(unsynced), { checks: "none", mergeability: "mergeable" } as const],
+    ]);
+    expect(
+      quickActionTargets(
+        ci,
+        {
+          ...input.scope,
+          thread: { pullRequests: [unsynced] } as unknown as EnvironmentThreadShell,
+        },
+        fresh,
+      ),
+    ).toEqual({ kind: "unavailable", reason: "No failing CI checks" });
   });
 
   it("keeps unknown states inspectable without treating them as failures", () => {
@@ -199,6 +263,18 @@ describe("pull request status per quick action", () => {
       "2 unresolved threads:alert",
     ]);
     expect(statusOf(QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough)).toEqual([]);
+  });
+
+  it("reports review threads for any action that reads them, including imported copies", () => {
+    const signals = (id: string, template: string) => quickActionSignals({ id, template });
+    expect(signals("imported", "Fix this.\n\n{{pr.reviewThreads}}")).toEqual(["reviewThreads"]);
+    expect(signals("imported", "Fix the review feedback on {{pr.url}}.")).toEqual([]);
+    // The starter keeps a template older clients can render.
+    const starterTemplate = starter(QUICK_ACTION_STARTER_IDS.addressReviewThreads).template;
+    expect(starterTemplate).not.toContain("{{pr.reviewThreads}}");
+    expect(signals(QUICK_ACTION_STARTER_IDS.addressReviewThreads, starterTemplate)).toEqual([
+      "reviewThreads",
+    ]);
   });
 
   it("counts unresolved review threads, including outdated ones", () => {

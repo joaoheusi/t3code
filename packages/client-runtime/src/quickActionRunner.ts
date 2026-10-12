@@ -37,7 +37,17 @@ export interface QuickActionVariant {
   readonly label: string | null;
   readonly choice: QuickActionChoice;
   readonly snapshot?: ThreadPullRequestLink["snapshot"];
+  /** Freshly loaded CI and conflict state, which outranks the synced snapshot. */
+  readonly fresh?: PullRequestKnownState;
 }
+
+/** CI and conflict state a client already loaded for a PR, beyond what the snapshot says. */
+export type PullRequestKnownState = Pick<PullRequestSignalState, "checks" | "mergeability">;
+
+/** Keys fresh PR states for `quickActionTargets`. */
+export const pullRequestTargetKey = (
+  pullRequest: Pick<ThreadPullRequestLink, "host" | "repository" | "number">,
+) => `${pullRequest.host}/${pullRequest.repository}#${pullRequest.number}`;
 
 export type QuickActionTargets =
   | { readonly kind: "ready"; readonly variants: readonly QuickActionVariant[] }
@@ -51,10 +61,12 @@ const openPullRequests = (thread: EnvironmentThreadShell | null) =>
 /**
  * Expands an action into the PRs and repositories its template needs. Several
  * candidates become several variants so nothing is guessed on the user's behalf.
+ * `fresh` holds PR states the client already loaded, keyed by `pullRequestTargetKey`.
  */
 export function quickActionTargets(
   action: Pick<QuickAction, "template">,
   scope: QuickActionScope,
+  fresh?: ReadonlyMap<string, PullRequestKnownState>,
 ): QuickActionTargets {
   const needs = quickActionRequirements(action.template);
   if (needs.host && scope.projectId === null)
@@ -77,6 +89,7 @@ export function quickActionTargets(
         ? `${link.repository.split("/").at(-1)} #${link.number}`
         : `#${link.number}`
       : null;
+    const known = link ? fresh?.get(pullRequestTargetKey(link)) : undefined;
     const boundTo = link?.bindingId;
     const bindingOptions =
       needs.repository && multiRepo && boundTo === undefined
@@ -93,6 +106,7 @@ export function quickActionTargets(
         ),
         label: [bindingLabel, prLabel].filter(Boolean).join(" · ") || null,
         ...(link ? { snapshot: link.snapshot } : {}),
+        ...(known ? { fresh: known } : {}),
         choice: {
           ...(bindingId ? { bindingId } : {}),
           ...(link
@@ -126,8 +140,9 @@ export function quickActionTargets(
 export type QuickActionSignal = "ci" | "conflicts" | "reviewThreads";
 
 /**
- * CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`. Review threads have no
- * template variable, so the starter that addresses them is identified by its stable ID.
+ * CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`, threads for `{{pr.reviewThreads}}`.
+ * The review threads starter keeps a template older clients can render, so it is also
+ * recognized by its stable ID.
  */
 export function quickActionSignals(
   action: Pick<QuickAction, "id" | "template">,
@@ -136,7 +151,8 @@ export function quickActionSignals(
   return [
     ...(used.includes("ci.failures") ? (["ci"] as const) : []),
     ...(used.includes("pr.conflicts") ? (["conflicts"] as const) : []),
-    ...(action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads
+    ...(used.includes("pr.reviewThreads") ||
+    action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads
       ? (["reviewThreads"] as const)
       : []),
   ];
@@ -224,7 +240,8 @@ export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot
 /**
  * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
  * conflicts for `{{pr.conflicts}}`. Null when the action reads neither or the relevant state
- * is unknown, so incomplete snapshots do not prevent inspecting a PR.
+ * is unknown, so incomplete snapshots do not prevent inspecting a PR. A synced snapshot cannot
+ * tell "no checks" from "not known", so only fresh state rules out a PR without checks.
  */
 export function quickActionTargetNeedsAction(
   action: Pick<QuickAction, "template">,
@@ -233,18 +250,22 @@ export function quickActionTargetNeedsAction(
   const used = templateVariables(action.template);
   const ci = used.includes("ci.failures");
   const conflicts = used.includes("pr.conflicts");
-  if ((!ci && !conflicts) || !variant.snapshot) return null;
+  const state: PullRequestKnownState | undefined =
+    variant.fresh ??
+    (variant.snapshot
+      ? { checks: variant.snapshot.checksState, mergeability: variant.snapshot.mergeability }
+      : undefined);
+  if ((!ci && !conflicts) || !state) return null;
   const needs: Array<boolean | null> = [];
-  if (ci)
-    needs.push(
-      variant.snapshot.checksState == null ? null : variant.snapshot.checksState === "failing",
-    );
+  if (ci) needs.push(state.checks == null ? null : state.checks === "failing");
   if (conflicts)
     needs.push(
-      variant.snapshot.mergeability == null || variant.snapshot.mergeability === "unknown"
+      state.mergeability == null || state.mergeability === "unknown"
         ? null
-        : variant.snapshot.mergeability === "conflicting",
+        : state.mergeability === "conflicting",
     );
+  // Review threads are not part of this state, so a template reading them stays eligible.
+  if (used.includes("pr.reviewThreads")) needs.push(null);
   return needs.includes(true) ? true : needs.includes(null) ? null : false;
 }
 
@@ -325,6 +346,7 @@ export async function renderQuickActionText(input: {
       ...(scope.thread ? { threadId: scope.thread.id } : {}),
       ...(choice.bindingId ? { bindingId: choice.bindingId } : {}),
       ...(pullRequest ? { pullRequest } : {}),
+      ...(needs.reviewThreads ? { reviewThreads: true } : {}),
     };
     const host = await input.resolveContext(scope.environmentId, request);
     if (host.threadTitle) values["thread.title"] = host.threadTitle;
@@ -348,6 +370,8 @@ export async function renderQuickActionText(input: {
       values["pr.url"] = host.pullRequest.url;
       values["ci.failures"] = host.pullRequest.failures;
       values["pr.conflicts"] = host.pullRequest.conflicts;
+      if (host.pullRequest.reviewThreads !== undefined)
+        values["pr.reviewThreads"] = host.pullRequest.reviewThreads;
       context = {
         ...request,
         ...(host.pullRequest.headSha ? { expectedHeadSha: host.pullRequest.headSha } : {}),

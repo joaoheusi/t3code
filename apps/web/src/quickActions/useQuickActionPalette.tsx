@@ -2,13 +2,19 @@ import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
   KeybindingCommand,
+  PullRequestDetail,
   PullRequestRef,
   QuickAction,
 } from "@t3tools/contracts";
 import {
+  classifyPullRequestChecks,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
 } from "@t3tools/client-runtime/pullRequestActions";
+import {
+  pullRequestTargetKey,
+  type PullRequestKnownState,
+} from "@t3tools/client-runtime/quickActionRunner";
 import { rankQuickActionMenu } from "@t3tools/shared/quickActions";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -113,27 +119,46 @@ const mergeTargetDetails = Atom.family((key: string) => {
 });
 
 /**
- * Why each merge target would be refused, so the palette disables it before it is tried. Reads
- * the detail queries the rows' status lines already load, and the synced snapshot until they do.
- * Choosing a target still rechecks fresh status.
+ * Fresh details for the thread's open PRs (its merge targets), keyed by `pullRequestTargetKey`.
+ * They are the detail queries the rows' status lines already load; a PR is missing until its
+ * detail arrives.
  */
-function useMergeBlockers(
+function usePullRequestDetails(
   scope: QuickActionScope | null,
   variants: readonly QuickActionVariant[],
-): (string | null)[] {
+): ReadonlyMap<string, PullRequestDetail> {
   const projectId = scope?.projectId ?? null;
-  const references = variants.flatMap((variant) =>
-    variant.choice.pullRequest && projectId !== null
-      ? [{ ...variant.choice.pullRequest, projectId }]
-      : [],
+  const pullRequests = variants.flatMap((variant) =>
+    variant.choice.pullRequest && projectId !== null ? [variant.choice.pullRequest] : [],
   );
   const results = useAtomValue(
-    mergeTargetDetails(JSON.stringify([scope?.environmentId ?? null, references])),
+    mergeTargetDetails(
+      JSON.stringify([
+        scope?.environmentId ?? null,
+        pullRequests.map((pullRequest) => ({ ...pullRequest, projectId })),
+      ]),
+    ),
   );
-  return variants.map((variant, index) => {
-    // Every merge target names a pull request, so details line up with variants.
+  const details = new Map<string, PullRequestDetail>();
+  pullRequests.forEach((pullRequest, index) => {
     const result = results[index];
     const detail = result ? Option.getOrNull(AsyncResult.value(result)) : null;
+    if (detail) details.set(pullRequestTargetKey(pullRequest), detail);
+  });
+  return details;
+}
+
+/**
+ * Why each merge target would be refused, so the palette disables it before it is tried. Uses
+ * fresh details, and the synced snapshot until they load. Choosing a target still rechecks.
+ */
+function mergeBlockers(
+  variants: readonly QuickActionVariant[],
+  details: ReadonlyMap<string, PullRequestDetail>,
+): (string | null)[] {
+  return variants.map((variant) => {
+    const pullRequest = variant.choice.pullRequest;
+    const detail = pullRequest ? details.get(pullRequestTargetKey(pullRequest)) : undefined;
     const state = detail ? pullRequestDetailMergeState(detail) : variant.snapshot;
     return state ? pullRequestMergeBlocker(state) : null;
   });
@@ -161,6 +186,19 @@ export function useQuickActionPalette(input: {
   const prepareMerge = useQuickActionMerge();
   const git = useQuickActionGit(scope, input.gitCwd, input.onClose);
 
+  const mergeTargets =
+    scope?.projectId && scope.thread ? quickActionTargets({ template: "{{pr.url}}" }, scope) : null;
+  const mergeVariants = mergeTargets?.kind === "ready" ? mergeTargets.variants : [];
+  const details = usePullRequestDetails(scope, mergeVariants);
+  const blockers = mergeBlockers(mergeVariants, details);
+  // Fresh states rule out PRs the snapshot cannot, such as one without any checks.
+  const fresh = new Map<string, PullRequestKnownState>(
+    [...details].map(([key, detail]) => [
+      key,
+      { checks: classifyPullRequestChecks(detail.checks), mergeability: detail.mergeability },
+    ]),
+  );
+
   const itemFor = (action: QuickAction): QuickActionPaletteItem => {
     const base = {
       value: `quick-action:${action.id}`,
@@ -177,7 +215,7 @@ export function useQuickActionPalette(input: {
     };
     const targets =
       target && scope
-        ? quickActionTargets(action, scope)
+        ? quickActionTargets(action, scope, fresh)
         : ({ kind: "unavailable", reason: "Open a thread to insert it" } as const);
     if (targets.kind === "unavailable") {
       return {
@@ -241,13 +279,6 @@ export function useQuickActionPalette(input: {
     };
   };
 
-  const mergeTargets =
-    scope?.projectId && scope.thread ? quickActionTargets({ template: "{{pr.url}}" }, scope) : null;
-  const mergeBlockers = useMergeBlockers(
-    scope,
-    mergeTargets?.kind === "ready" ? mergeTargets.variants : [],
-  );
-
   const items: QuickActionPaletteItem[] = [...git.items];
   if (mergeTargets && scope?.projectId) {
     const projectId = scope.projectId;
@@ -266,7 +297,7 @@ export function useQuickActionPalette(input: {
           ),
         );
       const [only] = mergeTargets.variants;
-      const [onlyBlocker] = mergeBlockers;
+      const [onlyBlocker] = blockers;
       if (mergeTargets.variants.length === 1 && only) {
         items.push({
           ...mergeBase,
@@ -277,7 +308,7 @@ export function useQuickActionPalette(input: {
           keepOpen: true,
           run: () => prepare([only]),
         });
-      } else if (mergeBlockers.every((blocker) => blocker !== null)) {
+      } else if (blockers.every((blocker) => blocker !== null)) {
         items.push({
           ...mergeBase,
           kind: "action",
@@ -312,7 +343,7 @@ export function useQuickActionPalette(input: {
                 scope,
                 MERGE_SIGNALS,
                 (variant) => prepare([variant]),
-                mergeBlockers,
+                blockers,
               ),
             },
           ],
