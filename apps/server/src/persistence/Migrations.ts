@@ -76,6 +76,7 @@ import Migration0059 from "./Migrations/059_ForkQuickActions.ts";
 import Migration0061 from "./Migrations/061_ForkQuickActionStarters.ts";
 import Migration0062 from "./Migrations/062_DropForkWorkspaceOperations.ts";
 import Migration0065 from "./Migrations/065_AddressReviewThreadsQuickAction.ts";
+import Migration0066 from "./Migrations/066_ReviewThreadsQuickActionVariable.ts";
 import Migration0058 from "./Migrations/058_WebhookRelayDeliveries.ts";
 import Migration0063 from "./Migrations/063_McpAppModelContext.ts";
 import Migration0064 from "./Migrations/064_ThreadSnapshotWindowIndexes.ts";
@@ -159,6 +160,7 @@ export const migrationEntries = [
   [63, "McpAppModelContext", Migration0063],
   [64, "ThreadSnapshotWindowIndexes", Migration0064],
   [65, "AddressReviewThreadsQuickAction", Migration0065],
+  [66, "ReviewThreadsQuickActionVariable", Migration0066],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

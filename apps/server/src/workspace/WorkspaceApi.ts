@@ -11,7 +11,10 @@ import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
-import { buildPullRequestActionContext } from "@t3tools/shared/actionContext";
+import {
+  buildPullRequestActionContext,
+  buildReviewThreadsContext,
+} from "@t3tools/shared/actionContext";
 import * as Schema from "effect/Schema";
 import {
   WorkspaceError,
@@ -122,7 +125,13 @@ const make = Effect.gen(function* () {
         return yield* failure("The selected PR project is unavailable on this execution host.");
       const reference = { ...input.pullRequest, allowStale: false };
       yield* pullRequests.invalidate({ reference });
-      const detail = yield* pullRequests.detail(reference).pipe(
+      const [detail, activity] = yield* Effect.all(
+        [
+          pullRequests.detail(reference),
+          input.reviewThreads ? pullRequests.activity(input.pullRequest) : Effect.succeed(null),
+        ],
+        { concurrency: "unbounded" },
+      ).pipe(
         Effect.mapError(failure),
         Effect.timeoutOrElse({
           duration: "20 seconds",
@@ -140,7 +149,9 @@ const make = Effect.gen(function* () {
           : undefined;
       const now = DateTime.formatIso(yield* DateTime.now);
       const built = buildPullRequestActionContext(detail, selected?.repository ?? null, now);
-      pr = built.context;
+      pr = activity
+        ? { ...built.context, reviewThreads: buildReviewThreadsContext(detail, activity, now) }
+        : built.context;
       notices.push(...built.notices);
       if (selected) {
         const identity = yield* identities.resolve(selected.repository.path, { refresh: true });
@@ -153,6 +164,9 @@ const make = Effect.gen(function* () {
             ...pr,
             failures: pr.failures + "\n" + notice,
             conflicts: pr.conflicts + "\n" + notice,
+            ...(pr.reviewThreads === undefined
+              ? {}
+              : { reviewThreads: pr.reviewThreads + "\n" + notice }),
           };
         }
       }

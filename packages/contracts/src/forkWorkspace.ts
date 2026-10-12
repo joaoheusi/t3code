@@ -141,6 +141,8 @@ export const ActionContextInput = Schema.Struct({
   bindingId: Schema.optional(WorkspaceBindingId),
   pullRequest: Schema.optional(PullRequestRef),
   expectedHeadSha: Schema.optional(Schema.String),
+  /** Also collect the PR's unresolved review threads, which costs a separate host read. */
+  reviewThreads: Schema.optional(Schema.Boolean),
 });
 export type ActionContextInput = typeof ActionContextInput.Type;
 export const ActionContextResult = Schema.Struct({
@@ -161,6 +163,8 @@ export const ActionContextResult = Schema.Struct({
       observedAt: Schema.String,
       failures: Schema.String,
       conflicts: Schema.String,
+      /** Present when the input asked for review threads. */
+      reviewThreads: Schema.optional(Schema.String),
     }),
   ),
   notices: Schema.Array(Schema.String),

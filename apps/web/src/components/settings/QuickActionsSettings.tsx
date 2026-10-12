@@ -101,6 +101,7 @@ const VARIABLE_HELP: Record<QuickActionVariable, string> = {
   "pr.url": "The linked pull request's URL",
   "ci.failures": "Failing checks on the linked pull request",
   "pr.conflicts": "Conflict state of the linked pull request",
+  "pr.reviewThreads": "Unresolved review threads on the linked pull request",
 };
 // Shortcuts fire from anywhere but a focused terminal or preview, like other composer actions.
 const SHORTCUT_WHEN = "!terminalFocus && !previewFocus";
