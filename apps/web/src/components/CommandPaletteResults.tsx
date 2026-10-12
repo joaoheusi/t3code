@@ -164,11 +164,18 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
   );
 }
 
+/**
+ * The title and icon fade well below enabled rows, while the description stays legible because
+ * it usually says why the row is unavailable.
+ */
 function DisabledCommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
 }) {
   return (
-    <div className="flex min-h-8 select-none items-center gap-2 rounded-sm px-2 py-1.5 text-base opacity-64 sm:min-h-7 sm:text-sm">
+    <div
+      aria-disabled
+      className="flex min-h-8 cursor-not-allowed select-none items-center gap-2 rounded-sm px-2 py-1.5 text-base sm:min-h-7 sm:text-sm"
+    >
       {props.item.checked !== undefined ? (
         props.item.checked ? (
           <SquareCheckIcon aria-label="Selected" className="size-4 shrink-0 text-primary" />
@@ -176,10 +183,10 @@ function DisabledCommandPaletteResultRow(props: {
           <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
         )
       ) : null}
-      {props.item.icon}
+      <span className="flex shrink-0 opacity-40">{props.item.icon}</span>
       {props.item.description || props.item.threadContentMatch ? (
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground/60">
             {props.item.titleLeadingContent}
             <span className="truncate">{props.item.title}</span>
           </span>
@@ -193,7 +200,7 @@ function DisabledCommandPaletteResultRow(props: {
           ) : null}
         </span>
       ) : (
-        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-foreground">
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-muted-foreground/60">
           {props.item.titleLeadingContent}
           <span className="truncate">{props.item.title}</span>
         </span>

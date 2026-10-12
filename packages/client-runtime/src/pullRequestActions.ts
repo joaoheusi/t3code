@@ -92,6 +92,44 @@ export function resolveThreadPanelPullRequestAction(
     : null;
 }
 
+/** What decides whether a merge can start. Absent fields are unknown and never block. */
+export interface PullRequestMergeState {
+  readonly state: PullRequestDetail["state"];
+  readonly isDraft: boolean;
+  readonly mergeability?: PullRequestDetail["mergeability"] | undefined;
+  readonly checksState?: PullRequestChecksState | null | undefined;
+  /** Whether the host lets this account merge with at least one allowed method. */
+  readonly canMerge?: boolean | undefined;
+}
+
+export function pullRequestDetailMergeState(detail: PullRequestDetail): PullRequestMergeState {
+  return {
+    state: detail.state,
+    isDraft: detail.isDraft,
+    mergeability: detail.mergeability,
+    checksState: classifyPullRequestChecks(detail.checks),
+    canMerge:
+      canPerformPullRequestAction(detail, "merge") &&
+      allowedPullRequestMergeMethods(detail).length > 0,
+  };
+}
+
+/**
+ * Why a merge would be refused, so menus can disable it before it is tried. Null when nothing
+ * known blocks it. For a full detail this is null exactly when the thread panel offers Merge.
+ * A synced thread snapshot also fits, minus permissions.
+ */
+export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): string | null {
+  if (pullRequest.state === "merged") return "Already merged";
+  if (pullRequest.state === "closed") return "Closed";
+  if (pullRequest.mergeability === "conflicting") return "Has merge conflicts";
+  if (pullRequest.isDraft) return "Still a draft";
+  if (pullRequest.checksState === "failing") return "CI failing";
+  if (pullRequest.checksState === "pending") return "Waiting for CI";
+  if (pullRequest.canMerge === false) return "You can't merge this pull request";
+  return null;
+}
+
 /** All selected PRs must allow the method the reader confirms. Rechecked in the write lane. */
 export function quickActionMergeMethods(details: readonly PullRequestDetail[]) {
   if (

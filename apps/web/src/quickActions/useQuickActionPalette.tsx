@@ -1,5 +1,17 @@
-import type { KeybindingCommand, QuickAction } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
+import type {
+  EnvironmentId,
+  KeybindingCommand,
+  PullRequestRef,
+  QuickAction,
+} from "@t3tools/contracts";
+import {
+  pullRequestDetailMergeState,
+  pullRequestMergeBlocker,
+} from "@t3tools/client-runtime/pullRequestActions";
 import { rankQuickActionMenu } from "@t3tools/shared/quickActions";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom } from "effect/reactivity";
 import { FolderGit2Icon, PlusIcon, SettingsIcon, ZapIcon } from "lucide-react";
 
 import {
@@ -11,6 +23,7 @@ import {
 } from "../components/CommandPalette.logic";
 import { PullRequestGlyph } from "../components/pullRequest/pullRequestIcons";
 import type { ComposerThreadTarget } from "../composerDraftStore";
+import { pullRequestEnvironment } from "../state/pullRequests";
 import {
   describeQuickActionTargets,
   quickActionSignals,
@@ -63,20 +76,67 @@ function targetItems(
   scope: QuickActionScope,
   signals: readonly QuickActionSignal[],
   run: (variant: QuickActionVariant) => Promise<void>,
+  blockers?: readonly (string | null)[],
 ): CommandPaletteActionItem[] {
-  return variants.map((variant) => ({
-    kind: "action",
-    value: `${prefix}:${variant.key}`,
-    searchTerms: [variant.label ?? name, variant.choice.pullRequest?.repository ?? ""],
-    title: variant.label ?? name,
-    description: targetDescription(variant, scope, signals),
-    icon: variant.choice.pullRequest ? (
-      <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
-    ) : (
-      <FolderGit2Icon className={ITEM_ICON_CLASS} />
+  return variants.map((variant, index) => {
+    const blocker = blockers?.[index] ?? null;
+    return {
+      kind: "action",
+      value: `${prefix}:${variant.key}`,
+      searchTerms: [variant.label ?? name, variant.choice.pullRequest?.repository ?? ""],
+      title: variant.label ?? name,
+      description: blocker ?? targetDescription(variant, scope, signals),
+      icon: variant.choice.pullRequest ? (
+        <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
+      ) : (
+        <FolderGit2Icon className={ITEM_ICON_CLASS} />
+      ),
+      ...(blocker ? { disabled: true } : {}),
+      run: () => run(variant),
+    };
+  });
+}
+
+/** Fresh details for a JSON `[environmentId, references]` key, in reference order. */
+const mergeTargetDetails = Atom.family((key: string) => {
+  const [environmentId, references] = JSON.parse(key) as [EnvironmentId, PullRequestRef[]];
+  return Atom.make((get) =>
+    references.map((reference) =>
+      get(
+        pullRequestEnvironment.detail({
+          environmentId,
+          input: { ...reference, allowStale: false },
+        }),
+      ),
     ),
-    run: () => run(variant),
-  }));
+  );
+});
+
+/**
+ * Why each merge target would be refused, so the palette disables it before it is tried. Reads
+ * the detail queries the rows' status lines already load, and the synced snapshot until they do.
+ * Choosing a target still rechecks fresh status.
+ */
+function useMergeBlockers(
+  scope: QuickActionScope | null,
+  variants: readonly QuickActionVariant[],
+): (string | null)[] {
+  const projectId = scope?.projectId ?? null;
+  const references = variants.flatMap((variant) =>
+    variant.choice.pullRequest && projectId !== null
+      ? [{ ...variant.choice.pullRequest, projectId }]
+      : [],
+  );
+  const results = useAtomValue(
+    mergeTargetDetails(JSON.stringify([scope?.environmentId ?? null, references])),
+  );
+  return variants.map((variant, index) => {
+    // Every merge target names a pull request, so details line up with variants.
+    const result = results[index];
+    const detail = result ? Option.getOrNull(AsyncResult.value(result)) : null;
+    const state = detail ? pullRequestDetailMergeState(detail) : variant.snapshot;
+    return state ? pullRequestMergeBlocker(state) : null;
+  });
 }
 
 /**
@@ -181,9 +241,15 @@ export function useQuickActionPalette(input: {
     };
   };
 
+  const mergeTargets =
+    scope?.projectId && scope.thread ? quickActionTargets({ template: "{{pr.url}}" }, scope) : null;
+  const mergeBlockers = useMergeBlockers(
+    scope,
+    mergeTargets?.kind === "ready" ? mergeTargets.variants : [],
+  );
+
   const items: QuickActionPaletteItem[] = [...git.items];
-  if (scope?.projectId && scope.thread) {
-    const mergeTargets = quickActionTargets({ template: "{{pr.url}}" }, scope);
+  if (mergeTargets && scope?.projectId) {
     const projectId = scope.projectId;
     const mergeBase = {
       value: "quick-action:merge",
@@ -200,14 +266,24 @@ export function useQuickActionPalette(input: {
           ),
         );
       const [only] = mergeTargets.variants;
+      const [onlyBlocker] = mergeBlockers;
       if (mergeTargets.variants.length === 1 && only) {
         items.push({
           ...mergeBase,
           kind: "action",
           title: `Merge ${only.label ?? "pull request"}`,
-          description: targetDescription(only, scope, MERGE_SIGNALS),
+          description: onlyBlocker ?? targetDescription(only, scope, MERGE_SIGNALS),
+          ...(onlyBlocker ? { disabled: true } : {}),
           keepOpen: true,
           run: () => prepare([only]),
+        });
+      } else if (mergeBlockers.every((blocker) => blocker !== null)) {
+        items.push({
+          ...mergeBase,
+          kind: "action",
+          description: "No pull request is ready to merge",
+          disabled: true,
+          run: async () => {},
         });
       } else
         items.push({
@@ -236,6 +312,7 @@ export function useQuickActionPalette(input: {
                 scope,
                 MERGE_SIGNALS,
                 (variant) => prepare([variant]),
+                mergeBlockers,
               ),
             },
           ],

@@ -2,11 +2,14 @@ import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestDetail, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
   PULL_REQUEST_MERGE_METHOD_LABELS,
+  pullRequestDetailMergeState,
+  pullRequestMergeBlocker,
   quickActionMergeMethods,
 } from "@t3tools/client-runtime/pullRequestActions";
 import {
   pullRequestSnapshotStatus,
   quickActionTargets,
+  type QuickActionVariant,
 } from "@t3tools/client-runtime/quickActionRunner";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEffect, useRef, useState } from "react";
@@ -39,6 +42,9 @@ export function MobileMergeQuickAction(props: {
   );
   const targets = quickActionTargets({ template: "{{pr.url}}" }, { ...target, thread });
   const variants = targets.kind === "ready" ? targets.variants : [];
+  // The synced snapshot catches the obvious blockers; Continue rechecks fresh status.
+  const blockerOf = (variant: QuickActionVariant) =>
+    variant.snapshot ? pullRequestMergeBlocker(variant.snapshot) : null;
   const canMerge = useAtomValue(
     pullRequestEnvironment.runAction.permissionAtom(target.environmentId),
   );
@@ -48,7 +54,7 @@ export function MobileMergeQuickAction(props: {
   });
   const runAction = useAtomCommand(pullRequestEnvironment.runAction, { reportFailure: false });
   const [selected, setSelected] = useState<string[]>(() =>
-    variants.length === 1 ? variants.map((variant) => variant.key) : [],
+    variants.length === 1 && blockerOf(variants[0]!) === null ? [variants[0]!.key] : [],
   );
   const [confirmation, setConfirmation] = useState<{
     references: PullRequestRef[];
@@ -66,7 +72,9 @@ export function MobileMergeQuickAction(props: {
     };
   }, []);
 
-  const chosen = variants.filter((variant) => selected.includes(variant.key));
+  const chosen = variants.filter(
+    (variant) => selected.includes(variant.key) && blockerOf(variant) === null,
+  );
   const prepare = async () => {
     if (inFlight.current || !canMerge || chosen.length === 0) return;
     inFlight.current = true;
@@ -87,10 +95,8 @@ export function MobileMergeQuickAction(props: {
         });
         if (!mounted.current) return;
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        if (quickActionMergeMethods([result.value]).length === 0)
-          throw new Error(
-            `${reference.repository} #${reference.number} is not ready to merge. Check its CI, conflicts, draft status, and permissions.`,
-          );
+        const blocker = pullRequestMergeBlocker(pullRequestDetailMergeState(result.value));
+        if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
         details.push(result.value);
       }
       const methods = quickActionMergeMethods(details);
@@ -230,9 +236,9 @@ export function MobileMergeQuickAction(props: {
               <PickerToggleRow
                 key={variant.key}
                 title={variant.label ?? "Pull request"}
-                subtitle={pullRequestSnapshotStatus(variant.snapshot)}
-                value={selected.includes(variant.key)}
-                disabled={busy || !canMerge}
+                subtitle={blockerOf(variant) ?? pullRequestSnapshotStatus(variant.snapshot)}
+                value={selected.includes(variant.key) && blockerOf(variant) === null}
+                disabled={busy || !canMerge || blockerOf(variant) !== null}
                 isLast={index === variants.length - 1}
                 onValueChange={(value) =>
                   setSelected((current) =>

@@ -4,6 +4,10 @@ import type {
   PullRequestMergeMethod,
   PullRequestRef,
 } from "@t3tools/contracts";
+import {
+  pullRequestDetailMergeState,
+  pullRequestMergeBlocker,
+} from "@t3tools/client-runtime/pullRequestActions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEffect, useRef } from "react";
 
@@ -14,10 +18,7 @@ import {
   ITEM_ICON_CLASS,
   type CommandPaletteActionItem,
 } from "../components/CommandPalette.logic";
-import {
-  PULL_REQUEST_MERGE_METHOD_LABELS,
-  resolveThreadPanelPullRequestAction,
-} from "../components/pullRequest/pullRequestDetail.logic";
+import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../components/pullRequest/pullRequestDetail.logic";
 import { PullRequestGlyph } from "../components/pullRequest/pullRequestIcons";
 import { toastManager } from "../components/ui/toast";
 import { pullRequestEnvironment } from "../state/pullRequests";
@@ -58,10 +59,8 @@ export function useQuickActionMerge() {
         });
         if (!mounted.current) return;
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        if (resolveThreadPanelPullRequestAction(result.value) !== "merge")
-          throw new Error(
-            `${reference.repository} #${reference.number} is not ready to merge. Check its CI, conflicts, draft status, and permissions.`,
-          );
+        const blocker = pullRequestMergeBlocker(pullRequestDetailMergeState(result.value));
+        if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
         details.push(result.value);
       }
       const methods = quickActionMergeMethods(details);
