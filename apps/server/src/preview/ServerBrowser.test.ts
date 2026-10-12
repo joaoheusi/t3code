@@ -1539,3 +1539,30 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
     }),
   ).pipe(Effect.provide(layer)),
 );
+
+it.live("an agent tab that started headless moves to the desktop page once it mounts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      // No window showed the thread in time, so the agent's tab runs headless.
+      const { browser, broker, tabId } = yield* ready;
+      expect(contexts).toHaveLength(1);
+      const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
+      while (desktopDetaches.listenerCount("attach") === 0) yield* Effect.yieldNow;
+      // The user opens the thread; the desktop draws its own page for the tab.
+      desktopTabs.add(tabId);
+      desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
+      let end = yield* Queue.take(viewer.output);
+      while (end._tag !== "reconnect" && end._tag !== "gone")
+        end = yield* Queue.take(viewer.output);
+      expect(end._tag).toBe("reconnect");
+      while (desktopConnections.length === 0) yield* Effect.yieldNow;
+      expect(contexts[0]!.close).toHaveBeenCalled();
+      // The agent now drives the page the user sees, with the user's cookies.
+      const desktopPage = desktopConnections[0]!.context.page;
+      const evaluated = desktopPage.evaluate.mock.calls.length;
+      yield* broker.invoke({ scope, tabId, operation: "snapshot", input: {} });
+      expect(desktopPage.evaluate.mock.calls.length).toBeGreaterThan(evaluated);
+      expect(desktopConnections).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
