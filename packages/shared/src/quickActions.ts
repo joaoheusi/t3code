@@ -357,7 +357,7 @@ export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
     tags: ["review", "pr"],
     category: "Pull requests",
     template:
-      "Address the unresolved review threads below in this thread. Read each thread and check its feedback against the current code. Fix valid findings, run focused checks, and reply with what changed or a clear reason when no change is needed. Resolve threads only after their feedback has been addressed. Report anything still unresolved. Do not commit, push, merge, request another review, or open another thread unless I ask.\n\n{{pr.reviewThreads}}",
+      "Address the unresolved review threads on {{pr.url}} in this thread. Read each thread and check its feedback against the current code. Fix valid findings, run focused checks, and reply with what changed or a clear reason when no change is needed. Resolve threads only after their feedback has been addressed. Report anything still unresolved. Do not commit, push, merge, request another review, or open another thread unless I ask.",
   }),
 ];
 

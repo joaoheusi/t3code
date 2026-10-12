@@ -153,6 +153,12 @@ describe("CI and merge conflict action availability", () => {
     });
   });
 
+  it("keeps a PR eligible when the action also reads review threads", () => {
+    const links = [link(8, "passing", "mergeable")];
+    expect(targets("{{ci.failures}} {{pr.reviewThreads}}", links).kind).toBe("ready");
+    expect(targets("{{pr.conflicts}} {{pr.reviewThreads}}", links).kind).toBe("ready");
+  });
+
   it("only selects the repositories that need the chosen action", () => {
     const links = [link(1, "passing", "conflicting"), link(2, "failing", "mergeable")];
     const failing = targets(ci.template, links);
@@ -260,10 +266,15 @@ describe("pull request status per quick action", () => {
   });
 
   it("reports review threads for any action that reads them, including imported copies", () => {
-    expect(quickActionSignals({ template: "Fix this.\n\n{{pr.reviewThreads}}" })).toEqual([
+    const signals = (id: string, template: string) => quickActionSignals({ id, template });
+    expect(signals("imported", "Fix this.\n\n{{pr.reviewThreads}}")).toEqual(["reviewThreads"]);
+    expect(signals("imported", "Fix the review feedback on {{pr.url}}.")).toEqual([]);
+    // The starter keeps a template older clients can render.
+    const starterTemplate = starter(QUICK_ACTION_STARTER_IDS.addressReviewThreads).template;
+    expect(starterTemplate).not.toContain("{{pr.reviewThreads}}");
+    expect(signals(QUICK_ACTION_STARTER_IDS.addressReviewThreads, starterTemplate)).toEqual([
       "reviewThreads",
     ]);
-    expect(quickActionSignals({ template: "Fix the review feedback on {{pr.url}}." })).toEqual([]);
   });
 
   it("counts unresolved review threads, including outdated ones", () => {

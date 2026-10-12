@@ -11,6 +11,7 @@ import type {
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "./state/models.ts";
 import {
+  QUICK_ACTION_STARTER_IDS,
   quickActionRequirements,
   renderQuickAction,
   templateVariables,
@@ -138,13 +139,22 @@ export function quickActionTargets(
 /** A PR state an action reports in menus; each action shows only the states it acts on. */
 export type QuickActionSignal = "ci" | "conflicts" | "reviewThreads";
 
-/** CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`, threads for `{{pr.reviewThreads}}`. */
-export function quickActionSignals(action: Pick<QuickAction, "template">): QuickActionSignal[] {
+/**
+ * CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`, threads for `{{pr.reviewThreads}}`.
+ * The review threads starter keeps a template older clients can render, so it is also
+ * recognized by its stable ID.
+ */
+export function quickActionSignals(
+  action: Pick<QuickAction, "id" | "template">,
+): QuickActionSignal[] {
   const used = templateVariables(action.template);
   return [
     ...(used.includes("ci.failures") ? (["ci"] as const) : []),
     ...(used.includes("pr.conflicts") ? (["conflicts"] as const) : []),
-    ...(used.includes("pr.reviewThreads") ? (["reviewThreads"] as const) : []),
+    ...(used.includes("pr.reviewThreads") ||
+    action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads
+      ? (["reviewThreads"] as const)
+      : []),
   ];
 }
 
@@ -254,6 +264,8 @@ export function quickActionTargetNeedsAction(
         ? null
         : state.mergeability === "conflicting",
     );
+  // Review threads are not part of this state, so a template reading them stays eligible.
+  if (used.includes("pr.reviewThreads")) needs.push(null);
   return needs.includes(true) ? true : needs.includes(null) ? null : false;
 }
 

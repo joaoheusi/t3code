@@ -139,7 +139,7 @@ it.effect(
       assert.isUndefined(upgraded.find((action) => action.id === conflicts.id));
       const added = upgraded.find((action) => action.id === reviewThreads.id)!;
       assert.equal(added.name, "Address review threads");
-      assert.include(added.template, "{{pr.reviewThreads}}");
+      assert.include(added.template, "{{pr.url}}");
       const custom = yield* library.save({
         action: { ...added, template: "My review instructions" },
         expectedRevision: added.revision,

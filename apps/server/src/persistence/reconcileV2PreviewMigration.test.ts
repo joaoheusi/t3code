@@ -46,7 +46,6 @@ describe("V2 preview upgrade", () => {
         [63, "McpAppModelContext"],
         [64, "ThreadSnapshotWindowIndexes"],
         [65, "AddressReviewThreadsQuickAction"],
-        [66, "ReviewThreadsQuickActionVariable"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -135,7 +134,6 @@ describe("V2 preview upgrade", () => {
         [63, "McpAppModelContext"],
         [64, "ThreadSnapshotWindowIndexes"],
         [65, "AddressReviewThreadsQuickAction"],
-        [66, "ReviewThreadsQuickActionVariable"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

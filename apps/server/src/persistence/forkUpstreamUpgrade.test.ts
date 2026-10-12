@@ -18,7 +18,6 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [63, "McpAppModelContext"],
       [64, "ThreadSnapshotWindowIndexes"],
       [65, "AddressReviewThreadsQuickAction"],
-      [66, "ReviewThreadsQuickActionVariable"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(
