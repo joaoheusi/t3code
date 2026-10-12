@@ -1539,3 +1539,36 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
     }),
   ).pipe(Effect.provide(layer)),
 );
+
+it.live("an agent tab that started headless moves to the desktop page once it mounts", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      // No window showed the thread in time, so the agent's tab runs headless.
+      const { browser, broker, tabId } = yield* ready;
+      expect(contexts).toHaveLength(1);
+      const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
+      // A stalled viewer must still learn the tab moved.
+      stallViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
+      while (desktopDetaches.listenerCount("attach") === 0) yield* Effect.yieldNow;
+      // An attach the desktop already took back leaves the headless page alone.
+      desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
+      yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      expect(contexts[0]!.close).not.toHaveBeenCalled();
+      // The user opens the thread; the desktop draws its own page for the tab.
+      desktopTabs.add(tabId);
+      desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
+      while (desktopConnections.length === 0) yield* Effect.yieldNow;
+      expect(contexts[0]!.close).toHaveBeenCalled();
+      // No second headless page replaced the first.
+      expect(contexts).toHaveLength(1);
+      const backlog = yield* Queue.clear(viewer.output);
+      expect(backlog.map((item) => item._tag)).toEqual(["reconnect"]);
+      // The agent now drives the page the user sees, with the user's cookies.
+      const desktopPage = desktopConnections[0]!.context.page;
+      const evaluated = desktopPage.evaluate.mock.calls.length;
+      yield* broker.invoke({ scope, tabId, operation: "snapshot", input: {} });
+      expect(desktopPage.evaluate.mock.calls.length).toBeGreaterThan(evaluated);
+      expect(desktopConnections).toHaveLength(1);
+    }),
+  ).pipe(Effect.provide(layer)),
+);
