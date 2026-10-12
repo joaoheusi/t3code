@@ -13,7 +13,8 @@ export function MaterialListRow({
   titleClassName,
   subtitle,
   subtitleClassName,
-  subtitleNumberOfLines = 2,
+  subtitleNumberOfLines,
+  subtitleEllipsizeMode,
   leading,
   trailing,
   className,
@@ -23,7 +24,8 @@ export function MaterialListRow({
   readonly titleClassName?: string;
   readonly subtitle?: string | null;
   readonly subtitleClassName?: string;
-  readonly subtitleNumberOfLines?: number;
+  readonly subtitleNumberOfLines?: ComponentProps<typeof AppText>["numberOfLines"];
+  readonly subtitleEllipsizeMode?: ComponentProps<typeof AppText>["ellipsizeMode"];
   readonly leading?: ReactNode;
   readonly trailing?: ReactNode;
 }) {
@@ -52,7 +54,8 @@ export function MaterialListRow({
         {subtitle ? (
           <AppText
             className={cn("text-sm text-foreground-muted", subtitleClassName)}
-            numberOfLines={subtitleNumberOfLines}
+            ellipsizeMode={subtitleEllipsizeMode}
+            numberOfLines={subtitleNumberOfLines ?? 2}
           >
             {subtitle}
           </AppText>

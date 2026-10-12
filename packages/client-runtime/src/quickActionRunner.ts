@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import type {
   ActionContextInput,
   ActionContextResult,
@@ -320,7 +321,7 @@ export async function renderQuickActionText(input: {
 }): Promise<RenderedQuickAction> {
   const { action, scope, choice } = input;
   const needs = quickActionRequirements(action.template);
-  const now = input.now ?? new Date();
+  const now = input.now ?? DateTime.toDateUtc(DateTime.nowUnsafe());
   const values: Partial<Record<QuickActionVariable, string>> = {
     date: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
     time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
@@ -392,7 +393,7 @@ export async function renderQuickActionSelection(
   },
 ): Promise<RenderedQuickAction> {
   if (input.choices.length === 0) throw new Error("Select at least one target.");
-  const now = input.now ?? new Date();
+  const now = input.now ?? DateTime.toDateUtc(DateTime.nowUnsafe());
   const rendered: RenderedQuickAction[] = [];
   for (const choice of input.choices) {
     rendered.push(await renderQuickActionText({ ...input, now, choice }));

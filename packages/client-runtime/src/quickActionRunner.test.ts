@@ -1,3 +1,4 @@
+import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 import {
   EnvironmentId,
@@ -43,7 +44,7 @@ const input = {
     thread: null,
   },
   choices: [{}],
-  now: new Date(2026, 9, 8, 12, 0),
+  now: DateTime.toDateUtc(DateTime.makeUnsafe("2026-10-08T12:00:00")),
   resolveContext: async () => {
     throw new Error("Should not request host context");
   },

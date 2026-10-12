@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 64 }, (_, index) => index + 1),
+        Array.from({ length: 66 }, (_, index) => index + 1),
       );
     }),
   );
@@ -36,6 +36,8 @@ layer("055_OrchestrationV2", (it) => {
         [62, "DropForkWorkspaceOperations"],
         [63, "McpAppModelContext"],
         [64, "ThreadSnapshotWindowIndexes"],
+        [65, "AddressReviewThreadsQuickAction"],
+        [66, "PullRequestReviewGuides"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -66,6 +68,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 62, name: "DropForkWorkspaceOperations" },
         { migration_id: 63, name: "McpAppModelContext" },
         { migration_id: 64, name: "ThreadSnapshotWindowIndexes" },
+        { migration_id: 65, name: "AddressReviewThreadsQuickAction" },
+        { migration_id: 66, name: "PullRequestReviewGuides" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -138,5 +142,21 @@ layer("055_OrchestrationV2", (it) => {
         ],
       );
     }),
+  );
+
+  it.effect("adds review guides to a released fork database without replaying its migrations", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations({ toMigrationInclusive: 65 });
+      yield* sql`INSERT INTO fork_quick_actions (id, project_id, record_json, revision)
+        VALUES ('preserved', NULL, '{}', 7)`;
+      assert.deepStrictEqual(yield* runMigrations(), [[66, "PullRequestReviewGuides"]]);
+      yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
+        VALUES ('github.com', 'owner/repo', 1, '{}')`;
+      assert.deepStrictEqual(yield* sql`SELECT id FROM fork_quick_actions WHERE id = 'preserved'`, [
+        { id: "preserved" },
+      ]);
+      assert.deepStrictEqual(yield* runMigrations(), []);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });

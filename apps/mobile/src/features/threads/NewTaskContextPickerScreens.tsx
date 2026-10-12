@@ -1,3 +1,4 @@
+import { AppActivityIndicator } from "../../components/AppActivityIndicator";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { shouldCheckoutNewTaskBranch } from "./new-task-context-presentation";
 import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
@@ -10,15 +11,7 @@ import {
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
@@ -37,6 +30,8 @@ import { useServerConfigs } from "../../state/entities";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
+import { NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET } from "../layout/native-mail-search-toolbar";
+import { useNativeMailSearchToolbar } from "../../native/use-native-mail-search-toolbar";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 
@@ -288,6 +283,7 @@ export function BranchPickerScreen(props: {
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const usesNativeMailSearchToolbar = useNativeMailSearchToolbar();
   const selectedBranchName =
     props.selectedBranchName ??
     props.branches.find((branch) => branch.current)?.name ??
@@ -349,8 +345,15 @@ export function BranchPickerScreen(props: {
         showsVerticalScrollIndicator={false}
       >
         {branchListHeader}
-        <View className="flex-1 items-center justify-center gap-3 px-4">
-          {props.loading ? <ActivityIndicator /> : null}
+        <View
+          className="flex-1 items-center justify-center gap-3 px-4"
+          style={{
+            marginBottom: usesNativeMailSearchToolbar
+              ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
+              : 0,
+          }}
+        >
+          {props.loading ? <AppActivityIndicator /> : null}
           <Text className="text-center text-sm text-foreground-muted">
             {props.loading
               ? "Loading branches…"
@@ -389,7 +392,7 @@ export function BranchPickerScreen(props: {
         ListFooterComponent={
           props.refreshing ? (
             <View className="items-center py-4">
-              <ActivityIndicator />
+              <AppActivityIndicator />
             </View>
           ) : null
         }

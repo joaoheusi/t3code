@@ -25,6 +25,10 @@ import { prepareTask } from "./preparedTasks";
 import { insertQuickActionText, renderQuickActionText } from "./quickActionRunner";
 import { useResolveActionContext } from "./useQuickActions";
 
+export interface TaskDeliveryOptions {
+  readonly onDelivered?: (destination: ComposerThreadTarget) => void;
+}
+
 const EVIDENCE_VARIABLE = { ci: "ci.failures", conflicts: "pr.conflicts" } as const;
 
 /**
@@ -91,6 +95,7 @@ export function useTaskDestination(
     destination: ComposerThreadTarget,
     task: PullRequestThreadTask,
     bindingId?: string,
+    options?: TaskDeliveryOptions,
   ) => {
     if (lock.current || !canOperate) return;
     lock.current = true;
@@ -120,6 +125,7 @@ export function useTaskDestination(
       if (!task.context) {
         if (loading) toastManager.close(loading);
         deliverText(destination, invocation, task.prompt, task);
+        options?.onDelivered?.(destination);
         return;
       }
       const bindings = thread?.workspace?.bindings ?? [];
@@ -132,7 +138,7 @@ export function useTaskDestination(
       if (bindings.length > 1 && chosenBinding === undefined) {
         if (loading) toastManager.close(loading);
         if (invocation) actionDispatcher.cancel(invocation);
-        chooseRepository(destination, task, bindings);
+        chooseRepository(destination, task, bindings, options);
         return;
       }
       const action = await instructionFor(task.context.kind, ownerProject, task.prompt);
@@ -160,8 +166,10 @@ export function useTaskDestination(
           projectId: ownerProject,
           ...(task.reviewComments ? { reviewComments: task.reviewComments } : {}),
         })
-      )
+      ) {
         addReviewComments(destination, task);
+        options?.onDelivered?.(destination);
+      }
     } catch (failure) {
       if (invocation) actionDispatcher.cancel(invocation);
       const error = {
@@ -180,6 +188,7 @@ export function useTaskDestination(
     destination: ComposerThreadTarget,
     task: PullRequestThreadTask,
     bindings: ReadonlyArray<{ id: string; label: string; checkoutPath: string }>,
+    options?: TaskDeliveryOptions,
   ) =>
     openCommandPalette({
       view: {
@@ -195,26 +204,26 @@ export function useTaskDestination(
               title: binding.label,
               description: binding.checkoutPath,
               icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
-              run: () => deliver(destination, task, binding.id),
+              run: () => deliver(destination, task, binding.id, options),
             })),
           },
         ],
       },
     });
 
-  const openNew = async (task: PullRequestThreadTask) => {
+  const openNew = async (task: PullRequestThreadTask, options?: TaskDeliveryOptions) => {
     if (!projectId || lock.current || !canOperate) return;
     const opened = await newThread(scopeProjectRef(environmentId, projectId));
-    if (opened) await deliver(opened.draftId, task);
+    if (opened) await deliver(opened.draftId, task, undefined, options);
   };
 
-  const request = (task: PullRequestThreadTask) => {
+  const request = (task: PullRequestThreadTask, options?: TaskDeliveryOptions) => {
     if (!canOperate) {
       toastManager.add({ type: "error", title: "This connection is read-only" });
       return;
     }
     if (target) {
-      void deliver(target, task);
+      void deliver(target, task, undefined, options);
       return;
     }
     // No thread asked for this task, so the user picks one. Never guess the latest thread.
@@ -238,7 +247,7 @@ export function useTaskDestination(
                     to: "/$environmentId/$threadId",
                     params: { environmentId, threadId: thread.id },
                   });
-                  await deliver(destination, task);
+                  await deliver(destination, task, undefined, options);
                 },
               })),
               ...(projectId
@@ -249,7 +258,7 @@ export function useTaskDestination(
                       searchTerms: ["new thread", "open in new thread"],
                       title: "Open in new thread",
                       icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
-                      run: () => openNew(task),
+                      run: () => openNew(task, options),
                     },
                   ]
                 : []),

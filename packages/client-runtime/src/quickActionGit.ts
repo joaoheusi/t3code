@@ -1,8 +1,5 @@
 import type { ThreadWorkspace, VcsStatusResult, GitStackedAction } from "@t3tools/contracts";
-import {
-  DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
-  getChangeRequestTerminology,
-} from "@t3tools/shared/sourceControl";
+import { sourceControlClients } from "./sourceControlClients.ts";
 
 export interface GitQuickAction {
   label: string;
@@ -15,9 +12,7 @@ export interface GitQuickAction {
 }
 
 function resolveChangeRequestTerminology(status: VcsStatusResult | null) {
-  return status?.sourceControlProvider
-    ? getChangeRequestTerminology(status.sourceControlProvider)
-    : DEFAULT_CHANGE_REQUEST_TERMINOLOGY;
+  return sourceControlClients.get(status?.sourceControlProvider?.kind).changeRequest;
 }
 
 export function resolveQuickAction(
