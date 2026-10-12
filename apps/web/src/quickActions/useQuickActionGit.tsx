@@ -22,7 +22,7 @@ import {
 import { Spinner } from "../components/ui/spinner";
 import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
-import { getChangeRequestTerminology } from "../sourceControlPresentation";
+import { getSourceControlPresentation } from "../sourceControlPresentation";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -267,7 +267,10 @@ export function useQuickActionGit(
                 branchName: status.refName!,
                 includesCommit: status.hasWorkingTreeChanges,
                 ...(status.sourceControlProvider
-                  ? { terminology: getChangeRequestTerminology(status.sourceControlProvider) }
+                  ? {
+                      terminology: getSourceControlPresentation(status.sourceControlProvider)
+                        .terminology,
+                    }
                   : {}),
               });
               openCommandPalette({

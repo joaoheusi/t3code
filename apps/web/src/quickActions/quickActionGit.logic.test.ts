@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import type { ThreadWorkspace, VcsStatusResult, WorkspaceBinding } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
@@ -37,7 +38,7 @@ describe("repository quick actions", () => {
     { sourceControlProvider: undefined, shortLabel: "PR" },
     {
       sourceControlProvider: {
-        kind: "gitlab" as const,
+        kind: SourceControlProviderKind.make("gitlab"),
         name: "GitLab",
         baseUrl: "https://gitlab.com",
       },

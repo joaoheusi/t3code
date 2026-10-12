@@ -1,3 +1,4 @@
+import { queuedCreationWithPullRequestCheckout } from "./thread-outbox-model";
 import { describe, expect, it } from "@effect/vitest";
 import { EnvironmentNotRegisteredError } from "@t3tools/client-runtime/connection";
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
@@ -1480,7 +1481,7 @@ describe("thread outbox", () => {
     expect(isQueuedThreadCreationSendable(restored)).toBe(true);
   });
 
-  it("round-trips queued creations and gates incomplete ones from sending", () => {
+  it("round-trips queued PR checkout sources and gates incomplete creations from sending", () => {
     const base = queuedMessage({
       messageId: "message-1",
       createdAt: "2026-06-08T10:00:01.000Z",
@@ -1494,9 +1495,10 @@ describe("thread outbox", () => {
       creation: {
         projectId: ProjectId.make("project-1"),
         workspaceMode: "worktree",
-        branch: "main",
+        branch: "fork/feature",
         worktreePath: null,
-        startFromOrigin: true,
+        startFromOrigin: false,
+        pullRequestReference: "https://github.com/acme/repo/pull/123",
       },
     } satisfies QueuedThreadMessage;
 
@@ -1520,6 +1522,26 @@ describe("thread outbox", () => {
       false,
     );
     expect(isQueuedThreadCreationSendable(base)).toBe(false);
+    expect(isQueuedThreadCreationSendable({ ...creationMessage, text: "  " })).toBe(false);
+    expect(
+      isQueuedThreadCreationSendable({
+        ...creationMessage,
+        text: "",
+        attachments: [
+          {
+            id: "image-1",
+            type: "image",
+            name: "photo.png",
+            mimeType: "image/png",
+            sizeBytes: 3,
+            fileUri: "file:///documents/t3-composer-attachments/photo.png",
+            previewUri: "file:///documents/t3-composer-attachments/photo.png",
+            uploadedAttachmentId: "pending-photo-png",
+            uploadEnvironmentId: EnvironmentId.make("environment-1"),
+          },
+        ],
+      }),
+    ).toBe(true);
   });
 
   it("retries transport failures but drops deterministic command failures", () => {
@@ -1607,4 +1629,65 @@ describe("thread outbox", () => {
       }),
     ).toBe("restore");
   });
+});
+
+it("starts a queued PR task on its prepared checkout without dropping other repositories", () => {
+  const creation = {
+    projectId: ProjectId.make("project"),
+    workspaceMode: "worktree" as const,
+    branch: "main",
+    worktreePath: null,
+    pullRequestReference: "https://github.com/owner/api/pull/42",
+    workspaceConfiguration: {
+      expectedRevision: 0,
+      primaryBindingId: "api",
+      bindings: [
+        {
+          id: "api",
+          label: "API",
+          sourcePath: "/repos/api",
+          mode: "new-worktree" as const,
+          branch: "draft-api",
+          baseRef: "main",
+          startFromOrigin: true,
+        },
+        {
+          id: "web",
+          label: "Web",
+          sourcePath: "/repos/web",
+          mode: "new-worktree" as const,
+          branch: "draft-web",
+          baseRef: "develop",
+          startFromOrigin: true,
+        },
+      ],
+    },
+  };
+  const prepared = queuedCreationWithPullRequestCheckout(creation, {
+    branch: "review/pr-42",
+    worktreePath: "/worktrees/pr-42",
+  });
+  const restored = decodeQueuedThreadMessage(
+    JSON.parse(
+      JSON.stringify(
+        encodeQueuedThreadMessage({
+          ...queuedMessage({ messageId: "pr-repositories", createdAt: "2026-10-12T12:00:00.000Z" }),
+          creation: prepared,
+        }),
+      ),
+    ),
+  );
+  expect(restored.creation?.workspaceConfiguration?.bindings).toEqual([
+    {
+      id: "api",
+      label: "API",
+      sourcePath: "/worktrees/pr-42",
+      mode: "existing-worktree",
+      branch: "review/pr-42",
+    },
+    creation.workspaceConfiguration.bindings[1],
+  ]);
+  expect(restored.creation?.worktreePath).toBe("/worktrees/pr-42");
+  expect(restored.creation?.workspaceMode).toBe("local");
+  expect(creation.workspaceConfiguration.bindings[0]?.sourcePath).toBe("/repos/api");
 });

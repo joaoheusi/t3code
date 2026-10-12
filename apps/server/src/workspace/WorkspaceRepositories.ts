@@ -1,6 +1,6 @@
 import * as Semaphore from "effect/Semaphore";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
-import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Clock from "effect/Clock";
 import * as Path from "effect/Path";
 import * as Context from "effect/Context";
@@ -84,14 +84,15 @@ export function parseWorkspaceChanges(output: string) {
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const { basename, isAbsolute, join, relative, resolve } = yield* Path.Path;
-  const platform = yield* HostProcessPlatform;
+  const platform = yield* HostProcess.Platform;
+  const home = yield* HostProcess.HomeDirectory;
   const permits = yield* Semaphore.make(4);
   const runner = yield* ProcessRunner.ProcessRunner;
   const config = yield* ServerConfig.ServerConfig;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
   const canonical = (input: string) =>
     Effect.gen(function* () {
-      const path = expandHomePath(input);
+      const path = expandHomePath(input, home);
       if (!isAbsolute(path)) return yield* fail("Enter an absolute path on this execution host.");
       return yield* fs
         .realPath(path)

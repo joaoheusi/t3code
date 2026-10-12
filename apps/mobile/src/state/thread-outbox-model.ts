@@ -47,6 +47,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   startFromOrigin: Schema.optional(Schema.Boolean),
   workspaceConfiguration: Schema.optional(WorkspaceConfiguration),
   repositorySelection: Schema.optional(MobileRepositorySelection),
+  pullRequestReference: Schema.optional(Schema.String),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -81,6 +82,40 @@ export interface QueuedThreadCreation {
   readonly startFromOrigin?: boolean;
   readonly workspaceConfiguration?: WorkspaceConfiguration;
   readonly repositorySelection?: MobileRepositorySelection;
+  readonly pullRequestReference?: string;
+}
+
+/** Use the prepared PR checkout as the primary repository while retaining additional selections. */
+export function queuedCreationWithPullRequestCheckout(
+  creation: QueuedThreadCreation,
+  checkout: { readonly branch: string | null; readonly worktreePath: string },
+): QueuedThreadCreation {
+  const configuration = creation.workspaceConfiguration;
+  return {
+    ...creation,
+    workspaceMode: "local",
+    branch: checkout.branch,
+    worktreePath: checkout.worktreePath,
+    startFromOrigin: false,
+    ...(configuration
+      ? {
+          workspaceConfiguration: {
+            ...configuration,
+            bindings: configuration.bindings.map((binding) =>
+              binding.id === configuration.primaryBindingId
+                ? {
+                    id: binding.id,
+                    label: binding.label,
+                    sourcePath: checkout.worktreePath,
+                    mode: "existing-worktree" as const,
+                    ...(checkout.branch === null ? {} : { branch: checkout.branch }),
+                  }
+                : binding,
+            ),
+          },
+        }
+      : {}),
+  };
 }
 
 export interface QueuedThreadMessage {
@@ -261,7 +296,8 @@ export function isQueuedThreadCreationSendable(message: QueuedThreadMessage): bo
   if (!message.creation) {
     return false;
   }
-  if (message.text.trim().length === 0 || message.modelSelection === undefined) {
+  const hasContent = message.text.trim().length > 0 || message.attachments.length > 0;
+  if (!hasContent || message.modelSelection === undefined) {
     return false;
   }
   return (
