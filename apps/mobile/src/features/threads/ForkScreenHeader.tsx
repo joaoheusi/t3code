@@ -3,11 +3,12 @@ import { Platform } from "react-native";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import type { AppSymbolName } from "../../components/AppSymbol";
+import { MaterialButton } from "../../components/MaterialButton";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 
 type HeaderButton = {
   readonly accessibilityLabel: string;
-  /** iOS shows the label; Android shows the icon. */
+  /** When provided, both platforms show a text action. */
   readonly label?: string;
   readonly icon: AppSymbolName & string;
   readonly onPress: () => void;
@@ -34,7 +35,7 @@ export function ForkScreenHeader(props: {
           hideBottomBorder
           onBack={props.cancel?.onPress ?? (() => navigation.goBack())}
           actions={
-            props.action
+            props.action && !props.action.label
               ? [
                   {
                     accessibilityLabel: props.action.accessibilityLabel,
@@ -44,6 +45,16 @@ export function ForkScreenHeader(props: {
                   },
                 ]
               : []
+          }
+          trailing={
+            props.action?.label ? (
+              <MaterialButton
+                label={props.action.label}
+                tone="text"
+                disabled={props.action.disabled}
+                onPress={props.action.onPress}
+              />
+            ) : null
           }
         />
       </>
