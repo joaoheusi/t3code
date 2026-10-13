@@ -4,6 +4,7 @@ import { cn } from "../lib/cn";
 
 export interface MaterialButtonProps {
   readonly label: string;
+  readonly accessibilityLabel?: string;
   readonly onPress: () => void;
   readonly disabled?: boolean;
   readonly loading?: boolean;
@@ -25,6 +26,7 @@ export function MaterialButton(props: MaterialButtonProps) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={props.onPress}

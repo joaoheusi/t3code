@@ -43,7 +43,7 @@ export function MaterialButton(props: MaterialButtonProps) {
     <View
       accessible
       accessibilityRole="button"
-      accessibilityLabel={props.label}
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
       accessibilityState={{
         disabled: Boolean(props.disabled || props.loading),
         busy: Boolean(props.loading),

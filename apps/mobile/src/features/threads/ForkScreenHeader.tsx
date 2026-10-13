@@ -50,6 +50,7 @@ export function ForkScreenHeader(props: {
             props.action?.label ? (
               <MaterialButton
                 label={props.action.label}
+                accessibilityLabel={props.action.accessibilityLabel}
                 tone="text"
                 disabled={props.action.disabled}
                 onPress={props.action.onPress}
