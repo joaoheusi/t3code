@@ -29,6 +29,7 @@ import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
 import { SymbolView } from "../../components/AppSymbol";
 import { AppText as Text } from "../../components/AppText";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
+import { MaterialButton } from "../../components/MaterialButton";
 import {
   PickerCaption,
   PickerRow,
@@ -86,18 +87,20 @@ export function RepositoriesControl(props: {
   if (!choice.supported) return null;
   const total = choice.repositories.length + (choice.selection.folder ? 0 : 1);
   const several = total > 1 || choice.selection.folder;
-  // Compact so it fits beside the workspace and branch controls: an add icon alone, or a
-  // folder with the repository count.
   return (
     <ComposerInlineControl
       accessibilityLabel={several ? `Repositories: ${repositoryCount(total)}` : "Add repositories"}
+      accessibilityHint="Choose the repositories this task works in"
       label={
-        choice.discovery.isPending && !choice.discovery.data ? "…" : several ? String(total) : ""
+        choice.discovery.isPending && !choice.discovery.data
+          ? "Finding repositories…"
+          : several
+            ? repositoryCount(total)
+            : "Add repositories"
       }
       icon={several ? "folder" : "folder.badge.plus"}
       selected={several}
-      showChevron={false}
-      maxWidth={72}
+      chevronDirection="right"
       disabled={props.disabled}
       onPress={props.onOpen}
     />
@@ -227,7 +230,16 @@ function RepositoriesContent(props: {
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
-      <ForkScreenHeader title="Repositories" />
+      <ForkScreenHeader
+        title="Repositories"
+        action={{
+          accessibilityLabel: "Done choosing repositories",
+          label: "Done",
+          icon: "checkmark",
+          disabled: busy,
+          onPress: () => navigation.goBack(),
+        }}
+      />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
@@ -236,7 +248,7 @@ function RepositoriesContent(props: {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           gap: 8,
-          paddingBottom: Math.max(insets.bottom, 16) + 16,
+          paddingBottom: 16,
           paddingHorizontal: 16,
           paddingTop: 12,
         }}
@@ -391,6 +403,21 @@ function RepositoriesContent(props: {
           </PickerSurface>
         ) : null}
       </ScrollView>
+      <View
+        className="gap-2 border-t border-border bg-sheet px-4 pt-3"
+        style={{ paddingBottom: Math.max(insets.bottom, 16) }}
+      >
+        <Text className="text-center text-sm text-foreground-muted">
+          {repositoryCount(repositories.length + (selection.folder ? 0 : 1))} selected
+        </Text>
+        <MaterialButton
+          label="Done"
+          tone="primary"
+          fullWidth
+          disabled={busy}
+          onPress={() => navigation.goBack()}
+        />
+      </View>
     </View>
   );
 }

@@ -1642,7 +1642,7 @@ export function NewTaskDraftScreen(props: {
   };
 
   const workspaceControls = (
-    <View className="flex-row items-center gap-1 px-2">
+    <View className="flex-row flex-wrap items-center gap-1 px-2">
       {flow.canChooseWorkspace ? (
         <ComposerInlineControl
           accessibilityHint={`Switches to ${flow.workspaceMode === "local" ? "a new worktree" : "the current checkout"}`}
