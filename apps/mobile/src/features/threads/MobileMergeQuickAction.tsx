@@ -38,6 +38,20 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 import type { QuickActionsTarget } from "./MobileQuickActions";
 
+/** The thread's open PRs and merge permission, which the list reads to order the row. */
+export function useQuickActionMergeTargets(target: QuickActionsTarget) {
+  const thread = useThreadShell(
+    target.threadId ? { environmentId: target.environmentId, threadId: target.threadId } : null,
+  );
+  const canMerge = useAtomValue(
+    pullRequestEnvironment.runAction.permissionAtom(target.environmentId),
+  );
+  return {
+    targets: quickActionTargets({ template: "{{pr.url}}" }, { ...target, thread }),
+    canMerge,
+  };
+}
+
 export function MobileMergeQuickAction(props: {
   target: QuickActionsTarget;
   isLast: boolean;
@@ -46,10 +60,7 @@ export function MobileMergeQuickAction(props: {
 }) {
   const { target } = props;
   const insets = useSafeAreaInsets();
-  const thread = useThreadShell(
-    target.threadId ? { environmentId: target.environmentId, threadId: target.threadId } : null,
-  );
-  const targets = quickActionTargets({ template: "{{pr.url}}" }, { ...target, thread });
+  const { targets, canMerge } = useQuickActionMergeTargets(target);
   const variants = targets.kind === "ready" ? targets.variants : [];
   // The synced snapshot catches the obvious blockers; Continue rechecks fresh status, including
   // required checks, and arms auto-merge for a PR whose required checks still run.
@@ -57,9 +68,6 @@ export function MobileMergeQuickAction(props: {
     variant.snapshot
       ? pullRequestMergeBlocker(pullRequestSnapshotMergeState(variant.snapshot))
       : null;
-  const canMerge = useAtomValue(
-    pullRequestEnvironment.runAction.permissionAtom(target.environmentId),
-  );
   const loadDetail = useAtomQueryRunner(pullRequestEnvironment.detail, {
     reportFailure: false,
     refresh: true,

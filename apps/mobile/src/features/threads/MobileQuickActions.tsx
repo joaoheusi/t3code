@@ -62,8 +62,8 @@ import {
   insertComposerDraftText,
   setComposerSendRequested,
 } from "../../state/use-composer-drafts";
-import { MobileGitQuickAction } from "./MobileGitQuickAction";
-import { MobileMergeQuickAction } from "./MobileMergeQuickAction";
+import { MobileGitQuickAction, useQuickActionGitSummary } from "./MobileGitQuickAction";
+import { MobileMergeQuickAction, useQuickActionMergeTargets } from "./MobileMergeQuickAction";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 
 export type QuickActionsTarget = {
@@ -244,10 +244,11 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   const readsReviewThreads = actions.some(
     (action) => action.enabled && quickActionSignals(action).includes("reviewThreads"),
   );
-  const openPullRequests = quickActionTargets({ template: "{{pr.url}}" }, scope);
+  const git = useQuickActionGitSummary(target);
+  const merge = useQuickActionMergeTargets(target);
   const threadReferences =
-    readsReviewThreads && openPullRequests.kind === "ready"
-      ? openPullRequests.variants.flatMap((variant) =>
+    readsReviewThreads && merge.targets.kind === "ready"
+      ? merge.targets.variants.flatMap((variant) =>
           variant.choice.pullRequest
             ? [{ ...variant.choice.pullRequest, projectId: target.projectId }]
             : [],
@@ -399,26 +400,28 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       .toLowerCase()
       .split(/\s+/)
       .every((token) => "merge pull requests squash rebase".includes(token));
-  const mergeAction = (
+  const mergeAction = (isLast: boolean) => (
     <MobileMergeQuickAction
+      key="merge"
       target={target}
-      isLast={ranked.length === 0}
+      isLast={isLast}
       choosing={choosingMerge}
       onChoosingChange={setChoosingMerge}
     />
   );
-  const gitAction = (
+  const gitAction = (isLast: boolean) => (
     <MobileGitQuickAction
+      key="git"
       target={target}
       query={query}
-      isLast={!showMerge && ranked.length === 0}
+      isLast={isLast}
       onClose={() => navigation.goBack()}
       choosing={choosingGit}
       onChoosingChange={setChoosingGit}
     />
   );
-  if (choosingGit) return gitAction;
-  if (choosingMerge) return mergeAction;
+  if (choosingGit) return gitAction(true);
+  if (choosingMerge) return mergeAction(true);
 
   if (editing && canSave) {
     return (
@@ -553,9 +556,16 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         describeQuickActionTargets(action, targets.variants) ?? (action.description || undefined),
     };
   });
-  // Available rows first, so dead ends never push actions out of view.
-  const rows = [
+  // Available rows first, so dead ends never push actions out of view. The Git and Merge rows
+  // join that order: busy and query-hidden states are transient, so they do not move a row.
+  const gitAvailable = git.canWrite && !git.summary.disabled;
+  const mergeAvailable = merge.canMerge && merge.targets.kind === "ready";
+  const rows: Array<"git" | "merge" | ActionRow> = [
+    ...(gitAvailable ? ["git" as const] : []),
+    ...(showMerge && mergeAvailable ? ["merge" as const] : []),
     ...actionRows.filter((row) => row.variants),
+    ...(gitAvailable ? [] : ["git" as const]),
+    ...(showMerge && !mergeAvailable ? ["merge" as const] : []),
     ...actionRows.filter((row) => !row.variants),
   ];
 
@@ -579,54 +589,58 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
       >
         <PickerSearchField placeholder="Find an action" value={query} onChangeText={setQuery} />
         <PickerSurface>
-          {gitAction}
-          {showMerge ? mergeAction : null}
-          {rows.map((row, index) => (
-            <ControlPillMenu
-              key={row.action.id}
-              accessibilityLabel={`Manage ${row.action.name}`}
-              shouldOpenOnLongPress
-              actions={manageMenu(row.action)}
-              onPressAction={({ nativeEvent }) =>
-                manage(row.action, nativeEvent.event as ManageAction)
-              }
-            >
-              <QuickActionStatusRow
-                environmentId={target.environmentId}
-                projectId={target.projectId}
-                variant={row.statusTarget}
-                signals={quickActionSignals(row.action)}
-                multiline
-                title={row.action.name}
-                subtitle={row.subtitle}
-                symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
-                dimmed={!row.variants}
-                trailing={
-                  row.variants && row.variants.length > 1 ? (
-                    <SymbolView
-                      name="chevron.right"
-                      size={14}
-                      tintColorClassName="accent-icon-muted"
-                      type="monochrome"
-                    />
-                  ) : undefined
+          {rows.map((row, index) =>
+            row === "git" ? (
+              gitAction(index === rows.length - 1)
+            ) : row === "merge" ? (
+              mergeAction(index === rows.length - 1)
+            ) : (
+              <ControlPillMenu
+                key={row.action.id}
+                accessibilityLabel={`Manage ${row.action.name}`}
+                shouldOpenOnLongPress
+                actions={manageMenu(row.action)}
+                onPressAction={({ nativeEvent }) =>
+                  manage(row.action, nativeEvent.event as ManageAction)
                 }
-                isLast={index === rows.length - 1}
-                disabled={busy}
-                accessibilityHint={`${row.variants ? "Inserts the action into the message." : "Not available here."}${canSave ? " Long press to manage it." : ""}`}
-                onPress={() => {
-                  const variants = row.variants;
-                  if (!variants) Alert.alert(row.action.name, row.subtitle);
-                  else if (variants.length === 1)
-                    void run(
-                      row.action,
-                      variants.map((variant) => variant.choice),
-                    );
-                  else setChoosing({ action: row.action, variants, selected: [] });
-                }}
-              />
-            </ControlPillMenu>
-          ))}
+              >
+                <QuickActionStatusRow
+                  environmentId={target.environmentId}
+                  projectId={target.projectId}
+                  variant={row.statusTarget}
+                  signals={quickActionSignals(row.action)}
+                  multiline
+                  title={row.action.name}
+                  subtitle={row.subtitle}
+                  symbol={row.action.favorite ? "star.fill" : "bolt.circle"}
+                  dimmed={!row.variants}
+                  trailing={
+                    row.variants && row.variants.length > 1 ? (
+                      <SymbolView
+                        name="chevron.right"
+                        size={14}
+                        tintColorClassName="accent-icon-muted"
+                        type="monochrome"
+                      />
+                    ) : undefined
+                  }
+                  isLast={index === rows.length - 1}
+                  disabled={busy}
+                  accessibilityHint={`${row.variants ? "Inserts the action into the message." : "Not available here."}${canSave ? " Long press to manage it." : ""}`}
+                  onPress={() => {
+                    const variants = row.variants;
+                    if (!variants) Alert.alert(row.action.name, row.subtitle);
+                    else if (variants.length === 1)
+                      void run(
+                        row.action,
+                        variants.map((variant) => variant.choice),
+                      );
+                    else setChoosing({ action: row.action, variants, selected: [] });
+                  }}
+                />
+              </ControlPillMenu>
+            ),
+          )}
         </PickerSurface>
         {error ? <PickerCaption tone="danger">{error}</PickerCaption> : null}
         {library.error ? (
@@ -644,7 +658,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
           <View className="items-center py-8">
             <ActivityIndicator />
           </View>
-        ) : rows.length === 0 && disabledActions.length === 0 && !showMerge ? (
+        ) : actionRows.length === 0 && disabledActions.length === 0 && !showMerge ? (
           <View className="items-center gap-1 px-6 py-10">
             <Text className="text-center text-base font-t3-medium text-foreground">
               {query.trim() ? "No matching actions" : "No quick actions yet"}
