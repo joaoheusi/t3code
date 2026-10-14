@@ -152,7 +152,7 @@ export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): str
   if (pullRequest.mergeability === "conflicting") return "Has merge conflicts";
   if (pullRequest.isDraft) return "Still a draft";
   if (pullRequest.autoMergeEnabled) return "Auto-merge is on";
-  if (pullRequest.checksState === "failing") return "Required checks failing";
+  if (pullRequest.checksState === "failing") return "CI failing";
   if (pullRequest.checksState === "pending") return "Waiting for CI";
   if (pullRequest.canMerge === false) return "You can't merge this pull request";
   return null;

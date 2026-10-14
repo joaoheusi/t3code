@@ -37,7 +37,7 @@ describe("pullRequestMergeBlocker", () => {
       [{ state: "closed" }, "Closed"],
       [{ mergeability: "conflicting", isDraft: true }, "Has merge conflicts"],
       [{ isDraft: true, checks: [check("failure")] }, "Still a draft"],
-      [{ checks: [check("pending"), check("failure")] }, "Required checks failing"],
+      [{ checks: [check("pending"), check("failure")] }, "CI failing"],
       [{ checks: [check("success"), check("pending")] }, "Waiting for CI"],
       [
         { viewerPermissions: { actions: [] } as unknown as PullRequestDetail["viewerPermissions"] },
@@ -59,11 +59,9 @@ describe("pullRequestMergeBlocker", () => {
       pullRequestMergeBlocker(pullRequestDetailMergeState(detail({ checks })));
     expect(blocker([check("failure", false), check("pending", false)])).toBeNull();
     expect(blocker([check("failure", false), check("pending", true)])).toBe("Waiting for CI");
-    expect(blocker([check("success", true), check("failure", true)])).toBe(
-      "Required checks failing",
-    );
+    expect(blocker([check("success", true), check("failure", true)])).toBe("CI failing");
     // A host that marks no check keeps every check as a gate.
-    expect(blocker([check("failure")])).toBe("Required checks failing");
+    expect(blocker([check("failure")])).toBe("CI failing");
   });
 
   it("never blocks on a snapshot's all-checks state", () => {
