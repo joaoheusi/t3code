@@ -30,8 +30,6 @@ import { useServerConfigs } from "../../state/entities";
 import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
-import { NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET } from "../layout/native-mail-search-toolbar";
-import { useNativeMailSearchToolbar } from "../../native/use-native-mail-search-toolbar";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 
@@ -283,7 +281,6 @@ export function BranchPickerScreen(props: {
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const usesNativeMailSearchToolbar = useNativeMailSearchToolbar();
   const selectedBranchName =
     props.selectedBranchName ??
     props.branches.find((branch) => branch.current)?.name ??
@@ -345,14 +342,7 @@ export function BranchPickerScreen(props: {
         showsVerticalScrollIndicator={false}
       >
         {branchListHeader}
-        <View
-          className="flex-1 items-center justify-center gap-3 px-4"
-          style={{
-            marginBottom: usesNativeMailSearchToolbar
-              ? NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET
-              : 0,
-          }}
-        >
+        <View className="flex-1 items-center justify-center gap-3 px-4">
           {props.loading ? <AppActivityIndicator /> : null}
           <Text className="text-center text-sm text-foreground-muted">
             {props.loading
@@ -434,21 +424,23 @@ export function BranchPickerScreen(props: {
 
   // The column safe area includes the sheet header; the lists must not add that inset again.
   return (
-    <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-sheet" collapsable={false}>
-      <NativeStackScreenOptions
-        options={{
-          headerShown: true,
-          title: props.title,
-        }}
-      />
-      <View className="px-4 pt-3">
-        <PickerSearchField
-          placeholder="Find a branch"
-          value={props.query}
-          onChangeText={props.onQueryChange}
+    <View className="flex-1 bg-sheet" collapsable={false}>
+      <SafeAreaView edges={["top", "bottom"]} style={{ flex: 1 }}>
+        <NativeStackScreenOptions
+          options={{
+            headerShown: true,
+            title: props.title,
+          }}
         />
-      </View>
-      {branchContent}
-    </SafeAreaView>
+        <View className="px-4 pt-3">
+          <PickerSearchField
+            placeholder="Find a branch"
+            value={props.query}
+            onChangeText={props.onQueryChange}
+          />
+        </View>
+        {branchContent}
+      </SafeAreaView>
+    </View>
   );
 }
