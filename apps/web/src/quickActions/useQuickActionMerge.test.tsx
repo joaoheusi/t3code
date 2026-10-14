@@ -9,18 +9,15 @@ import * as Cause from "effect/Cause";
 import { act } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import type { CommandPaletteOpenDetail } from "../commandPaletteBus";
 
-const { loadDetail, runAction, openPalette, toast } = vi.hoisted(() => ({
+const { loadDetail, runAction, toast } = vi.hoisted(() => ({
   loadDetail: vi.fn(),
   runAction: vi.fn(),
-  openPalette: vi.fn(),
   toast: { add: vi.fn(), update: vi.fn(), close: vi.fn() },
 }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => loadDetail }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => runAction }));
 vi.mock("../state/pullRequests", () => ({ pullRequestEnvironment: { detail: {}, runAction: {} } }));
-vi.mock("../commandPaletteBus", () => ({ openCommandPalette: openPalette }));
 vi.mock("../components/ui/toast", () => ({
   toastManager: toast,
 }));
@@ -69,27 +66,31 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("merge quick action confirmation", () => {
+describe("merge quick action", () => {
   it("propagates a failed refresh to the palette's error handler and allows retry", async () => {
     loadDetail.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Connection lost"))));
     await expect(currentMerge()(environmentId, [reference])).rejects.toThrow("Connection lost");
     expect(toast.close).toHaveBeenCalledWith("Checking pull requests before merging…");
-    expect(openPalette).not.toHaveBeenCalled();
     expect(runAction).not.toHaveBeenCalled();
 
     await currentMerge()(environmentId, [reference]);
     expect(loadDetail).toHaveBeenCalledTimes(2);
-    expect(openPalette).toHaveBeenCalledTimes(1);
-    expect(runAction).not.toHaveBeenCalled();
+    expect(runAction).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps feedback visible during checking and merging, including failures", async () => {
-    let finishCheck!: (detail: AsyncResult.Success<PullRequestDetail>) => void;
+  it("merges in the same pass, with progress and failure feedback", async () => {
+    let finishCheck!: (detailValue: AsyncResult.Success<PullRequestDetail>) => void;
     const checked = new Promise<AsyncResult.Success<PullRequestDetail>>((resolve) => {
       finishCheck = resolve;
     });
     loadDetail.mockReturnValueOnce(checked);
-    const checking = currentMerge()(environmentId, [reference]);
+    let failMerge!: (error: Error) => void;
+    runAction.mockReturnValueOnce(
+      new Promise<never>((_resolve, reject) => {
+        failMerge = reject;
+      }),
+    );
+    const merging = currentMerge()(environmentId, [reference]);
     expect(toast.add).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Checking pull requests before merging…",
@@ -98,17 +99,10 @@ describe("merge quick action confirmation", () => {
     await currentMerge()(environmentId, [reference]);
     expect(loadDetail).toHaveBeenCalledTimes(1);
     finishCheck(AsyncResult.success(detail()));
-    await checking;
+    // Let the check finish so the merge starts.
+    await Promise.resolve();
+    await Promise.resolve();
     expect(toast.close).toHaveBeenCalledWith("Checking pull requests before merging…");
-    const view = (openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
-    const item = view.groups[0]!.items[0]!;
-    if (item.kind !== "action") throw new Error("Expected merge action");
-    let failMerge!: (error: Error) => void;
-    const merged = new Promise<never>((_resolve, reject) => {
-      failMerge = reject;
-    });
-    runAction.mockReturnValueOnce(merged);
-    const merging = item.run();
     expect(toast.add).toHaveBeenLastCalledWith(
       expect.objectContaining({
         title: "Merging 1 pull request…",
@@ -123,36 +117,39 @@ describe("merge quick action confirmation", () => {
       "Merging 1 pull request…",
       expect.objectContaining({
         type: "error",
+        title: "Merged 0 of 1 pull requests",
         description: "acme/web #7: Connection lost",
       }),
     );
   });
 
-  it("choosing a method confirms and merges without another screen", async () => {
+  it("merges with the PR's default method and rechecks it in the write lane", async () => {
     await currentMerge()(environmentId, [reference]);
-    expect(runAction).not.toHaveBeenCalled();
-    const view = (openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
-    const squash = view.groups[0]!.items.find(
-      (item) => item.value === "quick-action-merge:squash",
-    )!;
-    expect(view.groups[0]!.label).toContain("acme/web #7");
-    if (squash.kind !== "action") throw new Error("Choosing a method must confirm the merge");
-    await squash.run();
-    await squash.run();
-    expect(openPalette).toHaveBeenCalledTimes(1);
     expect(runAction).toHaveBeenCalledTimes(1);
     const request = runAction.mock.calls[0]![0];
     expect(request.environmentId).toBe(environmentId);
     expect(request.input).toMatchObject({ ...reference, action: "merge" });
-    expect(request.input.resolveMergeMethod(detail())).toBe("squash");
+    expect(request.input.resolveMergeMethod(detail())).toBe("merge");
     expect(() => request.input.resolveMergeMethod(detail({ mergeability: "conflicting" }))).toThrow(
       "changed",
     );
+    expect(toast.update).toHaveBeenLastCalledWith(
+      "Merging 1 pull request…",
+      expect.objectContaining({
+        type: "success",
+        title: "Merged 1 of 1 pull requests",
+        description: "acme/web #7 · Merge",
+      }),
+    );
   });
 
-  it("checks every selected PR and offers only their common methods", async () => {
+  it("merges every selected PR in one pass, each with its own method", async () => {
     loadDetail
-      .mockResolvedValueOnce(AsyncResult.success(detail()))
+      .mockResolvedValueOnce(
+        AsyncResult.success(
+          detail({ mergeCapabilities: { merge: true, squash: false, rebase: false } }),
+        ),
+      )
       .mockResolvedValueOnce(
         AsyncResult.success(
           detail({ mergeCapabilities: { merge: false, squash: true, rebase: false } }),
@@ -160,23 +157,36 @@ describe("merge quick action confirmation", () => {
       );
     const other = { ...reference, repository: "acme/api", number: 9 };
     await currentMerge()(environmentId, [reference, other]);
-    const view = (openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
-    expect(view.groups[0]!.items.map((item) => item.value)).toEqual(["quick-action-merge:squash"]);
-    const item = view.groups[0]!.items[0]!;
-    if (item.kind !== "action") throw new Error("Expected a merge action");
-    await item.run();
     expect(runAction.mock.calls.map(([request]) => request.input.repository)).toEqual([
       "acme/web",
       "acme/api",
     ]);
+    expect(
+      runAction.mock.calls.map(([request]) =>
+        request.input.resolveMergeMethod(
+          detail(
+            request.input.repository === "acme/web"
+              ? { mergeCapabilities: { merge: true, squash: false, rebase: false } }
+              : { mergeCapabilities: { merge: false, squash: true, rebase: false } },
+          ),
+        ),
+      ),
+    ).toEqual(["merge", "squash"]);
+    expect(toast.update).toHaveBeenLastCalledWith(
+      "Merging 2 pull requests…",
+      expect.objectContaining({
+        type: "success",
+        title: "Merged 2 of 2 pull requests",
+        description: "acme/web #7 · Merge\nacme/api #9 · Squash and merge",
+      }),
+    );
   });
 
-  it("does not offer a confirmation when fresh status blocks merging", async () => {
+  it("does not merge when fresh status blocks merging", async () => {
     loadDetail.mockResolvedValue(AsyncResult.success(detail({ isDraft: true })));
     await expect(currentMerge()(environmentId, [reference])).rejects.toThrow(
       "acme/web #7: Still a draft.",
     );
-    expect(openPalette).not.toHaveBeenCalled();
     expect(runAction).not.toHaveBeenCalled();
   });
 });

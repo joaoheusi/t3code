@@ -1,30 +1,24 @@
-import type {
-  EnvironmentId,
-  PullRequestDetail,
-  PullRequestMergeMethod,
-  PullRequestRef,
-} from "@t3tools/contracts";
+import type { EnvironmentId, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
+  allowedPullRequestMergeMethods,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
 } from "@t3tools/client-runtime/pullRequestActions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { useEffect, useRef } from "react";
 
-import { quickActionMergeMethods } from "./quickActionMerge.logic";
-import { openCommandPalette } from "../commandPaletteBus";
-import {
-  ADDON_ICON_CLASS,
-  ITEM_ICON_CLASS,
-  type CommandPaletteActionItem,
-} from "../components/CommandPalette.logic";
+import { quickActionMergeMethod } from "./quickActionMerge.logic";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../components/pullRequest/pullRequestDetail.logic";
-import { PullRequestGlyph } from "../components/pullRequest/pullRequestIcons";
 import { toastManager } from "../components/ui/toast";
 import { pullRequestEnvironment } from "../state/pullRequests";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 
+/**
+ * Merges every selected PR in one pass, like the other quick actions finish in their toggle
+ * view. Fresh status is checked first; each PR then merges with its own default method, so
+ * repositories that allow different methods never force a second pass.
+ */
 export function useQuickActionMerge() {
   const loadDetail = useAtomQueryRunner(pullRequestEnvironment.detail, {
     reportFailure: false,
@@ -48,7 +42,10 @@ export function useQuickActionMerge() {
       title: "Checking pull requests before merging…",
     });
     try {
-      const details: PullRequestDetail[] = [];
+      const plans: Array<{
+        readonly reference: PullRequestRef;
+        readonly method: PullRequestMergeMethod;
+      }> = [];
       for (const reference of references) {
         toastManager.update(loading, {
           description: `${reference.repository} #${reference.number}`,
@@ -61,78 +58,56 @@ export function useQuickActionMerge() {
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         const blocker = pullRequestMergeBlocker(pullRequestDetailMergeState(result.value));
         if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
-        details.push(result.value);
+        const method = quickActionMergeMethod(result.value);
+        if (method === null)
+          throw new Error(
+            `${reference.repository} #${reference.number}: You can't merge this pull request.`,
+          );
+        plans.push({ reference, method });
       }
-      const methods = quickActionMergeMethods(details);
-      if (methods.length === 0)
-        throw new Error(
-          "These pull requests have no allowed merge method in common. Select them separately.",
-        );
-      let started = false;
-      const merge = async (method: PullRequestMergeMethod) => {
-        if (started) return;
-        started = true;
-        const progress = toastManager.add({
-          type: "loading",
-          title: `Merging ${references.length} pull request${references.length === 1 ? "" : "s"}…`,
-        });
-        const failures: string[] = [];
-        let merged = 0;
-        for (const reference of references) {
-          toastManager.update(progress, {
-            description: `${reference.repository} #${reference.number}`,
-          });
-          try {
-            const result = await runAction({
-              environmentId,
-              input: {
-                ...reference,
-                action: "merge",
-                resolveMergeMethod: (detail) => {
-                  if (!quickActionMergeMethods([detail]).includes(method))
-                    throw new Error(
-                      "This pull request's status or allowed merge methods changed. Review it again.",
-                    );
-                  return method;
-                },
-              },
-            });
-            if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-            merged++;
-          } catch (error) {
-            failures.push(
-              `${reference.repository} #${reference.number}: ${error instanceof Error ? error.message : "Merge failed."}`,
-            );
-          }
-        }
+      toastManager.close(loading);
+      const progress = toastManager.add({
+        type: "loading",
+        title: `Merging ${plans.length} pull request${plans.length === 1 ? "" : "s"}…`,
+      });
+      const merged: string[] = [];
+      const failures: string[] = [];
+      for (const { reference, method } of plans) {
         toastManager.update(progress, {
-          type: failures.length ? "error" : "success",
-          title: `Merged ${merged} of ${references.length} pull requests`,
-          description: failures.length ? failures.join("\n") : undefined,
+          description: `${reference.repository} #${reference.number}`,
         });
-      };
-      const targets = references
-        .map((reference) => `${reference.repository} #${reference.number}`)
-        .join(", ");
-      openCommandPalette({
-        view: {
-          addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
-          groups: [
-            {
-              value: "quick-action-merge-methods",
-              label: `Confirm merge · ${targets}`,
-              items: methods.map((method): CommandPaletteActionItem => ({
-                kind: "action",
-                value: `quick-action-merge:${method}`,
-                searchTerms: [method, PULL_REQUEST_MERGE_METHOD_LABELS[method]],
-                title: PULL_REQUEST_MERGE_METHOD_LABELS[method],
-                description: `Merge ${references.length} pull request${references.length === 1 ? "" : "s"} now`,
-                icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
-                run: () => merge(method),
-              })),
+        try {
+          const result = await runAction({
+            environmentId,
+            input: {
+              ...reference,
+              action: "merge",
+              resolveMergeMethod: (detail) => {
+                if (
+                  quickActionMergeMethod(detail) === null ||
+                  !allowedPullRequestMergeMethods(detail).includes(method)
+                )
+                  throw new Error(
+                    "This pull request's status or allowed merge methods changed. Review it again.",
+                  );
+                return method;
+              },
             },
-          ],
-        },
+          });
+          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+          merged.push(
+            `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+          );
+        } catch (error) {
+          failures.push(
+            `${reference.repository} #${reference.number}: ${error instanceof Error ? error.message : "Merge failed."}`,
+          );
+        }
+      }
+      toastManager.update(progress, {
+        type: failures.length ? "error" : "success",
+        title: `Merged ${merged.length} of ${plans.length} pull requests`,
+        description: [...merged, ...failures].join("\n") || undefined,
       });
     } finally {
       toastManager.close(loading);

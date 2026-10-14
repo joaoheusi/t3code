@@ -1,6 +1,6 @@
 import type { PullRequestDetail } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { quickActionMergeMethods } from "./quickActionMerge.logic";
+import { quickActionMergeMethod } from "./quickActionMerge.logic";
 
 const detail = (overrides: Partial<PullRequestDetail> = {}) =>
   ({
@@ -15,20 +15,18 @@ const detail = (overrides: Partial<PullRequestDetail> = {}) =>
   }) as PullRequestDetail;
 
 describe("merge quick action eligibility", () => {
-  it("offers only methods every selected repository allows", () => {
+  it("picks each PR's own method, so a batch needs no shared method", () => {
+    expect(quickActionMergeMethod(detail())).toBe("merge");
     expect(
-      quickActionMergeMethods([
-        detail(),
+      quickActionMergeMethod(
         detail({ mergeCapabilities: { merge: false, squash: true, rebase: false } }),
-      ]),
-    ).toEqual(["squash"]);
-    expect(quickActionMergeMethods([])).toEqual([]);
+      ),
+    ).toBe("squash");
     expect(
-      quickActionMergeMethods([
-        detail({ mergeCapabilities: { merge: true, squash: false, rebase: false } }),
-        detail({ mergeCapabilities: { merge: false, squash: true, rebase: false } }),
-      ]),
-    ).toEqual([]);
+      quickActionMergeMethod(
+        detail({ mergeCapabilities: { merge: false, squash: false, rebase: true } }),
+      ),
+    ).toBe("rebase");
   });
 
   it.each([
@@ -39,9 +37,7 @@ describe("merge quick action eligibility", () => {
     { checks: [{ status: "failure" }] },
     { checks: [{ status: "pending" }] },
     { viewerPermissions: { actions: [] } },
-  ])("refuses the batch when a selected PR is ineligible: %j", (overrides) => {
-    expect(
-      quickActionMergeMethods([detail(), detail(overrides as Partial<PullRequestDetail>)]),
-    ).toEqual([]);
+  ])("refuses a PR that cannot merge right now: %j", (overrides) => {
+    expect(quickActionMergeMethod(detail(overrides as Partial<PullRequestDetail>))).toBeNull();
   });
 });

@@ -183,7 +183,7 @@ export function useQuickActionPalette(input: {
     true,
   );
   const { run } = useRunQuickAction();
-  const prepareMerge = useQuickActionMerge();
+  const mergePullRequests = useQuickActionMerge();
   const git = useQuickActionGit(scope, input.gitCwd, input.onClose);
 
   const mergeTargets =
@@ -289,8 +289,8 @@ export function useQuickActionPalette(input: {
       icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
     };
     if (mergeTargets.kind === "ready") {
-      const prepare = (variants: readonly QuickActionVariant[]) =>
-        prepareMerge(
+      const merge = (variants: readonly QuickActionVariant[]) =>
+        mergePullRequests(
           scope.environmentId,
           variants.flatMap((variant) =>
             variant.choice.pullRequest ? [{ ...variant.choice.pullRequest, projectId }] : [],
@@ -305,8 +305,7 @@ export function useQuickActionPalette(input: {
           title: `Merge ${only.label ?? "pull request"}`,
           description: onlyBlocker ?? targetDescription(only, scope, MERGE_SIGNALS),
           ...(onlyBlocker ? { disabled: true } : {}),
-          keepOpen: true,
-          run: () => prepare([only]),
+          run: () => merge([only]),
         });
       } else if (blockers.every((blocker) => blocker !== null)) {
         items.push({
@@ -322,11 +321,12 @@ export function useQuickActionPalette(input: {
           kind: "submenu",
           description: "Choose pull requests to merge",
           addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
+          // Like the other quick actions, this toggle view finishes the job: submitting merges
+          // every selected PR instead of opening another view first.
           multiSelect: {
-            actionLabel: "Continue",
-            keepOpen: true,
+            actionLabel: "Merge selected",
             run: (values) =>
-              prepare(
+              merge(
                 mergeTargets.variants.filter((variant) =>
                   values.includes(`quick-action:merge:${variant.key}`),
                 ),
@@ -342,7 +342,7 @@ export function useQuickActionPalette(input: {
                 "Merge pull requests",
                 scope,
                 MERGE_SIGNALS,
-                (variant) => prepare([variant]),
+                (variant) => merge([variant]),
                 blockers,
               ),
             },
