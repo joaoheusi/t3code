@@ -128,7 +128,7 @@ export function useQuickActionMerge() {
         }
         toastManager.update(progress, {
           type: failures.length ? "error" : "success",
-          title: `Merged ${merged.length} of ${plans.length} pull requests`,
+          title: `Merged ${merged.length} of ${plans.length} pull request${plans.length === 1 ? "" : "s"}`,
           description: [...merged, ...failures].join("\n") || undefined,
         });
       };

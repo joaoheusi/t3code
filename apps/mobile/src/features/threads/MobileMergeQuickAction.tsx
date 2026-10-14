@@ -175,7 +175,7 @@ export function MobileMergeQuickAction(props: {
       props.onChoosingChange(false);
     }
     Alert.alert(
-      `Merged ${merged.length} of ${confirmation.references.length} pull requests`,
+      `Merged ${merged.length} of ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"}`,
       [...merged, ...failures].join("\n") || "The selected pull requests were merged.",
     );
   };
