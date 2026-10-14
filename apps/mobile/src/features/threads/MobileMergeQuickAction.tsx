@@ -1,11 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import type { PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
+import type { PullRequestDetail, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
   PULL_REQUEST_MERGE_METHOD_LABELS,
   allowedPullRequestMergeMethods,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
   quickActionMergeMethod,
+  quickActionMergeMethods,
 } from "@t3tools/client-runtime/pullRequestActions";
 import {
   pullRequestSnapshotStatus,
@@ -30,11 +31,6 @@ import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 import type { QuickActionsTarget } from "./MobileQuickActions";
 
-/**
- * Merges every toggled PR in one pass, like the other quick actions finish in their picker.
- * Fresh status is checked first; each PR then merges with its own default method, so
- * repositories that allow different methods never force a second pass.
- */
 export function MobileMergeQuickAction(props: {
   target: QuickActionsTarget;
   isLast: boolean;
@@ -48,7 +44,7 @@ export function MobileMergeQuickAction(props: {
   );
   const targets = quickActionTargets({ template: "{{pr.url}}" }, { ...target, thread });
   const variants = targets.kind === "ready" ? targets.variants : [];
-  // The synced snapshot catches the obvious blockers; Merge rechecks fresh status.
+  // The synced snapshot catches the obvious blockers; Continue rechecks fresh status.
   const blockerOf = (variant: QuickActionVariant) =>
     variant.snapshot ? pullRequestMergeBlocker(variant.snapshot) : null;
   const canMerge = useAtomValue(
@@ -62,6 +58,14 @@ export function MobileMergeQuickAction(props: {
   const [selected, setSelected] = useState<string[]>(() =>
     variants.length === 1 && blockerOf(variants[0]!) === null ? [variants[0]!.key] : [],
   );
+  const [confirmation, setConfirmation] = useState<{
+    references: PullRequestRef[];
+    methods: readonly PullRequestMergeMethod[];
+    defaults: ReadonlyArray<{
+      readonly reference: PullRequestRef;
+      readonly method: PullRequestMergeMethod;
+    }>;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -77,22 +81,19 @@ export function MobileMergeQuickAction(props: {
   const chosen = variants.filter(
     (variant) => selected.includes(variant.key) && blockerOf(variant) === null,
   );
-  const merge = async () => {
+  const prepare = async () => {
     if (inFlight.current || !canMerge || chosen.length === 0) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    const merged: string[] = [];
-    const failures: string[] = [];
-    let total = 0;
     try {
-      const plans: Array<{
-        readonly reference: PullRequestRef;
-        readonly method: PullRequestMergeMethod;
-      }> = [];
-      for (const variant of chosen) {
-        if (!variant.choice.pullRequest) continue;
-        const reference = { ...variant.choice.pullRequest, projectId: target.projectId };
+      const references = chosen.flatMap((variant) =>
+        variant.choice.pullRequest
+          ? [{ ...variant.choice.pullRequest, projectId: target.projectId }]
+          : [],
+      );
+      const details: PullRequestDetail[] = [];
+      for (const reference of references) {
         setProgress(`Checking ${reference.repository} #${reference.number}…`);
         const result = await loadDetail({
           environmentId: target.environmentId,
@@ -102,58 +103,79 @@ export function MobileMergeQuickAction(props: {
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
         const blocker = pullRequestMergeBlocker(pullRequestDetailMergeState(result.value));
         if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
-        const method = quickActionMergeMethod(result.value);
+        details.push(result.value);
+      }
+      const defaults = references.map((reference, index) => {
+        const method = quickActionMergeMethod(details[index]!);
         if (method === null)
           throw new Error(
             `${reference.repository} #${reference.number}: You can't merge this pull request.`,
           );
-        plans.push({ reference, method });
-      }
-      total = plans.length;
-      for (const { reference, method } of plans) {
-        if (mounted.current) setProgress(`Merging ${reference.repository} #${reference.number}…`);
-        try {
-          const result = await runAction({
-            environmentId: target.environmentId,
-            input: {
-              ...reference,
-              action: "merge",
-              resolveMergeMethod: (detail) => {
-                if (
-                  quickActionMergeMethod(detail) === null ||
-                  !allowedPullRequestMergeMethods(detail).includes(method)
-                )
-                  throw new Error(
-                    "This pull request's status or allowed merge methods changed. Review it again.",
-                  );
-                return method;
-              },
-            },
-          });
-          if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-          merged.push(
-            `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
-          );
-        } catch (cause) {
-          failures.push(
-            `${reference.repository} #${reference.number}: ${cause instanceof Error ? cause.message : "Merge failed."}`,
-          );
-        }
-      }
+        return { reference, method };
+      });
+      // No shared method no longer forces a second pass: the confirmation then offers each
+      // repository's default method for the whole batch.
+      setConfirmation({ references, methods: quickActionMergeMethods(details), defaults });
     } catch (cause) {
       if (mounted.current)
         setError(cause instanceof Error ? cause.message : "Could not check pull requests.");
-      return;
     } finally {
       inFlight.current = false;
       if (mounted.current) setBusy(false);
     }
+  };
+
+  const merge = async (
+    plans: ReadonlyArray<{
+      readonly reference: PullRequestRef;
+      readonly method: PullRequestMergeMethod;
+    }>,
+  ) => {
+    if (inFlight.current || !canMerge || !confirmation) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    const merged: string[] = [];
+    const failures: string[] = [];
+    for (const { reference, method } of plans) {
+      if (mounted.current) setProgress(`Merging ${reference.repository} #${reference.number}…`);
+      try {
+        const result = await runAction({
+          environmentId: target.environmentId,
+          input: {
+            ...reference,
+            action: "merge",
+            resolveMergeMethod: (detail) => {
+              if (
+                quickActionMergeMethod(detail) === null ||
+                !allowedPullRequestMergeMethods(detail).includes(method)
+              )
+                throw new Error(
+                  "This pull request's status or allowed merge methods changed. Review it again.",
+                );
+              return method;
+            },
+          },
+        });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        merged.push(
+          `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+        );
+      } catch (cause) {
+        failures.push(
+          `${reference.repository} #${reference.number}: ${cause instanceof Error ? cause.message : "Merge failed."}`,
+        );
+      }
+    }
+    inFlight.current = false;
     if (mounted.current) {
+      setBusy(false);
+      setConfirmation(null);
       setSelected([]);
       props.onChoosingChange(false);
     }
     Alert.alert(
-      `Merged ${merged.length} of ${total} pull requests`,
+      `Merged ${merged.length} of ${confirmation.references.length} pull requests`,
       [...merged, ...failures].join("\n") || "The selected pull requests were merged.",
     );
   };
@@ -180,22 +202,27 @@ export function MobileMergeQuickAction(props: {
   return (
     <View className="flex-1 bg-sheet">
       <ForkScreenHeader
-        title="Merge pull requests"
+        title={confirmation ? "Confirm merge" : "Merge pull requests"}
         cancel={{
           label: "Back",
           onPress: () => {
             if (inFlight.current) return;
-            props.onChoosingChange(false);
+            if (confirmation) setConfirmation(null);
+            else props.onChoosingChange(false);
             setError(null);
           },
         }}
-        action={{
-          accessibilityLabel: "Merge selected pull requests",
-          label: "Merge",
-          icon: "checkmark",
-          disabled: busy || !canMerge || chosen.length === 0,
-          onPress: () => void merge(),
-        }}
+        action={
+          confirmation
+            ? undefined
+            : {
+                accessibilityLabel: "Check selected pull requests",
+                label: "Continue",
+                icon: "checkmark",
+                disabled: busy || !canMerge || chosen.length === 0,
+                onPress: () => void prepare(),
+              }
+        }
       />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
@@ -205,29 +232,72 @@ export function MobileMergeQuickAction(props: {
           gap: 12,
         }}
       >
-        <PickerSurface>
-          {variants.map((variant, index) => (
-            <PickerToggleRow
-              key={variant.key}
-              title={variant.label ?? "Pull request"}
-              subtitle={blockerOf(variant) ?? pullRequestSnapshotStatus(variant.snapshot)}
-              value={selected.includes(variant.key) && blockerOf(variant) === null}
-              disabled={busy || !canMerge || blockerOf(variant) !== null}
-              isLast={index === variants.length - 1}
-              onValueChange={(value) =>
-                setSelected((current) =>
-                  value
-                    ? [...current.filter((key) => key !== variant.key), variant.key]
-                    : current.filter((key) => key !== variant.key),
-                )
-              }
-            />
-          ))}
-        </PickerSurface>
+        {confirmation ? (
+          <>
+            <PickerCaption>
+              {confirmation.references.map((ref) => `${ref.repository} #${ref.number}`).join(", ")}
+            </PickerCaption>
+            <PickerSurface>
+              {confirmation.methods.length > 0 ? (
+                confirmation.methods.map((method, index) => (
+                  <PickerRow
+                    key={method}
+                    title={PULL_REQUEST_MERGE_METHOD_LABELS[method]}
+                    subtitle={`Merge ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"} now`}
+                    symbol="arrow.triangle.merge"
+                    isLast={index === confirmation.methods.length - 1}
+                    disabled={busy || !canMerge}
+                    onPress={() =>
+                      void merge(
+                        confirmation.references.map((reference) => ({ reference, method })),
+                      )
+                    }
+                  />
+                ))
+              ) : (
+                <PickerRow
+                  title="Merge each with its default method"
+                  subtitle={confirmation.defaults
+                    .map(
+                      ({ reference, method }) =>
+                        `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+                    )
+                    .join(", ")}
+                  symbol="arrow.triangle.merge"
+                  isLast
+                  disabled={busy || !canMerge}
+                  onPress={() => void merge(confirmation.defaults)}
+                />
+              )}
+            </PickerSurface>
+          </>
+        ) : (
+          <PickerSurface>
+            {variants.map((variant, index) => (
+              <PickerToggleRow
+                key={variant.key}
+                title={variant.label ?? "Pull request"}
+                subtitle={blockerOf(variant) ?? pullRequestSnapshotStatus(variant.snapshot)}
+                value={selected.includes(variant.key) && blockerOf(variant) === null}
+                disabled={busy || !canMerge || blockerOf(variant) !== null}
+                isLast={index === variants.length - 1}
+                onValueChange={(value) =>
+                  setSelected((current) =>
+                    value
+                      ? [...current.filter((key) => key !== variant.key), variant.key]
+                      : current.filter((key) => key !== variant.key),
+                  )
+                }
+              />
+            ))}
+          </PickerSurface>
+        )}
         {!canMerge ? (
           <PickerCaption>This connection cannot merge pull requests.</PickerCaption>
         ) : null}
-        {targets.kind === "unavailable" ? <PickerCaption>{targets.reason}</PickerCaption> : null}
+        {targets.kind === "unavailable" && !confirmation ? (
+          <PickerCaption>{targets.reason}</PickerCaption>
+        ) : null}
         {busy ? (
           <View className="flex-row items-center gap-2" accessibilityLiveRegion="polite">
             <ActivityIndicator size="small" />

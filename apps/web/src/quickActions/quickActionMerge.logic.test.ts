@@ -1,6 +1,6 @@
 import type { PullRequestDetail } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { quickActionMergeMethod } from "./quickActionMerge.logic";
+import { quickActionMergeMethod, quickActionMergeMethods } from "./quickActionMerge.logic";
 
 const detail = (overrides: Partial<PullRequestDetail> = {}) =>
   ({
@@ -15,6 +15,22 @@ const detail = (overrides: Partial<PullRequestDetail> = {}) =>
   }) as PullRequestDetail;
 
 describe("merge quick action eligibility", () => {
+  it("offers only methods every selected repository allows", () => {
+    expect(
+      quickActionMergeMethods([
+        detail(),
+        detail({ mergeCapabilities: { merge: false, squash: true, rebase: false } }),
+      ]),
+    ).toEqual(["squash"]);
+    expect(quickActionMergeMethods([])).toEqual([]);
+    expect(
+      quickActionMergeMethods([
+        detail({ mergeCapabilities: { merge: true, squash: false, rebase: false } }),
+        detail({ mergeCapabilities: { merge: false, squash: true, rebase: false } }),
+      ]),
+    ).toEqual([]);
+  });
+
   it("picks each PR's own method, so a batch needs no shared method", () => {
     expect(quickActionMergeMethod(detail())).toBe("merge");
     expect(

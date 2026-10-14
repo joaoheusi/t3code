@@ -131,10 +131,24 @@ export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): str
 }
 
 /**
- * The method the merge quick action uses for one PR: a plain merge when the repository allows
- * it, else its first allowed method. Each selected PR merges with its own method, so a batch
- * never needs a method every repository shares. Null when the PR cannot merge right now.
- * Rechecked in the write lane.
+ * Methods every selected PR allows, for one batch method choice. Empty when any selected PR
+ * cannot merge right now or the repositories share no method. Rechecked in the write lane.
+ */
+export function quickActionMergeMethods(details: readonly PullRequestDetail[]) {
+  if (
+    details.length === 0 ||
+    details.some((detail) => resolveThreadPanelPullRequestAction(detail) !== "merge")
+  )
+    return [];
+  return allowedPullRequestMergeMethods(details[0]!).filter((method) =>
+    details.every((detail) => allowedPullRequestMergeMethods(detail).includes(method)),
+  );
+}
+
+/**
+ * One PR's default method: a plain merge when the repository allows it, else its first allowed
+ * method. Used when a batch shares no method, so it can still merge in one pass. Null when the
+ * PR cannot merge right now. Rechecked in the write lane.
  */
 export function quickActionMergeMethod(detail: PullRequestDetail): PullRequestMergeMethod | null {
   if (resolveThreadPanelPullRequestAction(detail) !== "merge") return null;

@@ -296,18 +296,7 @@ export function useQuickActionPalette(input: {
             variant.choice.pullRequest ? [{ ...variant.choice.pullRequest, projectId }] : [],
           ),
         );
-      const [only] = mergeTargets.variants;
-      const [onlyBlocker] = blockers;
-      if (mergeTargets.variants.length === 1 && only) {
-        items.push({
-          ...mergeBase,
-          kind: "action",
-          title: `Merge ${only.label ?? "pull request"}`,
-          description: onlyBlocker ?? targetDescription(only, scope, MERGE_SIGNALS),
-          ...(onlyBlocker ? { disabled: true } : {}),
-          run: () => merge([only]),
-        });
-      } else if (blockers.every((blocker) => blocker !== null)) {
+      if (blockers.every((blocker) => blocker !== null)) {
         items.push({
           ...mergeBase,
           kind: "action",
@@ -321,10 +310,12 @@ export function useQuickActionPalette(input: {
           kind: "submenu",
           description: "Choose pull requests to merge",
           addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
-          // Like the other quick actions, this toggle view finishes the job: submitting merges
-          // every selected PR instead of opening another view first.
+          // Always the toggle view, even for one PR, like the other quick actions: pressing a
+          // row only toggles it. Submitting checks the selection and stacks the method choice
+          // on this view, so the whole batch merges in one palette pass.
           multiSelect: {
-            actionLabel: "Merge selected",
+            actionLabel: "Continue",
+            keepOpen: true,
             run: (values) =>
               merge(
                 mergeTargets.variants.filter((variant) =>
@@ -342,7 +333,9 @@ export function useQuickActionPalette(input: {
                 "Merge pull requests",
                 scope,
                 MERGE_SIGNALS,
-                (variant) => merge([variant]),
+                // Rows in a toggle view must never submit on their own; only the
+                // multi-select submit above starts a merge.
+                async () => {},
                 blockers,
               ),
             },

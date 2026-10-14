@@ -19,6 +19,8 @@ export interface CommandPaletteOpenDetail {
   readonly actionId?: string;
   /** A one-off choice another surface needs, such as which thread receives a task. */
   readonly view?: CommandPaletteView;
+  /** Like `view`, but stacked on the current palette view so Back returns to it. */
+  readonly pushView?: CommandPaletteView;
   /** Browse folders on an environment and hand the chosen path back. */
   readonly pickFolder?: CommandPaletteFolderPick;
   readonly query?: string;

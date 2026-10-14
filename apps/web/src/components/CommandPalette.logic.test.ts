@@ -239,6 +239,20 @@ describe("reduceCommandPaletteUiState", () => {
     ).toBeNull();
   });
 
+  it("stacks a pushed view without replacing the current intent kind", () => {
+    const view = { addonIcon: null, groups: [] };
+    expect(
+      reduceCommandPaletteUiState(
+        { open: true, mode: "command", openIntent: null },
+        { _tag: "PushView", view },
+      ),
+    ).toEqual({
+      open: true,
+      mode: "command",
+      openIntent: { kind: "push-view", view },
+    });
+  });
+
   it("routes open intents to command mode", () => {
     const filesOpen = reduceCommandPaletteUiState(closedState, {
       _tag: "ToggleMode",

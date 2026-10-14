@@ -514,6 +514,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.pushView) {
+          dispatch({ _tag: "PushView", view: detail.pushView });
         } else if (detail.view) {
           dispatch({ _tag: "OpenView", view: detail.view });
         } else if (detail.pickFolder) {
@@ -1484,9 +1486,11 @@ function OpenCommandPaletteDialog(props: {
   const recentThreadItems = allThreadItems.slice(0, RECENT_THREAD_LIMIT);
 
   const pushPaletteView = useCallback(
-    (view: CommandPaletteView): void => {
+    (view: CommandPaletteView, options?: { readonly preserveSelection?: boolean }): void => {
       browseNavigation.invalidate();
-      setSelectedItemValues(new Set());
+      // A stacked follow-up (such as a merge method choice) keeps the toggle selection it was
+      // submitted from, so Back returns to the same checked rows.
+      if (!options?.preserveSelection) setSelectedItemValues(new Set());
       setViewStack((previousViews) => [
         ...previousViews,
         {
@@ -1513,7 +1517,8 @@ function OpenCommandPaletteDialog(props: {
   }
 
   function popView(): void {
-    setSelectedItemValues(new Set());
+    // Returning to a toggle view restores its checked rows; any other view starts unselected.
+    if (!viewStack.at(-2)?.multiSelect) setSelectedItemValues(new Set());
     browseNavigation.invalidate();
     setAddProjectCloneFlow(null);
     setNewProjectFlow(null);
@@ -1882,6 +1887,12 @@ function OpenCommandPaletteDialog(props: {
     setQuery("");
     pushPaletteView(openIntent.view);
   }, [browseNavigation, clearOpenIntent, openIntent, pushPaletteView]);
+
+  useLayoutEffect(() => {
+    if (openIntent?.kind !== "push-view") return;
+    clearOpenIntent();
+    pushPaletteView(openIntent.view, { preserveSelection: true });
+  }, [clearOpenIntent, openIntent, pushPaletteView]);
 
   useLayoutEffect(() => {
     if (openIntent?.kind !== "quick-actions") return;
