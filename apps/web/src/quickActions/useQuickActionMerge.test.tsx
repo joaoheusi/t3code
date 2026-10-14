@@ -123,6 +123,7 @@ describe("merge quick action confirmation", () => {
       "Merging 1 pull request…",
       expect.objectContaining({
         type: "error",
+        title: "Merged 0 of 1 pull request",
         description: "acme/web #7: Connection lost",
       }),
     );
@@ -141,6 +142,10 @@ describe("merge quick action confirmation", () => {
     await squash.run();
     expect(openPalette).toHaveBeenCalledTimes(1);
     expect(runAction).toHaveBeenCalledTimes(1);
+    expect(toast.update).toHaveBeenLastCalledWith(
+      "Merging 1 pull request…",
+      expect.objectContaining({ title: "Merged 1 of 1 pull request" }),
+    );
     const request = runAction.mock.calls[0]![0];
     expect(request.environmentId).toBe(environmentId);
     expect(request.input).toMatchObject({ ...reference, action: "merge" });
@@ -169,6 +174,10 @@ describe("merge quick action confirmation", () => {
       "acme/web",
       "acme/api",
     ]);
+    expect(toast.update).toHaveBeenLastCalledWith(
+      "Merging 2 pull requests…",
+      expect.objectContaining({ title: "Merged 2 of 2 pull requests" }),
+    );
   });
 
   it("stacks the method choice on the current palette view instead of replacing it", async () => {
