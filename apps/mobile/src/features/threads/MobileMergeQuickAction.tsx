@@ -2,8 +2,10 @@ import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestDetail, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
   PULL_REQUEST_MERGE_METHOD_LABELS,
+  allowedPullRequestMergeMethods,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
+  quickActionMergeMethod,
   quickActionMergeMethods,
 } from "@t3tools/client-runtime/pullRequestActions";
 import {
@@ -59,6 +61,10 @@ export function MobileMergeQuickAction(props: {
   const [confirmation, setConfirmation] = useState<{
     references: PullRequestRef[];
     methods: readonly PullRequestMergeMethod[];
+    defaults: ReadonlyArray<{
+      readonly reference: PullRequestRef;
+      readonly method: PullRequestMergeMethod;
+    }>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -99,12 +105,17 @@ export function MobileMergeQuickAction(props: {
         if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
         details.push(result.value);
       }
-      const methods = quickActionMergeMethods(details);
-      if (methods.length === 0)
-        throw new Error(
-          "These pull requests have no merge method in common. Select them separately.",
-        );
-      setConfirmation({ references, methods });
+      const defaults = references.map((reference, index) => {
+        const method = quickActionMergeMethod(details[index]!);
+        if (method === null)
+          throw new Error(
+            `${reference.repository} #${reference.number}: You can't merge this pull request.`,
+          );
+        return { reference, method };
+      });
+      // No shared method no longer forces a second pass: the confirmation then offers each
+      // repository's default method for the whole batch.
+      setConfirmation({ references, methods: quickActionMergeMethods(details), defaults });
     } catch (cause) {
       if (mounted.current)
         setError(cause instanceof Error ? cause.message : "Could not check pull requests.");
@@ -114,14 +125,19 @@ export function MobileMergeQuickAction(props: {
     }
   };
 
-  const merge = async (method: PullRequestMergeMethod) => {
+  const merge = async (
+    plans: ReadonlyArray<{
+      readonly reference: PullRequestRef;
+      readonly method: PullRequestMergeMethod;
+    }>,
+  ) => {
     if (inFlight.current || !canMerge || !confirmation) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    const merged: string[] = [];
     const failures: string[] = [];
-    let merged = 0;
-    for (const reference of confirmation.references) {
+    for (const { reference, method } of plans) {
       if (mounted.current) setProgress(`Merging ${reference.repository} #${reference.number}…`);
       try {
         const result = await runAction({
@@ -130,16 +146,21 @@ export function MobileMergeQuickAction(props: {
             ...reference,
             action: "merge",
             resolveMergeMethod: (detail) => {
-              if (!quickActionMergeMethods([detail]).includes(method))
+              if (
+                quickActionMergeMethod(detail) === null ||
+                !allowedPullRequestMergeMethods(detail).includes(method)
+              )
                 throw new Error(
-                  "This pull request's status or merge methods changed. Review it again.",
+                  "This pull request's status or allowed merge methods changed. Review it again.",
                 );
               return method;
             },
           },
         });
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        merged++;
+        merged.push(
+          `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+        );
       } catch (cause) {
         failures.push(
           `${reference.repository} #${reference.number}: ${cause instanceof Error ? cause.message : "Merge failed."}`,
@@ -154,8 +175,8 @@ export function MobileMergeQuickAction(props: {
       props.onChoosingChange(false);
     }
     Alert.alert(
-      `Merged ${merged} of ${confirmation.references.length} pull requests`,
-      failures.length ? failures.join("\n") : "The selected pull requests were merged.",
+      `Merged ${merged.length} of ${confirmation.references.length} pull requests`,
+      [...merged, ...failures].join("\n") || "The selected pull requests were merged.",
     );
   };
 
@@ -217,17 +238,37 @@ export function MobileMergeQuickAction(props: {
               {confirmation.references.map((ref) => `${ref.repository} #${ref.number}`).join(", ")}
             </PickerCaption>
             <PickerSurface>
-              {confirmation.methods.map((method, index) => (
+              {confirmation.methods.length > 0 ? (
+                confirmation.methods.map((method, index) => (
+                  <PickerRow
+                    key={method}
+                    title={PULL_REQUEST_MERGE_METHOD_LABELS[method]}
+                    subtitle={`Merge ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"} now`}
+                    symbol="arrow.triangle.merge"
+                    isLast={index === confirmation.methods.length - 1}
+                    disabled={busy || !canMerge}
+                    onPress={() =>
+                      void merge(
+                        confirmation.references.map((reference) => ({ reference, method })),
+                      )
+                    }
+                  />
+                ))
+              ) : (
                 <PickerRow
-                  key={method}
-                  title={PULL_REQUEST_MERGE_METHOD_LABELS[method]}
-                  subtitle={`Merge ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"} now`}
+                  title="Merge each with its default method"
+                  subtitle={confirmation.defaults
+                    .map(
+                      ({ reference, method }) =>
+                        `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+                    )
+                    .join(", ")}
                   symbol="arrow.triangle.merge"
-                  isLast={index === confirmation.methods.length - 1}
+                  isLast
                   disabled={busy || !canMerge}
-                  onPress={() => void merge(method)}
+                  onPress={() => void merge(confirmation.defaults)}
                 />
-              ))}
+              )}
             </PickerSurface>
           </>
         ) : (

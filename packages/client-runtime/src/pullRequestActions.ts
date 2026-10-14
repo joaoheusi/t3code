@@ -130,7 +130,10 @@ export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): str
   return null;
 }
 
-/** All selected PRs must allow the method the reader confirms. Rechecked in the write lane. */
+/**
+ * Methods every selected PR allows, for one batch method choice. Empty when any selected PR
+ * cannot merge right now or the repositories share no method. Rechecked in the write lane.
+ */
 export function quickActionMergeMethods(details: readonly PullRequestDetail[]) {
   if (
     details.length === 0 ||
@@ -140,4 +143,15 @@ export function quickActionMergeMethods(details: readonly PullRequestDetail[]) {
   return allowedPullRequestMergeMethods(details[0]!).filter((method) =>
     details.every((detail) => allowedPullRequestMergeMethods(detail).includes(method)),
   );
+}
+
+/**
+ * One PR's default method: a plain merge when the repository allows it, else its first allowed
+ * method. Used when a batch shares no method, so it can still merge in one pass. Null when the
+ * PR cannot merge right now. Rechecked in the write lane.
+ */
+export function quickActionMergeMethod(detail: PullRequestDetail): PullRequestMergeMethod | null {
+  if (resolveThreadPanelPullRequestAction(detail) !== "merge") return null;
+  const allowed = allowedPullRequestMergeMethods(detail);
+  return allowed.includes("merge") ? "merge" : (allowed[0] ?? null);
 }

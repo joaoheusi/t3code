@@ -183,7 +183,7 @@ export function useQuickActionPalette(input: {
     true,
   );
   const { run } = useRunQuickAction();
-  const prepareMerge = useQuickActionMerge();
+  const mergePullRequests = useQuickActionMerge();
   const git = useQuickActionGit(scope, input.gitCwd, input.onClose);
 
   const mergeTargets =
@@ -289,26 +289,14 @@ export function useQuickActionPalette(input: {
       icon: <PullRequestGlyph.merged className={ITEM_ICON_CLASS} />,
     };
     if (mergeTargets.kind === "ready") {
-      const prepare = (variants: readonly QuickActionVariant[]) =>
-        prepareMerge(
+      const merge = (variants: readonly QuickActionVariant[]) =>
+        mergePullRequests(
           scope.environmentId,
           variants.flatMap((variant) =>
             variant.choice.pullRequest ? [{ ...variant.choice.pullRequest, projectId }] : [],
           ),
         );
-      const [only] = mergeTargets.variants;
-      const [onlyBlocker] = blockers;
-      if (mergeTargets.variants.length === 1 && only) {
-        items.push({
-          ...mergeBase,
-          kind: "action",
-          title: `Merge ${only.label ?? "pull request"}`,
-          description: onlyBlocker ?? targetDescription(only, scope, MERGE_SIGNALS),
-          ...(onlyBlocker ? { disabled: true } : {}),
-          keepOpen: true,
-          run: () => prepare([only]),
-        });
-      } else if (blockers.every((blocker) => blocker !== null)) {
+      if (blockers.every((blocker) => blocker !== null)) {
         items.push({
           ...mergeBase,
           kind: "action",
@@ -322,11 +310,14 @@ export function useQuickActionPalette(input: {
           kind: "submenu",
           description: "Choose pull requests to merge",
           addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
+          // Always the toggle view, even for one PR, like the other quick actions: pressing a
+          // row only toggles it. Submitting checks the selection and stacks the method choice
+          // on this view, so the whole batch merges in one palette pass.
           multiSelect: {
             actionLabel: "Continue",
             keepOpen: true,
             run: (values) =>
-              prepare(
+              merge(
                 mergeTargets.variants.filter((variant) =>
                   values.includes(`quick-action:merge:${variant.key}`),
                 ),
@@ -342,7 +333,9 @@ export function useQuickActionPalette(input: {
                 "Merge pull requests",
                 scope,
                 MERGE_SIGNALS,
-                (variant) => prepare([variant]),
+                // Rows in a toggle view must never submit on their own; only the
+                // multi-select submit above starts a merge.
+                async () => {},
                 blockers,
               ),
             },

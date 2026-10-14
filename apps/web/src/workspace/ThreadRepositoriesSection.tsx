@@ -125,6 +125,16 @@ export function useActiveRepository(threadRef: ScopedThreadRef | null): Workspac
   );
 }
 
+/** Every repository in the thread's set, in workspace order. Empty for single-repository threads. */
+export function useRepositoryBindings(
+  threadRef: ScopedThreadRef | null,
+): readonly WorkspaceBinding[] {
+  const workspace = useThreadShell(threadRef)?.workspace;
+  return hasRepositorySet(workspace) ? workspace.bindings : NO_BINDINGS;
+}
+
+const NO_BINDINGS: readonly WorkspaceBinding[] = [];
+
 export function ThreadRepositoriesSection(props: {
   environmentId: EnvironmentId;
   threadId: ThreadId;

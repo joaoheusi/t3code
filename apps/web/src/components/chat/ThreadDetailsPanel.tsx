@@ -21,13 +21,15 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
   RepositoryBranchRow,
   RepositoryPullRequestRows,
   ThreadRepositoriesSection,
   useActiveRepository,
+  useRepositoryBindings,
 } from "../../workspace/ThreadRepositoriesSection";
+import { useWorkspaceUiStore } from "../../workspace/workspaceStores";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -73,8 +75,10 @@ export interface ThreadDetailsPanelProps extends Pick<
 
 export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
-  // A multi-repository thread lists its repositories, and Git acts on the one picked there.
+  // A multi-repository thread lists its repositories, and each one gets its own version
+  // control block below. The picked repository still drives Open in and the diff panel.
   const activeRepository = useActiveRepository(props.draftId ? null : threadRef);
+  const repositoryBindings = useRepositoryBindings(props.draftId ? null : threadRef);
   const gitCwd = activeRepository?.checkoutPath ?? props.gitCwd;
   const fileScripts = useT3ProjectFileScripts(
     props.environmentId,
@@ -174,34 +178,61 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               separated={density === "full"}
             >
               <div className="flex flex-col">
-                {/* Each repository shows its own branch and pull requests. The server refuses
-                    branch moves on a repository set, so none of them offers the branch picker. */}
-                {activeRepository ? (
+                {/* Every repository shows its own branch, pull requests, and Git actions, so
+                    all of a multi-repository thread's pull requests are visible at once. The
+                    server refuses branch moves on a repository set, so none of them offers
+                    the branch picker. */}
+                {repositoryBindings.length > 0 ? (
+                  repositoryBindings.map((binding, index) => (
+                    <div
+                      key={binding.id}
+                      className={index > 0 ? "mt-1 border-t border-border/65 pt-1" : undefined}
+                    >
+                      <RepositoryBranchRow environmentId={props.environmentId} binding={binding} />
+                      <RepositoryPullRequestRows
+                        environmentId={props.environmentId}
+                        threadRef={threadRef}
+                        binding={binding}
+                      />
+                      {props.activeProjectName && binding.state === "ready" ? (
+                        <GitActionsControl
+                          key={binding.checkoutPath}
+                          displayMode="panel"
+                          compact={density !== "full"}
+                          gitCwd={binding.checkoutPath}
+                          activeThreadRef={activeThreadRef}
+                          {...(props.onOpenChanges
+                            ? {
+                                onOpenChanges: () => {
+                                  useWorkspaceUiStore
+                                    .getState()
+                                    .setActiveRepository(scopedThreadKey(threadRef), binding.id);
+                                  props.onOpenChanges?.();
+                                },
+                              }
+                            : {})}
+                        />
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
                   <>
-                    <RepositoryBranchRow
-                      environmentId={props.environmentId}
-                      binding={activeRepository}
-                    />
-                    <RepositoryPullRequestRows
-                      environmentId={props.environmentId}
-                      threadRef={threadRef}
-                      binding={activeRepository}
-                    />
+                    {props.isGitRepo ? (
+                      <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
+                    ) : null}
+                    {props.activeProjectName ? (
+                      <GitActionsControl
+                        key={gitCwd}
+                        displayMode="panel"
+                        compact={density !== "full"}
+                        gitCwd={gitCwd}
+                        activeThreadRef={activeThreadRef}
+                        {...(props.draftId ? { draftId: props.draftId } : {})}
+                        {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
+                      />
+                    ) : null}
                   </>
-                ) : props.isGitRepo ? (
-                  <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
-                ) : null}
-                {props.activeProjectName ? (
-                  <GitActionsControl
-                    key={gitCwd}
-                    displayMode="panel"
-                    compact={density !== "full"}
-                    gitCwd={gitCwd}
-                    activeThreadRef={activeThreadRef}
-                    {...(props.draftId ? { draftId: props.draftId } : {})}
-                    {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}
-                  />
-                ) : null}
+                )}
               </div>
             </ThreadDetailsSection>
           ) : null}

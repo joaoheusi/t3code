@@ -64,6 +64,7 @@ export type CommandPaletteOpenIntent =
   | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
   | { readonly kind: "quick-actions"; readonly actionId?: string }
   | { readonly kind: "view"; readonly view: CommandPaletteView }
+  | { readonly kind: "push-view"; readonly view: CommandPaletteView }
   | { readonly kind: "pick-folder"; readonly request: CommandPaletteFolderPick }
   | {
       readonly kind: "search";
@@ -100,6 +101,7 @@ export type CommandPaletteUiAction =
   | { readonly _tag: "OpenChangeTheme" }
   | { readonly _tag: "OpenQuickActions"; readonly actionId?: string }
   | { readonly _tag: "OpenView"; readonly view: CommandPaletteView }
+  | { readonly _tag: "PushView"; readonly view: CommandPaletteView }
   | { readonly _tag: "PickFolder"; readonly request: CommandPaletteFolderPick }
   | { readonly _tag: "ClearOpenIntent" };
 
@@ -140,6 +142,8 @@ export function reduceCommandPaletteUiState(
       };
     case "OpenView":
       return { open: true, mode: "command", openIntent: { kind: "view", view: action.view } };
+    case "PushView":
+      return { open: true, mode: "command", openIntent: { kind: "push-view", view: action.view } };
     case "OpenQuickActions":
       return {
         open: true,
