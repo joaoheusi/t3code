@@ -5,6 +5,7 @@ import type {
   EnvironmentId,
   ProjectId,
   PullRequestActivity,
+  PullRequestBaseComparison,
   PullRequestMergeability,
   PullRequestRef,
   QuickAction,
@@ -12,6 +13,7 @@ import type {
 } from "@t3tools/contracts";
 import type { EnvironmentThreadShell } from "./state/models.ts";
 import {
+  BASE_UPDATE_STARTER_IDS,
   QUICK_ACTION_STARTER_IDS,
   quickActionRequirements,
   renderQuickAction,
@@ -38,12 +40,15 @@ export interface QuickActionVariant {
   readonly label: string | null;
   readonly choice: QuickActionChoice;
   readonly snapshot?: ThreadPullRequestLink["snapshot"];
-  /** Freshly loaded CI and conflict state, which outranks the synced snapshot. */
+  /** Freshly loaded CI, conflict, and base state, which outranks the synced snapshot. */
   readonly fresh?: PullRequestKnownState;
 }
 
-/** CI and conflict state a client already loaded for a PR, beyond what the snapshot says. */
-export type PullRequestKnownState = Pick<PullRequestSignalState, "checks" | "mergeability">;
+/** PR state a client already loaded, beyond what the snapshot says. */
+export type PullRequestKnownState = Pick<
+  PullRequestSignalState,
+  "checks" | "mergeability" | "baseComparison" | "behindBy"
+>;
 
 /** Keys fresh PR states for `quickActionTargets`. */
 export const pullRequestTargetKey = (
@@ -65,7 +70,7 @@ const openPullRequests = (thread: EnvironmentThreadShell | null) =>
  * `fresh` holds PR states the client already loaded, keyed by `pullRequestTargetKey`.
  */
 export function quickActionTargets(
-  action: Pick<QuickAction, "template">,
+  action: QuickActionShape,
   scope: QuickActionScope,
   fresh?: ReadonlyMap<string, PullRequestKnownState>,
 ): QuickActionTargets {
@@ -121,33 +126,35 @@ export function quickActionTargets(
     (variant) => quickActionTargetNeedsAction(action, variant) !== false,
   );
   if (applicable.length === 0) {
-    const used = templateVariables(action.template);
-    const ci = used.includes("ci.failures");
-    const conflicts = used.includes("pr.conflicts");
+    const signals = quickActionSignals(action);
+    const reasons = [
+      ...(signals.includes("ci") ? ["failing CI checks"] : []),
+      ...(signals.includes("conflicts") ? ["merge conflicts"] : []),
+    ];
     return {
       kind: "unavailable",
-      reason:
-        ci && conflicts
-          ? "No failing CI checks or merge conflicts"
-          : ci
-            ? "No failing CI checks"
-            : "No merge conflicts",
+      reason: reasons.length
+        ? `No ${reasons.join(" or ")}`
+        : signals.includes("base")
+          ? "Already up to date with base"
+          : "Nothing to do",
     };
   }
   return { kind: "ready", variants: applicable };
 }
 
+/** An action as the target helpers see it. Callers probing a template alone omit the ID. */
+type QuickActionShape = Pick<QuickAction, "template"> & { readonly id?: string };
+
 /** A PR state an action reports in menus; each action shows only the states it acts on. */
-export type QuickActionSignal = "ci" | "conflicts" | "reviewThreads";
+export type QuickActionSignal = "ci" | "conflicts" | "reviewThreads" | "base";
 
 /**
  * CI for `{{ci.failures}}`, conflicts for `{{pr.conflicts}}`, threads for `{{pr.reviewThreads}}`.
- * The review threads starter keeps a template older clients can render, so it is also
- * recognized by its stable ID.
+ * The review threads and base update starters keep templates older clients can render, so
+ * they are recognized by their stable IDs.
  */
-export function quickActionSignals(
-  action: Pick<QuickAction, "id" | "template">,
-): QuickActionSignal[] {
+export function quickActionSignals(action: QuickActionShape): QuickActionSignal[] {
   const used = templateVariables(action.template);
   return [
     ...(used.includes("ci.failures") ? (["ci"] as const) : []),
@@ -156,6 +163,9 @@ export function quickActionSignals(
     action.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads
       ? (["reviewThreads"] as const)
       : []),
+    ...(action.id !== undefined && BASE_UPDATE_STARTER_IDS.has(action.id)
+      ? (["base"] as const)
+      : []),
   ];
 }
 
@@ -163,6 +173,8 @@ export function quickActionSignals(
 export interface PullRequestSignalState {
   readonly checks?: "none" | "pending" | "failing" | "passing" | null | undefined;
   readonly mergeability?: PullRequestMergeability | undefined;
+  readonly baseComparison?: PullRequestBaseComparison | undefined;
+  readonly behindBy?: number | undefined;
   readonly reviewThreads?:
     | { readonly unresolved: number; readonly truncated: boolean }
     | null
@@ -200,6 +212,21 @@ export function pullRequestSignalStatuses(
         : state.mergeability === "mergeable"
           ? { signal, label: "No conflicts", tone: "ok" }
           : { signal, label: "Conflicts unknown", tone: "unknown" };
+    }
+    if (signal === "base") {
+      const behindBy = state.behindBy;
+      return state.baseComparison === "behind"
+        ? {
+            signal,
+            label:
+              behindBy === undefined
+                ? "Behind base"
+                : `${behindBy} ${behindBy === 1 ? "commit" : "commits"} behind base`,
+            tone: "alert",
+          }
+        : state.baseComparison === "up-to-date"
+          ? { signal, label: "Up to date with base", tone: "ok" }
+          : { signal, label: "Base status unknown", tone: "unknown" };
     }
     const threads = state.reviewThreads;
     if (!threads) return { signal, label: "Review threads unknown", tone: "unknown" };
@@ -240,23 +267,25 @@ export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot
 
 /**
  * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
- * conflicts for `{{pr.conflicts}}`. Null when the action reads neither or the relevant state
- * is unknown, so incomplete snapshots do not prevent inspecting a PR. A synced snapshot cannot
- * tell "no checks" from "not known", so only fresh state rules out a PR without checks.
+ * conflicts for `{{pr.conflicts}}`, a stale branch for the base update starters. Null when the
+ * action reads none of them or the relevant state is unknown, so incomplete snapshots do not
+ * prevent inspecting a PR. A synced snapshot cannot tell "no checks" from "not known", so only
+ * fresh state rules out a PR without checks, and only fresh state knows the base comparison.
  */
 export function quickActionTargetNeedsAction(
-  action: Pick<QuickAction, "template">,
+  action: QuickActionShape,
   variant: QuickActionVariant,
 ): boolean | null {
-  const used = templateVariables(action.template);
-  const ci = used.includes("ci.failures");
-  const conflicts = used.includes("pr.conflicts");
+  const signals = quickActionSignals(action);
+  const ci = signals.includes("ci");
+  const conflicts = signals.includes("conflicts");
+  const base = signals.includes("base");
   const state: PullRequestKnownState | undefined =
     variant.fresh ??
     (variant.snapshot
       ? { checks: variant.snapshot.checksState, mergeability: variant.snapshot.mergeability }
       : undefined);
-  if ((!ci && !conflicts) || !state) return null;
+  if ((!ci && !conflicts && !base) || !state) return null;
   const needs: Array<boolean | null> = [];
   if (ci) needs.push(state.checks == null ? null : state.checks === "failing");
   if (conflicts)
@@ -265,14 +294,20 @@ export function quickActionTargetNeedsAction(
         ? null
         : state.mergeability === "conflicting",
     );
-  // Review threads are not part of this state, so a template reading them stays eligible.
-  if (used.includes("pr.reviewThreads")) needs.push(null);
+  if (base)
+    needs.push(
+      state.baseComparison == null || state.baseComparison === "unknown"
+        ? null
+        : state.baseComparison === "behind",
+    );
+  // Review threads are not part of this state, so an action reading them stays eligible.
+  if (signals.includes("reviewThreads")) needs.push(null);
   return needs.includes(true) ? true : needs.includes(null) ? null : false;
 }
 
 /** "2 of 3 pull requests need this", or just the target count when need is unknown. */
 export function describeQuickActionTargets(
-  action: Pick<QuickAction, "template">,
+  action: QuickActionShape,
   variants: readonly QuickActionVariant[],
 ): string | null {
   // A PR in a multi-repo workspace can appear once per repository; count it once.

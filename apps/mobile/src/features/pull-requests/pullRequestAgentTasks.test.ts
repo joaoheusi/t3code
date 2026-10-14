@@ -7,7 +7,11 @@ import {
 } from "./pullRequestAgentTasks";
 import { IsoDateTime, ProjectId, ThreadId, type PullRequestDetail } from "@t3tools/contracts";
 
-const pr = { state: "open", mergeability: "conflicting" } as PullRequestDetail;
+const pr = {
+  state: "open",
+  mergeability: "conflicting",
+  baseComparison: "behind",
+} as PullRequestDetail;
 
 describe("PR agent tasks", () => {
   it("continues a single linked thread, but keeps an explicit new-thread choice separate", () => {
@@ -55,15 +59,22 @@ describe("PR agent tasks", () => {
     for (const task of ["feedback", "conflicts"] as const)
       expect(pullRequestAgentPrompt(task)).toContain("prepare the PR in its own worktree");
   });
-  it("offers conflicts only for a conflicting open PR and watch only on supported environments", () => {
+  it("offers conflicts and base updates only where they apply, and watch only on supported environments", () => {
     expect(pullRequestAgentActions(pr, true).every((action) => !action.disabled)).toBe(true);
     const actions = pullRequestAgentActions({ ...pr, mergeability: "mergeable" }, false);
     expect(actions.find((action) => action.task === "conflicts")?.disabled).toBe(true);
     expect(actions.find((action) => action.task === "watch")?.disabled).toBe(true);
+    const current = pullRequestAgentActions({ ...pr, baseComparison: "up-to-date" }, true);
+    expect(current.filter((action) => action.disabled).map((action) => action.task)).toEqual([
+      "rebase",
+      "merge-base",
+    ]);
     const closed = pullRequestAgentActions({ ...pr, state: "merged" }, true);
     expect(closed.filter((action) => action.disabled).map((action) => action.task)).toEqual([
       "feedback",
       "conflicts",
+      "rebase",
+      "merge-base",
       "watch",
     ]);
   });

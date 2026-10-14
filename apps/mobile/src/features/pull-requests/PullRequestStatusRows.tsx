@@ -24,6 +24,7 @@ import {
 } from "./pullRequestStatus";
 import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff";
 import { usePullRequestAction } from "./usePullRequestAction";
+import { BASE_UPDATE_TASKS } from "./pullRequestAgentTasks";
 import { usePullRequestAgentActions } from "./usePullRequestAgentActions";
 
 type RowProps = { readonly pr: PullRequestDetail; readonly params: PullRequestParams };
@@ -177,6 +178,8 @@ export function PullRequestBranchRow(props: RowProps) {
   const methods = action.available("update-branch") ? allowedUpdateMethods(props.pr) : [];
   const canResolve =
     agent.canAsk && props.pr.state === "open" && props.pr.mergeability === "conflicting";
+  const canUpdateWithAgent =
+    agent.canAsk && props.pr.state === "open" && props.pr.baseComparison === "behind";
   const summary = action.busy ? "Updating…" : pullRequestBranchSummary(props.pr);
   const clean = props.pr.mergeability === "mergeable";
   const conflicting = props.pr.mergeability === "conflicting";
@@ -203,17 +206,18 @@ export function PullRequestBranchRow(props: RowProps) {
           : summary
       }
       compact
-      menu={methods.length > 0 || canResolve}
+      menu={methods.length > 0 || canResolve || canUpdateWithAgent}
       accessibilityLabel={`Branch, ${summary}`}
     />
   );
-  if (!methods.length && !canResolve) return row;
+  if (!methods.length && !canResolve && !canUpdateWithAgent) return row;
   return (
     <ControlPillMenu
       title="Branch"
       actions={[
         ...(canResolve ? [agent.menuAction("conflicts")] : []),
         ...methods.map((id) => ({ id, title: `Update with ${id}`, image: "arrow.up.circle" })),
+        ...(canUpdateWithAgent ? BASE_UPDATE_TASKS.map((task) => agent.menuAction(task)) : []),
       ]}
       onPressAction={({ nativeEvent }) => {
         const method = methods.find((id) => id === nativeEvent.event);
