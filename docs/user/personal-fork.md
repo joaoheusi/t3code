@@ -16,7 +16,9 @@ Quick actions are saved instructions you insert into a thread's composer. Type `
 
 On mobile, choose **Actions** next to the composer controls to insert an action. Use **+** there to create one, and long press an action to edit, favorite, disable, or delete it.
 
-On web, desktop, and mobile, the quick action menu also offers **Merge pull requests**. Select the PRs to merge; on mobile, choose **Continue** to check them. Choosing a merge method confirms and runs the merge. Only methods allowed by every selected repository are offered.
+On web, desktop, and mobile, the quick action menu also offers **Merge pull requests**. Select the PRs to merge; on mobile, choose **Continue** to check them. Choosing a merge method confirms and runs the merge. Only methods allowed by every selected repository are offered. Like GitHub, only required checks block a merge. A PR whose required checks are still running gets auto-merge turned on instead, so it merges when they pass.
+
+Favorite actions appear first in the menu. Actions with nothing to do on this thread, such as **Resolve CI** without failing checks, move to the end.
 
 On web, desktop, and mobile, the menu has one Git action. For one repository, its label follows the current state: **Pull**, **Push**, **Commit & push**, or **Commit, push & PR**. For several repositories, choose **Sync repositories**, then the repository to act on. The details show changed files and commits to pull or push. Commits on the base branch that are missing from the current branch are shown separately; pulling updates the tracked remote branch and does not merge the base branch. Pushing to the default branch still asks for confirmation.
 

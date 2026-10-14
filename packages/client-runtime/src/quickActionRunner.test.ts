@@ -194,6 +194,42 @@ describe("CI and merge conflict action availability", () => {
     ).toEqual({ kind: "unavailable", reason: "No failing CI checks" });
   });
 
+  it("says CI is running instead of claiming nothing failed", () => {
+    expect(targets(ci.template, [link(8, "pending", "mergeable")])).toEqual({
+      kind: "unavailable",
+      reason: "CI running, nothing failing yet",
+    });
+  });
+
+  it("rules out PRs without unresolved review threads once they load", () => {
+    const threads = QUICK_ACTION_STARTERS.find(
+      (entry) => entry.id === QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+    )!;
+    const links = [link(1, "passing", "mergeable"), link(2, "passing", "mergeable")];
+    const scope = {
+      ...input.scope,
+      thread: { pullRequests: links } as unknown as EnvironmentThreadShell,
+    };
+    const fresh = (first: number, second: number, truncated = false) =>
+      new Map([
+        [pullRequestTargetKey(links[0]!), { reviewThreads: { unresolved: first, truncated } }],
+        [pullRequestTargetKey(links[1]!), { reviewThreads: { unresolved: second, truncated } }],
+      ]);
+    const ready = quickActionTargets(threads, scope, fresh(0, 3));
+    expect(
+      ready.kind === "ready" && ready.variants.map((v) => v.choice.pullRequest?.number),
+    ).toEqual([2]);
+    expect(quickActionTargets(threads, scope, fresh(0, 0))).toEqual({
+      kind: "unavailable",
+      reason: "No unresolved review threads",
+    });
+    // A truncated list may hide an unresolved thread, so the PR stays eligible.
+    expect(quickActionTargets(threads, scope, fresh(0, 0, true)).kind).toBe("ready");
+    // Fresh thread counts do not hide the snapshot's CI state.
+    const failing = quickActionTargets(ci, scope, fresh(0, 0));
+    expect(failing.kind).toBe("unavailable");
+  });
+
   it("keeps unknown states inspectable without treating them as failures", () => {
     const unknown = link(8, undefined, "unknown");
     expect(targets(ci.template, [unknown]).kind).toBe("ready");
@@ -291,6 +327,25 @@ describe("quick action target summaries", () => {
     expect(
       describeQuickActionTargets(fixCi, [variant(1, { checksState: "failing" }), variant(2, null)]),
     ).toBe("2 pull requests");
+  });
+  it("counts unresolved review threads across pull requests once they load", () => {
+    const threads = { template: "{{pr.reviewThreads}}" };
+    const withThreads = (number: number, unresolved: number, truncated = false) => ({
+      ...variant(number, null),
+      fresh: { reviewThreads: { unresolved, truncated } },
+    });
+    expect(describeQuickActionTargets(threads, [withThreads(1, 1), withThreads(2, 3)])).toBe(
+      "4 unresolved threads in 2 pull requests",
+    );
+    expect(describeQuickActionTargets(threads, [withThreads(1, 1)])).toBe(
+      "1 unresolved thread in 1 pull request",
+    );
+    expect(describeQuickActionTargets(threads, [withThreads(1, 1, true)])).toBe(
+      "1+ unresolved threads in 1 pull request",
+    );
+    expect(describeQuickActionTargets(threads, [withThreads(1, 1), variant(2, null)])).toBe(
+      "2 pull requests",
+    );
   });
   it("only counts targets for actions that do not read CI or conflicts", () => {
     expect(

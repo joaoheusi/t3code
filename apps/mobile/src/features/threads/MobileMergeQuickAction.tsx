@@ -2,11 +2,18 @@ import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestDetail, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
   PULL_REQUEST_MERGE_METHOD_LABELS,
-  allowedPullRequestMergeMethods,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
+  pullRequestSnapshotMergeState,
+  quickActionMergeActionInput,
+  quickActionMergeKind,
   quickActionMergeMethod,
   quickActionMergeMethods,
+  quickActionMergePlanLabel,
+  quickActionMergePlanSummary,
+  quickActionMergeResultTitle,
+  type QuickActionMergeKind,
+  type QuickActionMergePlan,
 } from "@t3tools/client-runtime/pullRequestActions";
 import {
   pullRequestSnapshotStatus,
@@ -44,9 +51,12 @@ export function MobileMergeQuickAction(props: {
   );
   const targets = quickActionTargets({ template: "{{pr.url}}" }, { ...target, thread });
   const variants = targets.kind === "ready" ? targets.variants : [];
-  // The synced snapshot catches the obvious blockers; Continue rechecks fresh status.
+  // The synced snapshot catches the obvious blockers; Continue rechecks fresh status, including
+  // required checks, and arms auto-merge for a PR whose required checks still run.
   const blockerOf = (variant: QuickActionVariant) =>
-    variant.snapshot ? pullRequestMergeBlocker(variant.snapshot) : null;
+    variant.snapshot
+      ? pullRequestMergeBlocker(pullRequestSnapshotMergeState(variant.snapshot))
+      : null;
   const canMerge = useAtomValue(
     pullRequestEnvironment.runAction.permissionAtom(target.environmentId),
   );
@@ -61,10 +71,7 @@ export function MobileMergeQuickAction(props: {
   const [confirmation, setConfirmation] = useState<{
     references: PullRequestRef[];
     methods: readonly PullRequestMergeMethod[];
-    defaults: ReadonlyArray<{
-      readonly reference: PullRequestRef;
-      readonly method: PullRequestMergeMethod;
-    }>;
+    defaults: ReadonlyArray<QuickActionMergePlan<PullRequestRef>>;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
@@ -93,6 +100,7 @@ export function MobileMergeQuickAction(props: {
           : [],
       );
       const details: PullRequestDetail[] = [];
+      const kinds: QuickActionMergeKind[] = [];
       for (const reference of references) {
         setProgress(`Checking ${reference.repository} #${reference.number}…`);
         const result = await loadDetail({
@@ -101,9 +109,14 @@ export function MobileMergeQuickAction(props: {
         });
         if (!mounted.current) return;
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        const blocker = pullRequestMergeBlocker(pullRequestDetailMergeState(result.value));
-        if (blocker) throw new Error(`${reference.repository} #${reference.number}: ${blocker}.`);
+        const state = pullRequestDetailMergeState(result.value);
+        const kind = quickActionMergeKind(state);
+        if (kind === null)
+          throw new Error(
+            `${reference.repository} #${reference.number}: ${pullRequestMergeBlocker(state) ?? "Not ready to merge"}.`,
+          );
         details.push(result.value);
+        kinds.push(kind);
       }
       const defaults = references.map((reference, index) => {
         const method = quickActionMergeMethod(details[index]!);
@@ -111,7 +124,7 @@ export function MobileMergeQuickAction(props: {
           throw new Error(
             `${reference.repository} #${reference.number}: You can't merge this pull request.`,
           );
-        return { reference, method };
+        return { reference, kind: kinds[index]!, method };
       });
       // No shared method no longer forces a second pass: the confirmation then offers each
       // repository's default method for the whole batch.
@@ -125,42 +138,23 @@ export function MobileMergeQuickAction(props: {
     }
   };
 
-  const merge = async (
-    plans: ReadonlyArray<{
-      readonly reference: PullRequestRef;
-      readonly method: PullRequestMergeMethod;
-    }>,
-  ) => {
+  const merge = async (plans: ReadonlyArray<QuickActionMergePlan<PullRequestRef>>) => {
     if (inFlight.current || !canMerge || !confirmation) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    const merged: string[] = [];
+    const succeeded: QuickActionMergePlan<PullRequestRef>[] = [];
     const failures: string[] = [];
-    for (const { reference, method } of plans) {
+    for (const plan of plans) {
+      const { reference } = plan;
       if (mounted.current) setProgress(`Merging ${reference.repository} #${reference.number}…`);
       try {
         const result = await runAction({
           environmentId: target.environmentId,
-          input: {
-            ...reference,
-            action: "merge",
-            resolveMergeMethod: (detail) => {
-              if (
-                quickActionMergeMethod(detail) === null ||
-                !allowedPullRequestMergeMethods(detail).includes(method)
-              )
-                throw new Error(
-                  "This pull request's status or allowed merge methods changed. Review it again.",
-                );
-              return method;
-            },
-          },
+          input: quickActionMergeActionInput(plan),
         });
         if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-        merged.push(
-          `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
-        );
+        succeeded.push(plan);
       } catch (cause) {
         failures.push(
           `${reference.repository} #${reference.number}: ${cause instanceof Error ? cause.message : "Merge failed."}`,
@@ -175,8 +169,14 @@ export function MobileMergeQuickAction(props: {
       props.onChoosingChange(false);
     }
     Alert.alert(
-      `Merged ${merged.length} of ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"}`,
-      [...merged, ...failures].join("\n") || "The selected pull requests were merged.",
+      quickActionMergeResultTitle(plans, succeeded),
+      [
+        ...succeeded.map(
+          (plan) =>
+            `${plan.reference.repository} #${plan.reference.number} · ${quickActionMergePlanLabel(plan)}`,
+        ),
+        ...failures,
+      ].join("\n") || "The selected pull requests were merged.",
     );
   };
 
@@ -243,14 +243,12 @@ export function MobileMergeQuickAction(props: {
                   <PickerRow
                     key={method}
                     title={PULL_REQUEST_MERGE_METHOD_LABELS[method]}
-                    subtitle={`Merge ${confirmation.references.length} pull request${confirmation.references.length === 1 ? "" : "s"} now`}
+                    subtitle={quickActionMergePlanSummary(confirmation.defaults)}
                     symbol="arrow.triangle.merge"
                     isLast={index === confirmation.methods.length - 1}
                     disabled={busy || !canMerge}
                     onPress={() =>
-                      void merge(
-                        confirmation.references.map((reference) => ({ reference, method })),
-                      )
+                      void merge(confirmation.defaults.map((plan) => ({ ...plan, method })))
                     }
                   />
                 ))
@@ -259,8 +257,8 @@ export function MobileMergeQuickAction(props: {
                   title="Merge each with its default method"
                   subtitle={confirmation.defaults
                     .map(
-                      ({ reference, method }) =>
-                        `${reference.repository} #${reference.number} · ${PULL_REQUEST_MERGE_METHOD_LABELS[method]}`,
+                      (plan) =>
+                        `${plan.reference.repository} #${plan.reference.number} · ${quickActionMergePlanLabel(plan)}`,
                     )
                     .join(", ")}
                   symbol="arrow.triangle.merge"

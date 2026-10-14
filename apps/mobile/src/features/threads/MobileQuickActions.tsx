@@ -16,13 +16,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
   EnvironmentId,
   ProjectId,
+  PullRequestRef,
   QuickAction,
   QuickActionFields,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Option from "effect/Option";
+import { AsyncResult, Atom } from "effect/reactivity";
 import {
   describeQuickActionTargets,
+  pullRequestKnownState,
   pullRequestSignalStatuses,
+  pullRequestTargetKey,
   quickActionSignals,
   quickActionTargets,
   renderQuickActionSelection,
@@ -184,6 +189,14 @@ const newAction = (projectId: ProjectId): Editing => ({
   },
 });
 
+/** Activity for a JSON `[environmentId, references]` key, in reference order. */
+const pullRequestActivities = Atom.family((key: string) => {
+  const [environmentId, references] = JSON.parse(key) as [EnvironmentId, PullRequestRef[]];
+  return Atom.make((get) =>
+    references.map((input) => get(pullRequestEnvironment.activity({ environmentId, input }))),
+  );
+});
+
 /** Lists quick actions to insert into the composer, and creates or edits them. */
 export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarget>) {
   const target = route.params;
@@ -227,6 +240,29 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
   };
   const actions = library.data ?? [];
   const ranked = rankQuickActionMenu(actions, query);
+  // Thread counts cost one activity read per open PR, so only load them when an action uses them.
+  const readsReviewThreads = actions.some(
+    (action) => action.enabled && quickActionSignals(action).includes("reviewThreads"),
+  );
+  const openPullRequests = quickActionTargets({ template: "{{pr.url}}" }, scope);
+  const threadReferences =
+    readsReviewThreads && openPullRequests.kind === "ready"
+      ? openPullRequests.variants.flatMap((variant) =>
+          variant.choice.pullRequest
+            ? [{ ...variant.choice.pullRequest, projectId: target.projectId }]
+            : [],
+        )
+      : [];
+  const activities = useAtomValue(
+    pullRequestActivities(JSON.stringify([target.environmentId, threadReferences])),
+  );
+  const fresh = new Map(
+    threadReferences.map((reference, index) => {
+      const result = activities[index];
+      const activity = result ? Option.getOrNull(AsyncResult.value(result)) : null;
+      return [pullRequestTargetKey(reference), pullRequestKnownState(null, activity)] as const;
+    }),
+  );
   const disabledActions = query.trim() ? [] : actions.filter((action) => !action.enabled);
 
   const run = async (action: QuickAction, choices: readonly QuickActionChoice[]) => {
@@ -496,8 +532,8 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
 
   // One row per action. An action with several PR or repository targets opens a picker that
   // shows each target's status, like the desktop palette's submenu.
-  const rows = ranked.map((action): ActionRow => {
-    const targets = quickActionTargets(action, scope);
+  const actionRows = ranked.map((action): ActionRow => {
+    const targets = quickActionTargets(action, scope, fresh);
     if (targets.kind === "unavailable") return { action, subtitle: targets.reason, variants: null };
     const [only] = targets.variants;
     if (targets.variants.length === 1 && only) {
@@ -517,6 +553,11 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
         describeQuickActionTargets(action, targets.variants) ?? (action.description || undefined),
     };
   });
+  // Available rows first, so dead ends never push actions out of view.
+  const rows = [
+    ...actionRows.filter((row) => row.variants),
+    ...actionRows.filter((row) => !row.variants),
+  ];
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">

@@ -7,6 +7,7 @@ import type { QuickActionScope } from "./quickActionRunner";
 const mocks = vi.hoisted(() => ({
   merge: vi.fn(async () => {}),
   run: vi.fn(async () => {}),
+  gitItems: [] as unknown[],
 }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: () => [],
@@ -19,7 +20,7 @@ vi.mock("./useQuickActions", () => ({
   useRunQuickAction: () => ({ run: mocks.run }),
 }));
 vi.mock("./useQuickActionGit", () => ({
-  useQuickActionGit: () => ({ items: [], dialog: null }),
+  useQuickActionGit: () => ({ items: mocks.gitItems, dialog: null }),
 }));
 vi.mock("./useQuickActionMerge", () => ({
   useQuickActionMerge: () => mocks.merge,
@@ -83,6 +84,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
   mocks.merge.mockReset().mockResolvedValue(undefined);
+  mocks.gitItems = [];
   act(() => {
     renderer = create(<Surface />);
   });
@@ -115,6 +117,19 @@ describe("merge quick action palette item", () => {
     expect(mocks.merge).toHaveBeenCalledWith(environmentId, [
       { host: "github.com", repository: "acme/web", number: 7, projectId },
       { host: "github.com", repository: "acme/api", number: 9, projectId },
+    ]);
+  });
+});
+
+describe("quick action palette order", () => {
+  it("lists available actions before ones with nothing to do", () => {
+    mocks.gitItems = [
+      { kind: "action", value: "quick-action:git", disabled: true, run: async () => {} },
+    ];
+    act(() => renderer.update(<Surface />));
+    expect(view().groups[0]!.items.map((item) => item.value)).toEqual([
+      "quick-action:merge",
+      "quick-action:git",
     ]);
   });
 });
