@@ -111,19 +111,32 @@ describe("quick action templates", () => {
     });
     expect(quickActionRequirements("\\{{ci.failures}}").host).toBe(false);
   });
-  it("keeps menu starters fixed ahead of custom favorites and recent actions", () => {
-    const custom = { ...QUICK_ACTION_STARTERS[0]!, id: "custom", name: "Custom", favorite: true };
-    const actions = [custom, ...QUICK_ACTION_STARTERS.toReversed()];
+  it("puts favorites first and keeps starters fixed ahead of recent custom actions", () => {
+    const custom = { ...QUICK_ACTION_STARTERS[0]!, id: "custom", name: "Custom" };
+    const recentCustom = { ...custom, id: "recent", name: "Recent" };
+    const walkthrough = QUICK_ACTION_STARTERS.find(
+      (action) => action.id === QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+    )!;
+    const actions = [
+      custom,
+      recentCustom,
+      ...QUICK_ACTION_STARTERS.filter((action) => action !== walkthrough).toReversed(),
+      { ...walkthrough, favorite: true },
+    ];
     expect(
-      rankQuickActionMenu(actions, "", [custom.id, QUICK_ACTION_STARTER_IDS.reviewChanges]).map(
-        (action) => action.id,
-      ),
+      rankQuickActionMenu(actions, "", [
+        recentCustom.id,
+        QUICK_ACTION_STARTER_IDS.reviewChanges,
+      ]).map((action) => action.id),
     ).toEqual([
+      QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
       QUICK_ACTION_STARTER_IDS.resolveConflicts,
       QUICK_ACTION_STARTER_IDS.resolveCi,
       QUICK_ACTION_STARTER_IDS.addressReviewThreads,
-      QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
+      QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+      QUICK_ACTION_STARTER_IDS.mergeBase,
       QUICK_ACTION_STARTER_IDS.reviewChanges,
+      recentCustom.id,
       custom.id,
     ]);
     expect(rankQuickActionMenu(actions, "review")).toEqual(rankQuickActions(actions, "review"));

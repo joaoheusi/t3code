@@ -2,16 +2,20 @@ import { useAtomValue } from "@effect/atom-react";
 import type {
   EnvironmentId,
   KeybindingCommand,
+  PullRequestActivity,
   PullRequestDetail,
   PullRequestRef,
   QuickAction,
 } from "@t3tools/contracts";
 import {
-  classifyPullRequestChecks,
   pullRequestDetailMergeState,
   pullRequestMergeBlocker,
+  pullRequestSnapshotMergeState,
+  quickActionMergeKind,
+  type QuickActionMergeKind,
 } from "@t3tools/client-runtime/pullRequestActions";
 import {
+  pullRequestKnownState,
   pullRequestTargetKey,
   type PullRequestKnownState,
 } from "@t3tools/client-runtime/quickActionRunner";
@@ -75,6 +79,14 @@ function targetDescription(
   ) : undefined;
 }
 
+/** How a merge target starts, or why it cannot. */
+interface MergeTarget {
+  readonly kind: QuickActionMergeKind | null;
+  readonly blocker: string | null;
+  /** Decided from fresh details rather than the synced snapshot. */
+  readonly fresh: boolean;
+}
+
 function targetItems(
   variants: readonly QuickActionVariant[],
   prefix: string,
@@ -82,16 +94,26 @@ function targetItems(
   scope: QuickActionScope,
   signals: readonly QuickActionSignal[],
   run: (variant: QuickActionVariant) => Promise<void>,
-  blockers?: readonly (string | null)[],
+  mergeTargets?: readonly MergeTarget[],
 ): CommandPaletteActionItem[] {
   return variants.map((variant, index) => {
-    const blocker = blockers?.[index] ?? null;
+    const blocker = mergeTargets?.[index]?.blocker ?? null;
+    const status = targetDescription(variant, scope, signals);
     return {
       kind: "action",
       value: `${prefix}:${variant.key}`,
       searchTerms: [variant.label ?? name, variant.choice.pullRequest?.repository ?? ""],
       title: variant.label ?? name,
-      description: blocker ?? targetDescription(variant, scope, signals),
+      description:
+        blocker ??
+        (mergeTargets?.[index]?.kind === "auto-merge" ? (
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>Turns on auto-merge</span>
+            {status}
+          </span>
+        ) : (
+          status
+        )),
       icon: variant.choice.pullRequest ? (
         <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />
       ) : (
@@ -103,66 +125,123 @@ function targetItems(
   });
 }
 
-/** Fresh details for a JSON `[environmentId, references]` key, in reference order. */
-const mergeTargetDetails = Atom.family((key: string) => {
-  const [environmentId, references] = JSON.parse(key) as [EnvironmentId, PullRequestRef[]];
+/**
+ * Fresh details, and activity when `withActivity`, for a JSON
+ * `[environmentId, references, withActivity]` key, in reference order.
+ */
+const pullRequestQueries = Atom.family((key: string) => {
+  const [environmentId, references, withActivity] = JSON.parse(key) as [
+    EnvironmentId,
+    PullRequestRef[],
+    boolean,
+  ];
   return Atom.make((get) =>
-    references.map((reference) =>
-      get(
+    references.map((reference) => ({
+      detail: get(
         pullRequestEnvironment.detail({
           environmentId,
           input: { ...reference, allowStale: false },
         }),
       ),
-    ),
+      activity: withActivity
+        ? get(pullRequestEnvironment.activity({ environmentId, input: reference }))
+        : null,
+    })),
   );
 });
 
+interface PullRequestFreshData {
+  readonly details: ReadonlyMap<string, PullRequestDetail>;
+  readonly activities: ReadonlyMap<string, PullRequestActivity>;
+}
+
 /**
- * Fresh details for the thread's open PRs (its merge targets), keyed by `pullRequestTargetKey`.
- * They are the detail queries the rows' status lines already load; a PR is missing until its
- * detail arrives.
+ * Fresh details for the thread's open PRs (its merge targets), and their activity when an action
+ * reads review threads, keyed by `pullRequestTargetKey`. They are the queries the rows' status
+ * lines already load; a PR is missing until its result arrives.
  */
-function usePullRequestDetails(
+function usePullRequestFreshData(
   scope: QuickActionScope | null,
   variants: readonly QuickActionVariant[],
-): ReadonlyMap<string, PullRequestDetail> {
+  withActivity: boolean,
+): PullRequestFreshData {
   const projectId = scope?.projectId ?? null;
   const pullRequests = variants.flatMap((variant) =>
     variant.choice.pullRequest && projectId !== null ? [variant.choice.pullRequest] : [],
   );
   const results = useAtomValue(
-    mergeTargetDetails(
+    pullRequestQueries(
       JSON.stringify([
         scope?.environmentId ?? null,
         pullRequests.map((pullRequest) => ({ ...pullRequest, projectId })),
+        withActivity,
       ]),
     ),
   );
   const details = new Map<string, PullRequestDetail>();
+  const activities = new Map<string, PullRequestActivity>();
   pullRequests.forEach((pullRequest, index) => {
     const result = results[index];
-    const detail = result ? Option.getOrNull(AsyncResult.value(result)) : null;
-    if (detail) details.set(pullRequestTargetKey(pullRequest), detail);
+    const key = pullRequestTargetKey(pullRequest);
+    const detail = result ? Option.getOrNull(AsyncResult.value(result.detail)) : null;
+    if (detail) details.set(key, detail);
+    const activity = result?.activity ? Option.getOrNull(AsyncResult.value(result.activity)) : null;
+    if (activity) activities.set(key, activity);
   });
-  return details;
+  return { details, activities };
 }
 
 /**
- * Why each merge target would be refused, so the palette disables it before it is tried. Uses
- * fresh details, and the synced snapshot until they load. Choosing a target still rechecks.
+ * How each merge target would start, or why it would be refused, so the palette disables it
+ * before it is tried. Uses fresh details, and the synced snapshot until they load. Choosing a
+ * target still rechecks.
  */
-function mergeBlockers(
+function mergeTargetStates(
   variants: readonly QuickActionVariant[],
   details: ReadonlyMap<string, PullRequestDetail>,
-): (string | null)[] {
+): MergeTarget[] {
   return variants.map((variant) => {
     const pullRequest = variant.choice.pullRequest;
     const detail = pullRequest ? details.get(pullRequestTargetKey(pullRequest)) : undefined;
-    const state = detail ? pullRequestDetailMergeState(detail) : variant.snapshot;
-    return state ? pullRequestMergeBlocker(state) : null;
+    const state = detail
+      ? pullRequestDetailMergeState(detail)
+      : variant.snapshot
+        ? pullRequestSnapshotMergeState(variant.snapshot)
+        : null;
+    if (!state) return { kind: "merge", blocker: null, fresh: false };
+    const kind = quickActionMergeKind(state);
+    return { kind, blocker: kind ? null : pullRequestMergeBlocker(state), fresh: !!detail };
   });
 }
+
+/** "#7: Waiting for CI · #9: Still a draft", or just the reason for a single PR. */
+function mergeBlockedSummary(
+  variants: readonly QuickActionVariant[],
+  targets: readonly MergeTarget[],
+): string {
+  if (variants.length === 1) return targets[0]?.blocker ?? "Not ready to merge";
+  return variants
+    .map((variant, index) => `${variant.label ?? "PR"}: ${targets[index]?.blocker ?? "Not ready"}`)
+    .join(" · ");
+}
+
+/** "1 ready to merge · 1 can auto-merge" for the root row, once every target is fresh. */
+function mergeReadySummary(targets: readonly MergeTarget[]): string {
+  if (targets.some((target) => !target.fresh && target.kind !== null))
+    return "Choose pull requests to merge";
+  const ready = targets.filter((target) => target.kind === "merge").length;
+  const auto = targets.filter((target) => target.kind === "auto-merge").length;
+  return [
+    ...(ready ? [`${ready} ready to merge`] : []),
+    ...(auto ? [`${auto} can auto-merge when CI passes`] : []),
+  ].join(" · ");
+}
+
+/** Available rows first, in their order, so dead ends never push actions out of view. */
+const availableFirst = (items: readonly QuickActionPaletteItem[]) => [
+  ...items.filter((item) => !item.disabled),
+  ...items.filter((item) => item.disabled),
+];
 
 /**
  * Palette entries for the composer the palette was opened over. An action that
@@ -189,18 +268,17 @@ export function useQuickActionPalette(input: {
   const mergeTargets =
     scope?.projectId && scope.thread ? quickActionTargets({ template: "{{pr.url}}" }, scope) : null;
   const mergeVariants = mergeTargets?.kind === "ready" ? mergeTargets.variants : [];
-  const details = usePullRequestDetails(scope, mergeVariants);
-  const blockers = mergeBlockers(mergeVariants, details);
-  // Fresh states rule out PRs the snapshot cannot, such as one without any checks.
+  // Thread counts cost one activity read per open PR, so only load them when an action uses them.
+  const readsReviewThreads = library.actions.some(
+    (action) => action.enabled && quickActionSignals(action).includes("reviewThreads"),
+  );
+  const { details, activities } = usePullRequestFreshData(scope, mergeVariants, readsReviewThreads);
+  const mergeStates = mergeTargetStates(mergeVariants, details);
+  // Fresh states rule out PRs the snapshot cannot, such as one without any checks or threads.
   const fresh = new Map<string, PullRequestKnownState>(
-    [...details].map(([key, detail]) => [
+    [...new Set([...details.keys(), ...activities.keys()])].map((key) => [
       key,
-      {
-        checks: classifyPullRequestChecks(detail.checks),
-        mergeability: detail.mergeability,
-        baseComparison: detail.baseComparison,
-        behindBy: detail.behindBy,
-      },
+      pullRequestKnownState(details.get(key) ?? null, activities.get(key) ?? null),
     ]),
   );
 
@@ -301,11 +379,11 @@ export function useQuickActionPalette(input: {
             variant.choice.pullRequest ? [{ ...variant.choice.pullRequest, projectId }] : [],
           ),
         );
-      if (blockers.every((blocker) => blocker !== null)) {
+      if (mergeStates.every((target) => target.kind === null)) {
         items.push({
           ...mergeBase,
           kind: "action",
-          description: "No pull request is ready to merge",
+          description: mergeBlockedSummary(mergeTargets.variants, mergeStates),
           disabled: true,
           run: async () => {},
         });
@@ -313,7 +391,7 @@ export function useQuickActionPalette(input: {
         items.push({
           ...mergeBase,
           kind: "submenu",
-          description: "Choose pull requests to merge",
+          description: mergeReadySummary(mergeStates),
           addonIcon: <PullRequestGlyph.merged className={ADDON_ICON_CLASS} />,
           // Always the toggle view, even for one PR, like the other quick actions: pressing a
           // row only toggles it. Submitting checks the selection and stacks the method choice
@@ -341,7 +419,7 @@ export function useQuickActionPalette(input: {
                 // Rows in a toggle view must never submit on their own; only the
                 // multi-select submit above starts a merge.
                 async () => {},
-                blockers,
+                mergeStates,
               ),
             },
           ],
@@ -375,9 +453,10 @@ export function useQuickActionPalette(input: {
       run: input.onManage,
     },
   ];
+  const ordered = availableFirst(items);
   const groups: CommandPaletteGroup[] = [
-    ...(items.length > 0
-      ? [{ value: QUICK_ACTIONS_GROUP, label: "Quick actions", items }]
+    ...(ordered.length > 0
+      ? [{ value: QUICK_ACTIONS_GROUP, label: "Quick actions", items: ordered }]
       : library.isPending
         ? [
             {
@@ -405,7 +484,7 @@ export function useQuickActionPalette(input: {
     supported: library.supported,
     isPending: library.isPending,
     /** Matching actions join root search results without crowding the empty palette. */
-    searchItems: items,
+    searchItems: ordered,
     groups,
     findItem: (actionId: string) => items.find((item) => item.value === `quick-action:${actionId}`),
   };

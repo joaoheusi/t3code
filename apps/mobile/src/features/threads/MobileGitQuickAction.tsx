@@ -30,17 +30,8 @@ import { vcsActionManager, vcsEnvironment } from "../../state/vcs";
 import { ForkScreenHeader } from "./ForkScreenHeader";
 import type { QuickActionsTarget } from "./MobileQuickActions";
 
-/** The native surface uses the same repository plan as the desktop palette. */
-export function MobileGitQuickAction(props: {
-  target: QuickActionsTarget;
-  query: string;
-  isLast?: boolean;
-  onClose: () => void;
-  choosing: boolean;
-  onChoosingChange: (choosing: boolean) => void;
-}) {
-  const { target } = props;
-  const registry = useContext(RegistryContext);
+/** The Git row's repositories and summary, which the list reads to order the row. */
+export function useQuickActionGitSummary(target: QuickActionsTarget) {
   const thread = useThreadShell(
     target.threadId ? { environmentId: target.environmentId, threadId: target.threadId } : null,
   );
@@ -80,6 +71,21 @@ export function MobileGitQuickAction(props: {
   );
   const repositories = useAtomValue(repositoriesAtom);
   const summary = summarizeQuickActionGit(repositories);
+  return { thread, repositories, summary, canWrite };
+}
+
+/** The native surface uses the same repository plan as the desktop palette. */
+export function MobileGitQuickAction(props: {
+  target: QuickActionsTarget;
+  query: string;
+  isLast?: boolean;
+  onClose: () => void;
+  choosing: boolean;
+  onChoosingChange: (choosing: boolean) => void;
+}) {
+  const { target } = props;
+  const registry = useContext(RegistryContext);
+  const { thread, repositories, summary, canWrite } = useQuickActionGitSummary(target);
   const loadStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });
   const pull = useAtomCommand(vcsEnvironment.pull, { reportFailure: false });
   const update = useAtomCommand(threadEnvironment.updateMetadata, { reportFailure: false });

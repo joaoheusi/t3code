@@ -364,15 +364,16 @@ export function createPullRequestEnvironmentAtoms<R, E>(
         Effect.gen(function* () {
           const { resolveMergeMethod, ...actionInput } = input;
           let preparedInput = actionInput;
-          if (actionInput.action === "merge" && resolveMergeMethod !== undefined) {
+          const { action } = actionInput;
+          if ((action === "merge" || action === "enable-auto-merge") && resolveMergeMethod) {
             const { projectId, host, repository, number } = actionInput;
             const reference = { projectId, host, repository, number, allowStale: false };
             const detail = yield* routedRequest(WS_METHODS.pullRequestsDetail, reference);
             if (
               detail.state !== "open" ||
               detail.isDraft ||
-              !detail.capabilities.actions.includes("merge") ||
-              !detail.viewerPermissions.actions.includes("merge")
+              !detail.capabilities.actions.includes(action) ||
+              !detail.viewerPermissions.actions.includes(action)
             ) {
               return yield* new PullRequestOperationError({
                 operation: "runAction",

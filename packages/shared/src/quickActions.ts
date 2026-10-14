@@ -402,18 +402,24 @@ const STARTER_ORDER = new Map<string, number>(
   ].map((id, index) => [id, index]),
 );
 
-/** Fixed starter order in quick-action menus; typed searches retain relevance ranking. */
+/**
+ * Menu order without a search: favorites first, then starters in their fixed order, then custom
+ * actions by recent use. Recency never moves a starter, so the menu does not jump between uses.
+ * Typed searches retain relevance ranking.
+ */
 export function rankQuickActionMenu<T extends QuickActionFields>(
   actions: readonly T[],
   search: string,
   recent: readonly string[] = [],
 ): T[] {
   const ranked = rankQuickActions(actions, search, recent);
+  // rankQuickActions already ordered by recency, and sort is stable, so custom actions keep it.
   return search.trim()
     ? ranked
     : ranked.sort(
         (a, b) =>
+          Number(b.favorite) - Number(a.favorite) ||
           (STARTER_ORDER.get(a.id) ?? STARTER_ORDER.size) -
-          (STARTER_ORDER.get(b.id) ?? STARTER_ORDER.size),
+            (STARTER_ORDER.get(b.id) ?? STARTER_ORDER.size),
       );
 }

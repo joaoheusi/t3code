@@ -221,6 +221,40 @@ describe("merge quick action confirmation", () => {
     ).toEqual(["merge", "squash"]);
   });
 
+  it("arms auto-merge for a PR whose required checks still run, in the same batch", async () => {
+    const pending = detail({
+      checks: [{ name: "ci", status: "pending", description: null, url: null }],
+      autoMergeEnabled: false,
+      capabilities: {
+        actions: ["merge", "enable-auto-merge"],
+        mergeMethods: ["merge", "squash", "rebase"],
+      } as unknown as PullRequestDetail["capabilities"],
+      viewerPermissions: {
+        actions: ["merge", "enable-auto-merge"],
+      } as unknown as PullRequestDetail["viewerPermissions"],
+    });
+    loadDetail
+      .mockResolvedValueOnce(AsyncResult.success(detail()))
+      .mockResolvedValueOnce(AsyncResult.success(pending));
+    const other = { ...reference, repository: "acme/api", number: 9 };
+    await currentMerge()(environmentId, [reference, other]);
+    const view = (openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail).pushView!;
+    const squash = view.groups[0]!.items.find(
+      (item) => item.value === "quick-action-merge:squash",
+    )!;
+    expect(squash.description).toBe("Merge 1 now, auto-merge 1 when CI passes");
+    if (squash.kind !== "action") throw new Error("Expected a merge action");
+    await squash.run();
+    expect(runAction.mock.calls.map(([request]) => request.input.action)).toEqual([
+      "merge",
+      "enable-auto-merge",
+    ]);
+    expect(toast.update).toHaveBeenLastCalledWith(
+      "Merging 2 pull requests…",
+      expect.objectContaining({ title: "Merged 1, auto-merge on for 1 of 2 pull requests" }),
+    );
+  });
+
   it("does not offer a confirmation when fresh status blocks merging", async () => {
     loadDetail.mockResolvedValue(AsyncResult.success(detail({ isDraft: true })));
     await expect(currentMerge()(environmentId, [reference])).rejects.toThrow(

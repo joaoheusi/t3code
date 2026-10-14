@@ -1288,6 +1288,42 @@ it.effect.each(["closed", "draft", "permission", "stack", "method"] as const)(
     ),
 );
 
+it.effect.each([
+  { granted: ["merge"], expected: [] },
+  { granted: ["enable-auto-merge"], expected: ["enable-auto-merge:squash"] },
+])("checks auto-merge against its own permission: $granted", ({ granted, expected }) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const calls: string[] = [];
+      const client = {
+        [WS_METHODS.pullRequestsDetail]: () =>
+          Effect.succeed({
+            state: "open",
+            isDraft: false,
+            capabilities: { actions: ["merge", "enable-auto-merge"], stackActions: false },
+            viewerPermissions: { actions: granted },
+          }),
+        [WS_METHODS.pullRequestsRunAction]: (input: { action: string; mergeMethod?: string }) =>
+          Effect.sync(() => calls.push(`${input.action}:${input.mergeMethod}`)),
+      } as unknown as WsRpcProtocolClient;
+      const { atoms, registry } = yield* makeTestRuntime(client);
+      yield* Effect.promise(() =>
+        atoms.runAction.run(registry, {
+          environmentId: TARGET.environmentId,
+          input: {
+            projectId: ProjectId.make("project-1"),
+            repository: "acme/web",
+            number: 1,
+            action: "enable-auto-merge",
+            resolveMergeMethod: () => "squash",
+          },
+        }),
+      );
+      expect(calls).toEqual(expected);
+    }),
+  ),
+);
+
 it.effect("keeps a close batch ordered and continues after a refused close", () =>
   Effect.scoped(
     Effect.gen(function* () {

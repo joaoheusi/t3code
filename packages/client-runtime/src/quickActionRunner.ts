@@ -6,6 +6,7 @@ import type {
   ProjectId,
   PullRequestActivity,
   PullRequestBaseComparison,
+  PullRequestDetail,
   PullRequestMergeability,
   PullRequestRef,
   QuickAction,
@@ -21,6 +22,7 @@ import {
   type QuickActionVariable,
 } from "@t3tools/shared/quickActions";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
+import { classifyPullRequestChecks } from "./pullRequestActions.ts";
 
 /** Where an action runs: the composer's environment, project, and saved thread, if any. */
 export interface QuickActionScope {
@@ -40,14 +42,14 @@ export interface QuickActionVariant {
   readonly label: string | null;
   readonly choice: QuickActionChoice;
   readonly snapshot?: ThreadPullRequestLink["snapshot"];
-  /** Freshly loaded CI, conflict, and base state, which outranks the synced snapshot. */
+  /** Freshly loaded CI, conflict, base, and review thread state, which outranks the snapshot. */
   readonly fresh?: PullRequestKnownState;
 }
 
 /** PR state a client already loaded, beyond what the snapshot says. */
 export type PullRequestKnownState = Pick<
   PullRequestSignalState,
-  "checks" | "mergeability" | "baseComparison" | "behindBy"
+  "checks" | "mergeability" | "baseComparison" | "behindBy" | "reviewThreads"
 >;
 
 /** Keys fresh PR states for `quickActionTargets`. */
@@ -127,9 +129,16 @@ export function quickActionTargets(
   );
   if (applicable.length === 0) {
     const signals = quickActionSignals(action);
+    // "No failing CI checks" is true while CI runs, but says nothing useful.
+    if (
+      signals.includes("ci") &&
+      variants.some((variant) => knownState(variant).checks === "pending")
+    )
+      return { kind: "unavailable", reason: "CI running, nothing failing yet" };
     const reasons = [
       ...(signals.includes("ci") ? ["failing CI checks"] : []),
       ...(signals.includes("conflicts") ? ["merge conflicts"] : []),
+      ...(signals.includes("reviewThreads") ? ["unresolved review threads"] : []),
     ];
     return {
       kind: "unavailable",
@@ -243,6 +252,27 @@ export function pullRequestSignalStatuses(
   });
 }
 
+/**
+ * What fresh queries say about one PR, for `quickActionTargets`. A query that has not loaded
+ * adds nothing, so the synced snapshot still speaks for those fields.
+ */
+export function pullRequestKnownState(
+  detail: PullRequestDetail | null,
+  activity: Pick<PullRequestActivity, "reviewThreads" | "reviewThreadsTruncated"> | null,
+): PullRequestKnownState {
+  return {
+    ...(detail
+      ? {
+          checks: classifyPullRequestChecks(detail.checks),
+          mergeability: detail.mergeability,
+          baseComparison: detail.baseComparison,
+          behindBy: detail.behindBy,
+        }
+      : {}),
+    ...(activity ? { reviewThreads: unresolvedReviewThreads(activity) } : {}),
+  };
+}
+
 /** Unresolved review threads from a PR's activity, or null before it loads. */
 export function unresolvedReviewThreads(
   activity: Pick<PullRequestActivity, "reviewThreads" | "reviewThreadsTruncated"> | null,
@@ -265,12 +295,21 @@ export function pullRequestSnapshotStatus(snapshot: QuickActionVariant["snapshot
     .join(" · ");
 }
 
+/** Fresh state over the synced snapshot, field by field; absent fields are unknown. */
+const knownState = (variant: QuickActionVariant): PullRequestKnownState => ({
+  ...(variant.snapshot
+    ? { checks: variant.snapshot.checksState, mergeability: variant.snapshot.mergeability }
+    : {}),
+  ...variant.fresh,
+});
+
 /**
  * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
- * conflicts for `{{pr.conflicts}}`, a stale branch for the base update starters. Null when the
- * action reads none of them or the relevant state is unknown, so incomplete snapshots do not
- * prevent inspecting a PR. A synced snapshot cannot tell "no checks" from "not known", so only
- * fresh state rules out a PR without checks, and only fresh state knows the base comparison.
+ * conflicts for `{{pr.conflicts}}`, a stale branch for the base update starters, unresolved
+ * threads for review thread actions. Null when the action reads none of them or the relevant
+ * state is unknown, so incomplete snapshots do not prevent inspecting a PR. A synced snapshot
+ * cannot tell "no checks" from "not known", so only fresh state rules out a PR without checks,
+ * and only fresh state knows the base comparison and review threads.
  */
 export function quickActionTargetNeedsAction(
   action: QuickActionShape,
@@ -280,12 +319,9 @@ export function quickActionTargetNeedsAction(
   const ci = signals.includes("ci");
   const conflicts = signals.includes("conflicts");
   const base = signals.includes("base");
-  const state: PullRequestKnownState | undefined =
-    variant.fresh ??
-    (variant.snapshot
-      ? { checks: variant.snapshot.checksState, mergeability: variant.snapshot.mergeability }
-      : undefined);
-  if ((!ci && !conflicts && !base) || !state) return null;
+  const threads = signals.includes("reviewThreads");
+  const state = knownState(variant);
+  if (!ci && !conflicts && !base && !threads) return null;
   const needs: Array<boolean | null> = [];
   if (ci) needs.push(state.checks == null ? null : state.checks === "failing");
   if (conflicts)
@@ -300,8 +336,13 @@ export function quickActionTargetNeedsAction(
         ? null
         : state.baseComparison === "behind",
     );
-  // Review threads are not part of this state, so an action reading them stays eligible.
-  if (signals.includes("reviewThreads")) needs.push(null);
+  if (threads) {
+    const known = state.reviewThreads;
+    // A truncated list with no unresolved thread in view may still hide one.
+    needs.push(
+      known == null || (known.unresolved === 0 && known.truncated) ? null : known.unresolved > 0,
+    );
+  }
   return needs.includes(true) ? true : needs.includes(null) ? null : false;
 }
 
@@ -319,6 +360,17 @@ export function describeQuickActionTargets(
   const total = pullRequests.size;
   if (total === 0) return variants.length > 1 ? `${variants.length} repositories` : null;
   const noun = total === 1 ? "pull request" : "pull requests";
+  const signals = quickActionSignals(action);
+  // An action that also reads CI or conflicts may be available for those, so it keeps the need
+  // count; only a thread-only action is explained by its thread count.
+  if (signals.length === 1 && signals[0] === "reviewThreads") {
+    const threads = [...pullRequests.values()].map((variant) => variant.fresh?.reviewThreads);
+    if (threads.every((known) => known != null)) {
+      const unresolved = threads.reduce((sum, known) => sum + known!.unresolved, 0);
+      const more = threads.some((known) => known!.truncated) ? "+" : "";
+      return `${unresolved}${more} unresolved ${unresolved === 1 && !more ? "thread" : "threads"} in ${total} ${noun}`;
+    }
+  }
   const needs = [...pullRequests.values()].map((variant) =>
     quickActionTargetNeedsAction(action, variant),
   );
