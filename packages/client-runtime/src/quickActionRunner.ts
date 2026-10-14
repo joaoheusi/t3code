@@ -360,7 +360,10 @@ export function describeQuickActionTargets(
   const total = pullRequests.size;
   if (total === 0) return variants.length > 1 ? `${variants.length} repositories` : null;
   const noun = total === 1 ? "pull request" : "pull requests";
-  if (quickActionSignals(action).includes("reviewThreads")) {
+  const signals = quickActionSignals(action);
+  // An action that also reads CI or conflicts may be available for those, so it keeps the need
+  // count; only a thread-only action is explained by its thread count.
+  if (signals.length === 1 && signals[0] === "reviewThreads") {
     const threads = [...pullRequests.values()].map((variant) => variant.fresh?.reviewThreads);
     if (threads.every((known) => known != null)) {
       const unresolved = threads.reduce((sum, known) => sum + known!.unresolved, 0);

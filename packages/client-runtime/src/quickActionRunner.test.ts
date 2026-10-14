@@ -346,6 +346,17 @@ describe("quick action target summaries", () => {
     expect(describeQuickActionTargets(threads, [withThreads(1, 1), variant(2, null)])).toBe(
       "2 pull requests",
     );
+    // Failing CI keeps this action available, so its row must not read "0 unresolved threads".
+    const failingCi = (number: number) => ({
+      ...variant(number, null),
+      fresh: { checks: "failing" as const, reviewThreads: { unresolved: 0, truncated: false } },
+    });
+    expect(
+      describeQuickActionTargets({ template: "{{ci.failures}} {{pr.reviewThreads}}" }, [
+        failingCi(1),
+        failingCi(2),
+      ]),
+    ).toBe("2 of 2 pull requests need this");
   });
   it("only counts targets for actions that do not read CI or conflicts", () => {
     expect(
