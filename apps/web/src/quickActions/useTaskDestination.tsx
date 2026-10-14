@@ -12,7 +12,10 @@ import {
   ITEM_ICON_CLASS,
   type CommandPaletteActionItem,
 } from "../components/CommandPalette.logic";
-import type { PullRequestThreadTask } from "../components/pullRequest/usePullRequestActions";
+import type {
+  PullRequestTaskKind,
+  PullRequestThreadTask,
+} from "../components/pullRequest/usePullRequestActions";
 import { toastManager } from "../components/ui/toast";
 import { useComposerDraftStore, type ComposerThreadTarget } from "../composerDraftStore";
 import { useEnvironmentOperateAccess } from "../hooks/useEnvironmentOperateAccess";
@@ -29,7 +32,24 @@ export interface TaskDeliveryOptions {
   readonly onDelivered?: (destination: ComposerThreadTarget) => void;
 }
 
-const EVIDENCE_VARIABLE = { ci: "ci.failures", conflicts: "pr.conflicts" } as const;
+/** The starter each task renders, and the evidence its button exists to deliver. */
+const TASK_STARTERS: Record<
+  PullRequestTaskKind,
+  { readonly id: string; readonly name: string; readonly evidence: string | null }
+> = {
+  ci: { id: QUICK_ACTION_STARTER_IDS.resolveCi, name: "Resolve CI", evidence: "ci.failures" },
+  conflicts: {
+    id: QUICK_ACTION_STARTER_IDS.resolveConflicts,
+    name: "Resolve merge conflicts",
+    evidence: "pr.conflicts",
+  },
+  rebase: { id: QUICK_ACTION_STARTER_IDS.rebaseOntoBase, name: "Rebase onto base", evidence: null },
+  "merge-base": {
+    id: QUICK_ACTION_STARTER_IDS.mergeBase,
+    name: "Merge base into branch",
+    evidence: null,
+  },
+};
 
 /**
  * Puts a PR task into a thread's composer: the thread it was asked from, or one the
@@ -54,28 +74,26 @@ export function useTaskDestination(
   const newThread = useNewThreadHandler();
   const navigate = useNavigate();
 
-  // The user's edited CI or conflict instruction, or the button's own text if they deleted it.
+  // The user's edited starter for this task, or the button's own text if they deleted it.
   const instructionFor = async (
-    kind: "ci" | "conflicts",
+    kind: PullRequestTaskKind,
     ownerProject: ProjectId,
     fallback: string,
   ): Promise<QuickAction> => {
     const library = await reload({ environmentId, input: { projectId: ownerProject } });
     if (library._tag === "Failure") throw squashAtomCommandFailure(library);
-    const starterId =
-      kind === "ci"
-        ? QUICK_ACTION_STARTER_IDS.resolveCi
-        : QUICK_ACTION_STARTER_IDS.resolveConflicts;
+    const { id: starterId, name, evidence } = TASK_STARTERS[kind];
     const starter = library.value.find((action) => action.id === starterId && action.enabled);
     const template = starter?.template ?? fallback.replaceAll("{{", "\\{{");
-    // The button exists to deliver the evidence, so an edited template still gets it.
-    const withEvidence = quickActionRequirements(template).evidence
-      ? template
-      : `${template}\n\n{{${EVIDENCE_VARIABLE[kind]}}}`;
+    // A button that exists to deliver evidence still delivers it from an edited template.
+    const withEvidence =
+      evidence === null || quickActionRequirements(template).evidence
+        ? template
+        : `${template}\n\n{{${evidence}}}`;
     const now = new Date().toISOString();
     return {
       id: starter?.id ?? starterId,
-      name: starter?.name ?? (kind === "ci" ? "Resolve CI" : "Resolve merge conflicts"),
+      name: starter?.name ?? name,
       description: "",
       aliases: [],
       tags: [],

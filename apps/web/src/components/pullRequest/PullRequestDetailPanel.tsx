@@ -41,6 +41,7 @@ import {
   RotateCcwIcon,
   SparklesIcon,
   TriangleAlertIcon,
+  ZapIcon,
 } from "lucide-react";
 import {
   lazy,
@@ -68,7 +69,10 @@ import {
   type ShortcutMatchContext,
 } from "~/keybindings";
 import { primaryServerKeybindingsAtom } from "~/state/server";
-import { usePullRequestDefaultMergeMethodResolver } from "./usePullRequestActions";
+import {
+  usePullRequestDefaultMergeMethodResolver,
+  type PullRequestTaskKind,
+} from "./usePullRequestActions";
 import { changeRequestRepositoryUrl, gitHubPullRequestBrowserUrl } from "~/lib/openPullRequestLink";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
@@ -137,6 +141,7 @@ import {
   buildExplainPullRequestHandoff,
   buildFixFindingHandoff,
   buildFixFindingsHandoff,
+  buildBaseUpdatePrompt,
   buildResolveConflictsPrompt,
   latestPullRequestReviewOutcomes,
   loadingPullRequestCheckoutCommand,
@@ -305,6 +310,14 @@ const openNumberContextMenu = (
   });
 };
 
+/** Handoffs whose text is the user's matching starter, rendered with the PR's context. */
+const HANDOFF_TASK_KINDS: Partial<Record<string, PullRequestTaskKind>> = {
+  findings: "ci",
+  conflicts: "conflicts",
+  rebase: "rebase",
+  "merge-base": "merge-base",
+};
+
 /**
  * The stale-branch warning, said beside the branch it is about rather than as a bar of its own.
  * The banner this replaces held a row of chrome open across the top of every pull request that
@@ -320,6 +333,8 @@ function PullRequestBaseFreshnessWarning({
   freshness,
   pending,
   onUpdate,
+  agentDisabled,
+  onAskAgent,
   iconClassName,
   className,
   children,
@@ -331,6 +346,9 @@ function PullRequestBaseFreshnessWarning({
   };
   readonly pending: boolean;
   readonly onUpdate: (method: PullRequestUpdateMethod) => void;
+  readonly agentDisabled: boolean;
+  /** Hands the update to an agent, which rebases or merges in the thread's checkout. */
+  readonly onAskAgent: (method: PullRequestUpdateMethod) => void;
   readonly iconClassName?: string;
   readonly className?: string;
   /** What the warning is about, drawn in the same amber before the mark: the base branch. */
@@ -384,6 +402,21 @@ function PullRequestBaseFreshnessWarning({
             ))}
           </span>
         ) : null}
+        {/* The agent works locally, so both ways are offered whatever the host allows. */}
+        <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {(["rebase", "merge"] as const).map((method) => (
+            <Button
+              key={method}
+              size="xs"
+              variant="ghost"
+              disabled={agentDisabled}
+              onClick={() => onAskAgent(method)}
+            >
+              <ZapIcon aria-hidden className="size-3" />
+              {method === "rebase" ? "Rebase with agent" : "Merge with agent"}
+            </Button>
+          ))}
+        </span>
       </PopoverPopup>
     </Popover>
   );
@@ -1150,10 +1183,11 @@ export function PullRequestDetailPanel({
   ) => {
     if (!handoffSummary || handoff !== null) return;
     if (task !== null) {
+      const contextKind = HANDOFF_TASK_KINDS[kind];
       const context =
-        (kind === "conflicts" || kind === "findings") && detail
+        contextKind && detail
           ? {
-              kind: kind === "conflicts" ? ("conflicts" as const) : ("ci" as const),
+              kind: contextKind,
               reference: { ...reference, projectId: acting?.projectId ?? reference.projectId },
               ...(detail.headSha ? { headSha: detail.headSha } : {}),
             }
@@ -1410,6 +1444,13 @@ export function PullRequestDetailPanel({
       "worktree",
       explicitNew,
     );
+  };
+
+  const startBaseUpdate = (method: PullRequestUpdateMethod) => {
+    if (!handoffSummary) return;
+    void startHandoff(method === "rebase" ? "rebase" : "merge-base", {
+      prompt: buildBaseUpdatePrompt(method, handoffSummary.url),
+    });
   };
 
   // The host says which strategies it offers at all; the repository narrows that to the ones
@@ -2370,6 +2411,10 @@ export function PullRequestDetailPanel({
                         freshness={freshness}
                         pending={actionPending}
                         onUpdate={(method) => void perform("update-branch", undefined, method)}
+                        agentDisabled={
+                          handoff !== null || (attachTarget === null && checkoutRoot === null)
+                        }
+                        onAskAgent={startBaseUpdate}
                         iconClassName="size-3"
                         className="max-w-[40%]"
                       >
@@ -2560,6 +2605,10 @@ export function PullRequestDetailPanel({
                       freshness={freshness}
                       pending={actionPending}
                       onUpdate={(method) => void perform("update-branch", undefined, method)}
+                      agentDisabled={
+                        handoff !== null || (attachTarget === null && checkoutRoot === null)
+                      }
+                      onAskAgent={startBaseUpdate}
                       className="max-w-[40%]"
                     >
                       {isStackedPullRequest ? (

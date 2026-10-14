@@ -1,6 +1,19 @@
 import type { PullRequestDetail, PullRequestLinkedThreadsResult } from "@t3tools/contracts";
 
-export type PullRequestAgentTask = "ask" | "explain" | "feedback" | "conflicts" | "watch";
+export type PullRequestAgentTask =
+  | "ask"
+  | "explain"
+  | "feedback"
+  | "conflicts"
+  | "rebase"
+  | "merge-base"
+  | "watch";
+
+/** Tasks that bring a branch behind its base up to date; offered only where it is behind. */
+export const BASE_UPDATE_TASKS = ["rebase", "merge-base"] as const;
+
+const BASE_UPDATE_PRECONDITIONS =
+  "First confirm this thread is on the PR's branch with no uncommitted changes; if it isn't, prepare the PR in its own worktree.";
 
 /** An explicit new-thread choice must never fall back to the single linked thread. */
 export function pullRequestAgentThread(
@@ -22,6 +35,10 @@ export function pullRequestAgentPrompt(task: PullRequestAgentTask): string {
       return "Address the actionable feedback and failing checks on this pull request. Fetch the latest review threads and check results, skip resolved feedback, and verify each finding before changing code. First confirm this thread is on the PR's branch; if it isn't, prepare the PR in its own worktree. Keep the fixes focused and run the relevant checks.";
     case "conflicts":
       return "Resolve this pull request's conflicts with its base branch. First confirm this thread is on the PR's branch; if it isn't, prepare the PR in its own worktree. Bring it up to date using this repository's convention, preserve the intent of both sides, and run the relevant checks before pushing.";
+    case "rebase":
+      return `Bring this pull request up to date by rebasing it onto the latest version of its base branch. ${BASE_UPDATE_PRECONDITIONS} Fetch the base, rebase onto it, preserve the intent of both sides in any conflict, and run the relevant checks. Rebasing rewrites the published branch, so ask me before pushing, then push with --force-with-lease.`;
+    case "merge-base":
+      return `Bring this pull request up to date by merging the latest version of its base branch into it. ${BASE_UPDATE_PRECONDITIONS} Fetch the base, merge it without rewriting history, preserve the intent of both sides in any conflict, and run the relevant checks before pushing.`;
     case "watch":
       return "Watch this pull request for check results, new feedback, and conflicts using T3's pull request watch. End the turn once the watch is armed. When it wakes you, assess what changed and report what needs attention.";
   }
@@ -47,6 +64,18 @@ export function pullRequestAgentActions(pr: PullRequestDetail, canWatch: boolean
       title: "Resolve conflicts",
       icon: "arrow.triangle.branch",
       disabled: pr.state !== "open" || pr.mergeability !== "conflicting",
+    },
+    {
+      task: "rebase",
+      title: "Rebase with agent",
+      icon: "sparkles",
+      disabled: pr.state !== "open" || pr.baseComparison !== "behind",
+    },
+    {
+      task: "merge-base",
+      title: "Merge base with agent",
+      icon: "sparkles",
+      disabled: pr.state !== "open" || pr.baseComparison !== "behind",
     },
     { task: "watch", title: "Watch PR", icon: "eye", disabled: pr.state !== "open" || !canWatch },
   ] as const;

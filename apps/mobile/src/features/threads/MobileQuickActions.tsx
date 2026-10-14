@@ -86,7 +86,8 @@ type Choosing = {
 
 /**
  * A row whose subtitle adds the PR states its action acts on: failing CI, merge conflicts,
- * or unresolved review threads. Review threads load only for actions that address them.
+ * unresolved review threads, or a branch behind its base. Review threads and the base
+ * comparison are not in the synced snapshot, so they load only for actions that need them.
  */
 function QuickActionStatusRow({
   environmentId,
@@ -107,10 +108,17 @@ function QuickActionStatusRow({
       ? pullRequestEnvironment.activity({ environmentId, input: { ...pullRequest, projectId } })
       : null,
   );
+  const detail = useEnvironmentQuery(
+    pullRequest && signals.includes("base")
+      ? pullRequestEnvironment.detail({ environmentId, input: { ...pullRequest, projectId } })
+      : null,
+  );
   if (!pullRequest || signals.length === 0) return <PickerRow {...row} subtitle={subtitle} />;
   const statuses = pullRequestSignalStatuses(signals, {
     checks: variant.snapshot?.checksState,
     mergeability: variant.snapshot?.mergeability,
+    baseComparison: detail.data?.baseComparison,
+    behindBy: detail.data?.behindBy,
     reviewThreads: unresolvedReviewThreads(activity.data),
   });
   return (

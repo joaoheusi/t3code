@@ -195,7 +195,12 @@ export function useQuickActionPalette(input: {
   const fresh = new Map<string, PullRequestKnownState>(
     [...details].map(([key, detail]) => [
       key,
-      { checks: classifyPullRequestChecks(detail.checks), mergeability: detail.mergeability },
+      {
+        checks: classifyPullRequestChecks(detail.checks),
+        mergeability: detail.mergeability,
+        baseComparison: detail.baseComparison,
+        behindBy: detail.behindBy,
+      },
     ]),
   );
 

@@ -9,6 +9,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   CircleXIcon,
+  GitBranchIcon,
   MessageSquareIcon,
   TriangleAlertIcon,
 } from "lucide-react";
@@ -21,15 +22,17 @@ function SignalStatus({ status }: { readonly status: PullRequestSignalStatus }) 
   const Icon =
     status.signal === "reviewThreads"
       ? MessageSquareIcon
-      : status.signal === "conflicts"
-        ? status.tone === "alert"
-          ? TriangleAlertIcon
-          : null
-        : status.tone === "alert"
-          ? CircleXIcon
-          : status.tone === "ok"
-            ? CircleCheckIcon
-            : CircleDashedIcon;
+      : status.signal === "base"
+        ? GitBranchIcon
+        : status.signal === "conflicts"
+          ? status.tone === "alert"
+            ? TriangleAlertIcon
+            : null
+          : status.tone === "alert"
+            ? CircleXIcon
+            : status.tone === "ok"
+              ? CircleCheckIcon
+              : CircleDashedIcon;
   return (
     <span
       className={
@@ -59,7 +62,7 @@ export function QuickActionPullRequestStatus({
   readonly snapshot: ThreadPullRequestSnapshot | null;
   readonly signals: readonly QuickActionSignal[];
 }) {
-  const needsDetail = signals.includes("ci") || signals.includes("conflicts");
+  const needsDetail = signals.some((signal) => signal !== "reviewThreads");
   const needsActivity = signals.includes("reviewThreads");
   const detailQuery = useEnvironmentQuery(
     needsDetail
@@ -76,6 +79,8 @@ export function QuickActionPullRequestStatus({
   const statuses = pullRequestSignalStatuses(signals, {
     checks: detail ? classifyPullRequestChecks(detail.checks) : snapshot?.checksState,
     mergeability: detail?.mergeability ?? snapshot?.mergeability,
+    baseComparison: detail?.baseComparison,
+    behindBy: detail?.behindBy,
     reviewThreads: unresolvedReviewThreads(activityQuery.data),
   });
   return (

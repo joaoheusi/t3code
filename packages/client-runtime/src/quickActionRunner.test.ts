@@ -205,6 +205,62 @@ describe("CI and merge conflict action availability", () => {
   });
 });
 
+describe("base update action availability", () => {
+  const rebase = QUICK_ACTION_STARTERS.find(
+    (entry) => entry.id === QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+  )!;
+  const pullRequest = {
+    host: "github.com",
+    repository: "acme/repo",
+    number: 8,
+    snapshot: { state: "open", mergeability: "mergeable" },
+  } as ThreadPullRequestLink;
+  const targetsWith = (fresh?: { baseComparison: "behind" | "up-to-date"; behindBy?: number }) =>
+    quickActionTargets(
+      rebase,
+      {
+        ...input.scope,
+        thread: { pullRequests: [pullRequest] } as unknown as EnvironmentThreadShell,
+      },
+      fresh ? new Map([[pullRequestTargetKey(pullRequest), fresh]]) : undefined,
+    );
+
+  it("keeps templates older clients can render and recognizes the starters by ID", () => {
+    for (const id of [
+      QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+      QUICK_ACTION_STARTER_IDS.mergeBase,
+    ]) {
+      const starter = QUICK_ACTION_STARTERS.find((entry) => entry.id === id)!;
+      expect(starter.template).toContain("{{pr.url}}");
+      expect(quickActionSignals(starter)).toEqual(["base"]);
+      expect(quickActionSignals({ template: starter.template })).toEqual([]);
+    }
+  });
+
+  it("offers the update only to a branch the host reports behind its base", () => {
+    // The synced snapshot never carries the base comparison, so it stays inspectable.
+    expect(targetsWith().kind).toBe("ready");
+    expect(targetsWith({ baseComparison: "behind", behindBy: 9 }).kind).toBe("ready");
+    expect(targetsWith({ baseComparison: "up-to-date" })).toEqual({
+      kind: "unavailable",
+      reason: "Already up to date with base",
+    });
+  });
+
+  it("reports how far the branch is behind", () => {
+    const status = (state: Parameters<typeof pullRequestSignalStatuses>[1]) =>
+      pullRequestSignalStatuses(["base"], state).map(({ label, tone }) => `${label}:${tone}`);
+    expect(status({ baseComparison: "behind", behindBy: 9 })).toEqual([
+      "9 commits behind base:alert",
+    ]);
+    expect(status({ baseComparison: "behind", behindBy: 1 })).toEqual([
+      "1 commit behind base:alert",
+    ]);
+    expect(status({ baseComparison: "up-to-date" })).toEqual(["Up to date with base:ok"]);
+    expect(status({})).toEqual(["Base status unknown:unknown"]);
+  });
+});
+
 describe("quick action target summaries", () => {
   const variant = (
     number: number,

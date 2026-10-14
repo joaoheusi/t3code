@@ -292,7 +292,18 @@ export const QUICK_ACTION_STARTER_IDS = {
   pullRequestWalkthrough: "99aa6720-f388-4bbd-aacc-000000000002",
   reviewChanges: "99aa6720-f388-4bbd-aacc-000000000003",
   addressReviewThreads: "99aa6720-f388-4bbd-aacc-000000000004",
+  rebaseOntoBase: "99aa6720-f388-4bbd-aacc-000000000005",
+  mergeBase: "99aa6720-f388-4bbd-aacc-000000000006",
 } as const;
+
+/** Starters that bring a branch up to date with its base; menus recognize them by ID. */
+export const BASE_UPDATE_STARTER_IDS: ReadonlySet<string> = new Set([
+  QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+  QUICK_ACTION_STARTER_IDS.mergeBase,
+]);
+
+const BASE_UPDATE_PRECONDITIONS =
+  "Work in this thread's checkout of the pull request branch. Stop and tell me if it is on another branch, has uncommitted changes, or has a Git operation in progress.";
 
 const starter = (
   fields: Pick<QuickActionFields, "id" | "name" | "description" | "template"> &
@@ -359,6 +370,24 @@ export const QUICK_ACTION_STARTERS: readonly QuickActionFields[] = [
     template:
       "Address the unresolved review threads on {{pr.url}} in this thread. Read each thread and check its feedback against the current code. Fix valid findings, run focused checks, and reply with what changed or a clear reason when no change is needed. Resolve threads only after their feedback has been addressed. Report anything still unresolved. Do not commit, push, merge, request another review, or open another thread unless I ask.",
   }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+    name: "Rebase onto base",
+    description: "Bring a pull request that is behind its base up to date with a rebase",
+    aliases: ["update branch", "sync with base"],
+    tags: ["git", "pr"],
+    category: "Pull requests",
+    template: `Update the branch of {{pr.url}} by rebasing it onto the latest version of its base branch. ${BASE_UPDATE_PRECONDITIONS} Fetch the base from the remote, rebase onto it, and resolve conflicts by preserving the intent of both sides. Ask me about any conflict you cannot resolve confidently. Run focused checks and report the result. Rebasing rewrites the published branch, so ask me before pushing, then push with --force-with-lease. Do not open another thread.`,
+  }),
+  starter({
+    id: QUICK_ACTION_STARTER_IDS.mergeBase,
+    name: "Merge base into branch",
+    description: "Bring a pull request that is behind its base up to date with a merge commit",
+    aliases: ["update branch", "sync with base"],
+    tags: ["git", "pr"],
+    category: "Pull requests",
+    template: `Update the branch of {{pr.url}} by merging the latest version of its base branch into it. ${BASE_UPDATE_PRECONDITIONS} Fetch the base from the remote, merge it without rewriting history, and resolve conflicts by preserving the intent of both sides. Ask me about any conflict you cannot resolve confidently. Run focused checks, push the branch, and report what changed. Do not open another thread.`,
+  }),
 ];
 
 const STARTER_ORDER = new Map<string, number>(
@@ -366,6 +395,8 @@ const STARTER_ORDER = new Map<string, number>(
     QUICK_ACTION_STARTER_IDS.resolveConflicts,
     QUICK_ACTION_STARTER_IDS.resolveCi,
     QUICK_ACTION_STARTER_IDS.addressReviewThreads,
+    QUICK_ACTION_STARTER_IDS.rebaseOntoBase,
+    QUICK_ACTION_STARTER_IDS.mergeBase,
     QUICK_ACTION_STARTER_IDS.pullRequestWalkthrough,
     QUICK_ACTION_STARTER_IDS.reviewChanges,
   ].map((id, index) => [id, index]),

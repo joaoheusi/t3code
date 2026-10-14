@@ -7,6 +7,7 @@ import { QUICK_ACTION_STARTERS, QUICK_ACTION_STARTER_IDS } from "@t3tools/shared
 import migration from "../persistence/Migrations/059_ForkQuickActions.ts";
 import starterUpgrade from "../persistence/Migrations/061_ForkQuickActionStarters.ts";
 import reviewThreadsStarter from "../persistence/Migrations/065_AddressReviewThreadsQuickAction.ts";
+import baseUpdateStarters from "../persistence/Migrations/067_BaseUpdateQuickActions.ts";
 import * as QuickActions from "./QuickActions.ts";
 
 const database = NodeSqliteClient.layer({ filename: ":memory:" });
@@ -150,4 +151,30 @@ it.effect(
         custom,
       );
     }).pipe(Effect.provide(layer)),
+);
+
+it.effect("adds the base update starters to existing libraries without overwriting edits", () =>
+  Effect.gen(function* () {
+    const library = yield* QuickActions.QuickActions;
+    const actions = yield* library.list();
+    const rebase = actions.find((action) => action.id === QUICK_ACTION_STARTER_IDS.rebaseOntoBase)!;
+    const merge = actions.find((action) => action.id === QUICK_ACTION_STARTER_IDS.mergeBase)!;
+    const conflicts = actions.find(
+      (action) => action.id === QUICK_ACTION_STARTER_IDS.resolveConflicts,
+    )!;
+    yield* library.remove({ id: rebase.id, expectedRevision: rebase.revision });
+    yield* library.remove({ id: conflicts.id, expectedRevision: conflicts.revision });
+    const edited = yield* library.save({
+      action: { ...merge, template: "Merge {{pr.url}} my way" },
+      expectedRevision: merge.revision,
+    });
+    yield* baseUpdateStarters;
+    const upgraded = yield* library.list();
+    assert.equal(upgraded.find((action) => action.id === rebase.id)?.name, "Rebase onto base");
+    assert.deepEqual(
+      upgraded.find((action) => action.id === merge.id),
+      edited,
+    );
+    assert.isUndefined(upgraded.find((action) => action.id === conflicts.id));
+  }).pipe(Effect.provide(layer)),
 );

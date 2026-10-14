@@ -236,10 +236,13 @@ export function usePullRequestCloseBatch(onClosed: (entry: EnvironmentPullReques
   return { close, closingKeys };
 }
 
+/** PR tasks that render the user's matching starter with the PR's context. */
+export type PullRequestTaskKind = "ci" | "conflicts" | "rebase" | "merge-base";
+
 export interface PullRequestThreadTask {
   prompt: string;
   context?: {
-    kind: "ci" | "conflicts";
+    kind: PullRequestTaskKind;
     reference: import("@t3tools/contracts").PullRequestRef;
     headSha?: string;
   };

@@ -10,6 +10,7 @@ export {
 } from "@t3tools/client-runtime/pullRequestActions";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import * as Schema from "effect/Schema";
+import { QUICK_ACTION_STARTERS, QUICK_ACTION_STARTER_IDS } from "@t3tools/shared/quickActions";
 
 import {
   PullRequestDetail,
@@ -957,6 +958,19 @@ export function buildFixFindingHandoff(input: {
     ].join("\n"),
     reviewComments: [],
   };
+}
+
+/**
+ * The rebase or merge starter's stock text for one pull request. Used only when the user has
+ * deleted or disabled that starter, so the agent button still says what it does.
+ */
+export function buildBaseUpdatePrompt(method: PullRequestUpdateMethod, url: string): string {
+  const id =
+    method === "rebase"
+      ? QUICK_ACTION_STARTER_IDS.rebaseOntoBase
+      : QUICK_ACTION_STARTER_IDS.mergeBase;
+  const starter = QUICK_ACTION_STARTERS.find((action) => action.id === id)!;
+  return starter.template.replaceAll("{{pr.url}}", boundedField(url));
 }
 
 /** Prompt for handing a conflicting pull request to a fresh thread on its own branch. */

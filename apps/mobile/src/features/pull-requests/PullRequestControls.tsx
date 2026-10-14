@@ -18,6 +18,7 @@ import { usePullRequestPermissions } from "./usePullRequestPermissions";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { usePullRequestReviewDraft } from "./usePullRequestReviewDraft";
 import { usePullRequestAgentActions } from "./usePullRequestAgentActions";
+import { BASE_UPDATE_TASKS } from "./pullRequestAgentTasks";
 
 export function PullRequestCardGroup(props: { readonly children: ReactNode }) {
   return (
@@ -125,7 +126,11 @@ export function PullRequestActionToolbar(props: {
   const threadLabel = agent.threads.length ? "Continue thread" : "Work on PR";
   const primaryLabel = pendingReview ? `Submit review · ${draft.comments.length}` : threadLabel;
   const chooseThread = agent.threads.length > 1;
-  const agentActions = agent.actions.filter((action) => action.task !== "ask");
+  // Branch updates live on the Branch row, where the stale base is reported.
+  const agentActions = agent.actions.filter(
+    (action) =>
+      action.task !== "ask" && !(BASE_UPDATE_TASKS as readonly string[]).includes(action.task),
+  );
   const open = (mode: "review" | "comment") =>
     navigation.navigate("PullRequestReview", { ...props.params, mode });
   const primaryPress = () => (pendingReview ? open("review") : agent.start("ask"));
