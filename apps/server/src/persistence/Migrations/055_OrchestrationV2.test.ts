@@ -157,6 +157,7 @@ layer("055_OrchestrationV2", (it) => {
       assert.deepStrictEqual(yield* runMigrations(), [
         [66, "PullRequestReviewGuides"],
         [67, "BaseUpdateQuickActions"],
+        [68, "ThreadFailureLookupIndex"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

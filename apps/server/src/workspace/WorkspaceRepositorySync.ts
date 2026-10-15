@@ -77,7 +77,7 @@ export const make = Effect.gen(function* () {
       (existing.bindingId !== undefined || existing.source === "stack-dismissed")
     )
       return;
-    const uuid = yield* crypto.randomUUIDv4;
+    const uuid = yield* crypto.randomUUIDv4();
     yield* orchestrator.dispatch({
       type: "thread.pull-request.link",
       commandId: CommandId.make(`server:workspace-pull-request:${threadId}:${uuid}`),
