@@ -54,11 +54,19 @@ describe("classifyScope", () => {
 
 describe("agentSliceMemoryLimits", () => {
   it("leaves 6 GB before throttling and 4 GB before a kill on large machines", () => {
-    expect(agentSliceMemoryLimits(64 * GiB)).toEqual({ high: 58 * GiB, max: 60 * GiB });
+    expect(agentSliceMemoryLimits(64 * GiB)).toEqual({
+      high: 58 * GiB,
+      max: 60 * GiB,
+      swapMax: 2 * GiB,
+    });
   });
 
   it("still gives agents most of a small machine", () => {
-    expect(agentSliceMemoryLimits(8 * GiB)).toEqual({ high: 4 * GiB, max: 6 * GiB });
+    expect(agentSliceMemoryLimits(8 * GiB)).toEqual({
+      high: 4 * GiB,
+      max: 6 * GiB,
+      swapMax: 2 * GiB,
+    });
   });
 });
 
