@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { RuntimeRequestId } from "@t3tools/contracts";
+import { EnvironmentId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -89,6 +89,8 @@ async function renderPanel(props: {
     root.render(
       <ComposerPendingUserInputPanel
         pendingUserInputs={[prompt]}
+        cwd="/repo"
+        threadRef={{ environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") }}
         respondingRequestIds={props.respondingRequestIds ?? []}
         answers={props.answers ?? {}}
         questionIndex={props.questionIndex ?? 0}

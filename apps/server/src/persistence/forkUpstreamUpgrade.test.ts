@@ -20,6 +20,7 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [65, "AddressReviewThreadsQuickAction"],
       [66, "PullRequestReviewGuides"],
       [67, "BaseUpdateQuickActions"],
+      [68, "ThreadFailureLookupIndex"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(
@@ -35,9 +36,10 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
     const indexes = yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master
       WHERE type = 'index' AND name IN (
         'orchestration_v2_projection_turn_items_user_message_idx',
-        'orchestration_v2_projection_nodes_live_idx'
+        'orchestration_v2_projection_nodes_live_idx',
+        'orchestration_v2_projection_turn_items_failed_error_idx'
       )`;
-    assert.strictEqual(indexes.length, 2);
+    assert.strictEqual(indexes.length, 3);
     assert.deepStrictEqual(yield* runMigrations(), []);
   }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
 );
