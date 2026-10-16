@@ -46,7 +46,9 @@ export function usePreparedTaskBannerItem(
             store.getComposerDraft(target)?.reviewComments.some((entry) => entry.id === comment.id)
           )
             continue;
-          store.addReviewComment(target, comment, { appendReference: false });
+          // The reference must land in the prompt: the composer deletes any
+          // review comment the prompt does not reference on the next edit.
+          store.addReviewComment(target, comment);
         }
         dismissPreparedTask(target, task.id);
       } catch (error) {

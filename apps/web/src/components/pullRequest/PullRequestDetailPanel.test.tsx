@@ -13,8 +13,12 @@ import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 
-const { newThread, prepareThread, refresh, Wrapper, Trigger } = vi.hoisted(() => ({
+const { newThread, paletteEvents, prepareThread, refresh, Wrapper, Trigger } = vi.hoisted(() => ({
   newThread: vi.fn(),
+  // Views handed to the command palette bus, so a test can run the item the reader would pick.
+  paletteEvents: [] as Array<{
+    view?: { groups: Array<{ items: Array<{ value: string; run?: () => unknown }> }> };
+  }>,
   prepareThread: vi.fn(),
   refresh: vi.fn(),
   Wrapper: ({ children }: { children?: ReactNode }) => children,
@@ -32,7 +36,30 @@ vi.mock("~/state/session", async (original) => ({
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => [] }));
 vi.mock("~/state/server", () => ({ primaryServerKeybindingsAtom: {} }));
-vi.mock("~/state/entities", () => ({ useProjects: () => [], useServerConfigs: () => new Map() }));
+vi.mock("~/state/entities", () => ({
+  useProjects: () => [],
+  useServerConfigs: () => new Map(),
+  useThreadShells: () => [],
+  readThreadShell: () => null,
+}));
+vi.mock("~/hooks/useEnvironmentOperateAccess", () => ({
+  useEnvironmentOperateAccess: () => "granted",
+}));
+vi.mock("~/quickActions/useQuickActions", () => ({
+  useResolveActionContext: () => async () => ({
+    threadTitle: null,
+    workspaceRevision: null,
+    repositories: [],
+    pullRequest: {
+      url: "https://github.com/owner/repo/pull/1",
+      headSha: null,
+      observedAt: "2026-09-01T00:00:00Z",
+      failures: "ci failures",
+      conflicts: "conflicts",
+    },
+    notices: [],
+  }),
+}));
 vi.mock("~/state/environments", () => ({
   useEnvironments: () => ({ environments: [] }),
   usePrimaryEnvironmentId: () => EnvironmentId.make("env-1"),
@@ -47,7 +74,9 @@ vi.mock("~/hooks/useHandleNewThread", () => ({ useNewThreadHandler: () => newThr
 vi.mock("~/lib/sourceControlActions", () => ({
   usePreparePullRequestThreadAction: () => ({ run: prepareThread, isAllowed: true, error: null }),
 }));
-vi.mock("~/state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
+vi.mock("~/state/use-atom-command", () => ({
+  useAtomCommand: () => async () => ({ _tag: "Success", value: [] }),
+}));
 vi.mock("~/state/pullRequests", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/state/pullRequests")>()),
   pullRequestEnvironment: {
@@ -164,6 +193,9 @@ vi.mock("./PullRequestCodeTab", () => ({
 
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import { pullRequestPanelContext } from "./pullRequestDetail.logic";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { registerActionEditor } from "~/quickActions/dispatcher";
+import type { ComposerThreadTarget } from "~/composerDraftStore";
 
 const detail: PullRequestDetailView = {
   provider: SourceControlProviderKind.make("github"),
@@ -227,16 +259,50 @@ let renderer: ReactTestRenderer;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("window", { addEventListener: vi.fn(), removeEventListener: vi.fn() });
-  useComposerDraftStore.setState({ draftsByThreadKey: {} });
+  paletteEvents.length = 0;
+  vi.stubGlobal("window", {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: (event: CustomEvent) => {
+      paletteEvents.push(event.detail ?? {});
+      return true;
+    },
+  });
+  useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   newThread
     .mockReset()
-    .mockResolvedValue({ draftId: newDraftId, threadId: ThreadId.make("new-thread") });
+    .mockImplementation(
+      async (projectRef: { environmentId: EnvironmentId; projectId: ProjectId }) => {
+        const threadId = ThreadId.make("new-thread");
+        useComposerDraftStore
+          .getState()
+          .setProjectDraftThreadId(projectRef, newDraftId, { threadId });
+        return { draftId: newDraftId, threadId };
+      },
+    );
   prepareThread.mockReset().mockResolvedValue({
     _tag: "Success",
     value: { branch: "feature", worktreePath: "/workspace/pr" },
   });
 });
+
+/** Stands in for the mounted composer: insertions splice into the draft's prompt. */
+function registerComposer(target: ComposerThreadTarget) {
+  const store = useComposerDraftStore.getState();
+  return registerActionEditor(target, {
+    available: () => true,
+    read: () => {
+      const text = store.getComposerDraft(target)?.prompt ?? "";
+      return { text, selection: { start: text.length, end: text.length } };
+    },
+    replace: (start, end, text) => {
+      const current = store.getComposerDraft(target)?.prompt ?? "";
+      store.setPrompt(target, current.slice(0, start) + text + current.slice(end));
+      return true;
+    },
+    submit: () => true,
+  });
+}
 afterEach(() => {
   act(() => renderer?.unmount());
   vi.unstubAllGlobals();
@@ -332,16 +398,43 @@ describe.each([
   });
 
   it.each(actions)("%s writes to the correct composer", async (action) => {
+    if (typeof target === "string") {
+      useComposerDraftStore
+        .getState()
+        .setProjectDraftThreadId(
+          scopeProjectRef(threadRef.environmentId, detail.projectId),
+          target,
+          { threadId: threadRef.threadId },
+        );
+    }
     if (target) useComposerDraftStore.getState().setPrompt(target, "Keep my draft");
-    await act(async () => render());
-    if (action === "Add to agent") await click("Code");
-    await click(target ? action : action.replace("in this thread", "in a thread"));
+    const unregister = registerComposer(target ?? newDraftId);
+    try {
+      await act(async () => render());
+      if (action === "Add to agent") await click("Code");
+      await click(target ? action : action.replace("in this thread", "in a thread"));
+      if (!target) {
+        // No thread owns the panel, so the reader picks where the task lands.
+        const item = paletteEvents
+          .flatMap((event) => event.view?.groups.flatMap((group) => group.items) ?? [])
+          .find((candidate) => candidate.value === "new-thread");
+        expect(item, "thread picker offers a new thread").toBeDefined();
+        await act(async () => item!.run!());
+      }
+    } finally {
+      unregister();
+    }
     const draft = useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
-    if (action === "Resolve conflicts") expect(draft?.prompt).toContain("resolve every conflict");
+    if (action === "Resolve conflicts")
+      expect(draft?.prompt).toContain("resolve conflicts against");
     else if (action === "Fix check") expect(draft?.prompt).toContain("Fix the failing check");
     else if (action.startsWith("Fix findings"))
       expect(draft?.prompt).toContain("Fix the actionable findings");
-    else expect(draft?.reviewComments?.length).toBeGreaterThan(0);
+    else {
+      expect(draft?.reviewComments?.length).toBeGreaterThan(0);
+      // The chip only survives the composer's next edit while the prompt references it.
+      expect(draft?.prompt).toContain("t3-context://");
+    }
     if (action === "Add to agent") {
       expect(draft?.prompt).toContain("Fix this line");
       expect(draft?.reviewComments).toEqual(

@@ -315,6 +315,8 @@ function addReviewComments(destination: ComposerThreadTarget, task: PullRequestT
       store.getComposerDraft(destination)?.reviewComments.some((entry) => entry.id === comment.id)
     )
       continue;
-    store.addReviewComment(destination, comment, { appendReference: false });
+    // The reference must land in the prompt: the composer deletes any review
+    // comment the prompt does not reference on the next edit.
+    store.addReviewComment(destination, comment);
   }
 }
