@@ -7,18 +7,21 @@ import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   hasRepositorySet,
+  type VcsStatusResult,
 } from "@t3tools/contracts";
 import {
   describeQuickActionGit,
+  describeQuickActionGitConfirmations,
+  planQuickActionGitBatch,
   quickActionGitRowTitle,
   quickActionGitTargets,
   resolveQuickActionGit,
   sameQuickActionGit,
   summarizeQuickActionGit,
+  type GitQuickAction,
   type QuickActionGitRepository,
 } from "@t3tools/client-runtime/quickActionGit";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { requiresDefaultBranchConfirmation } from "@t3tools/client-runtime/state/vcs";
 import { PickerCaption, PickerRow, PickerSurface } from "../../components/PickerList";
 import { uuidv4 } from "../../lib/uuid";
 import { useProject, useThreadShell } from "../../state/entities";
@@ -74,6 +77,18 @@ export function useQuickActionGitSummary(target: QuickActionsTarget) {
   return { thread, repositories, summary, canWrite };
 }
 
+/** A repository's fresh status and the action it will run, checked against what was shown. */
+interface PreparedGitAction {
+  readonly status: VcsStatusResult;
+  readonly action: GitQuickAction;
+}
+
+type BatchEntry = PreparedGitAction & {
+  readonly repository: QuickActionGitRepository;
+  readonly label: string;
+  readonly cwd: string;
+};
+
 /** The native surface uses the same repository plan as the desktop palette. */
 export function MobileGitQuickAction(props: {
   target: QuickActionsTarget;
@@ -93,6 +108,7 @@ export function MobileGitQuickAction(props: {
   const mounted = useRef(true);
   const [error, setError] = useState<string | null>(null);
   const [busyCwd, setBusyCwd] = useState<string | null>(null);
+  const [selectedCwds, setSelectedCwds] = useState<readonly string[]>([]);
   const busy = busyCwd !== null;
   useEffect(() => {
     mounted.current = true;
@@ -101,179 +117,260 @@ export function MobileGitQuickAction(props: {
     };
   }, []);
 
-  const run = async (repository: QuickActionGitRepository) => {
-    if (preparing.current) return;
-    preparing.current = true;
-    setBusyCwd(repository.cwd);
-    setError(null);
+  const assertWrite = () => {
+    if (!readEnvironmentScope(target.environmentId, AuthSourceControlWriteScope))
+      throw new Error("This connection cannot change source control.");
+  };
+
+  const prepareRepository = async (
+    repository: QuickActionGitRepository,
+  ): Promise<PreparedGitAction> => {
     const destination = { environmentId: target.environmentId, cwd: repository.cwd };
-    const assertWrite = () => {
-      if (!readEnvironmentScope(target.environmentId, AuthSourceControlWriteScope))
-        throw new Error("This connection cannot change source control.");
-    };
-    const refresh = async () => {
-      assertWrite();
-      const result = await loadStatus({
-        environmentId: target.environmentId,
-        input: { cwd: repository.cwd },
-      });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-      assertWrite();
-      const action = resolveQuickActionGit(
-        result.value,
-        registry.get(vcsActionManager.stateAtom(destination)).isRunning,
-      );
-      if (action.disabled) throw new Error(action.hint ?? "This action is unavailable.");
-      if (
-        !sameQuickActionGit(
-          repository.action,
-          action,
-          repository.status?.refName ?? null,
-          result.value.refName,
-        )
+    assertWrite();
+    const result = await loadStatus({
+      environmentId: target.environmentId,
+      input: { cwd: repository.cwd },
+    });
+    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    assertWrite();
+    const action = resolveQuickActionGit(
+      result.value,
+      registry.get(vcsActionManager.stateAtom(destination)).isRunning,
+    );
+    if (action.disabled) throw new Error(action.hint ?? "This action is unavailable.");
+    if (
+      !sameQuickActionGit(
+        repository.action,
+        action,
+        repository.status?.refName ?? null,
+        result.value.refName,
       )
-        throw new Error("Repository status changed. Choose the updated action.");
-      return { status: result.value, action };
+    )
+      throw new Error("Repository status changed. Choose the updated action.");
+    return { status: result.value, action };
+  };
+
+  /** One repository's write; the caller owns result reporting and busy state. */
+  const performRepository = async (
+    repository: QuickActionGitRepository,
+    prepared: PreparedGitAction,
+    featureBranch: boolean,
+  ): Promise<{ readonly title: string; readonly description: string }> => {
+    const destination = { environmentId: target.environmentId, cwd: repository.cwd };
+    assertWrite();
+    if (
+      featureBranch &&
+      thread &&
+      !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
+    )
+      throw new Error("This connection cannot change the thread's branch.");
+    try {
+      if (prepared.action.kind === "run_pull") {
+        const result = await vcsActionManager.track(
+          registry,
+          destination,
+          { operation: "pull", label: "Pulling latest changes…" },
+          () => pull({ environmentId: target.environmentId, input: { cwd: repository.cwd } }),
+        );
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        return {
+          title: result.value.status === "pulled" ? "Pulled" : "Already up to date",
+          description: repository.label,
+        };
+      }
+      const kind = prepared.action.action;
+      if (!kind) throw new Error("This action is unavailable.");
+      const result = await runAtomCommand(
+        registry,
+        vcsActionManager.runStackedAction(destination),
+        {
+          actionId: uuidv4(),
+          action: kind,
+          featureBranch,
+          ...(thread ? { threadId: thread.id } : {}),
+          projectId: target.projectId,
+        },
+        { reportFailure: false },
+      );
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      const branch = result.value.branch;
+      if (
+        thread &&
+        branch.status === "created" &&
+        branch.name &&
+        !hasRepositorySet(thread.workspace) &&
+        readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
+      ) {
+        const updated = await update({
+          environmentId: target.environmentId,
+          input: { threadId: thread.id, branch: branch.name },
+        });
+        if (updated._tag === "Failure") throw squashAtomCommandFailure(updated);
+      }
+      return {
+        title: result.value.toast.title,
+        description: result.value.toast.description ?? repository.label,
+      };
+    } finally {
+      registry.refresh(
+        vcsEnvironment.status({
+          environmentId: target.environmentId,
+          input: { cwd: repository.cwd },
+        }),
+      );
+    }
+  };
+
+  /**
+   * Checks every selected repository before any write, then runs each one's own
+   * action in turn. Default-branch writes share one confirmation.
+   */
+  const runRepositories = async (selected: readonly QuickActionGitRepository[]) => {
+    if (preparing.current || selected.length === 0) return;
+    preparing.current = true;
+    setError(null);
+    const finish = () => {
+      preparing.current = false;
+      if (mounted.current) setBusyCwd(null);
+    };
+    const prepareAll = async (): Promise<BatchEntry[]> => {
+      const entries: BatchEntry[] = [];
+      for (const repository of selected) {
+        if (mounted.current) setBusyCwd(repository.cwd);
+        const prepared = await prepareRepository(repository);
+        entries.push({ repository, label: repository.label, cwd: repository.cwd, ...prepared });
+      }
+      return entries;
     };
     let confirming = false;
     try {
-      const current = await refresh();
+      const entries = await prepareAll();
       if (!mounted.current) return;
-      if (current.action.kind === "open_publish") {
+      const plan = planQuickActionGitBatch(entries);
+      if (plan.kind === "blocked") {
+        setError(plan.reason);
+        return;
+      }
+      if (plan.kind === "publish") {
         Alert.alert(
           "Publish repository",
           "Add a remote or publish this repository from Projects before pushing.",
         );
         return;
       }
+      const confirmedCwds = new Set(plan.confirmations.map((entry) => entry.cwd));
       let started = false;
-      const execute = async (featureBranch: boolean, recheck: boolean) => {
+      const executeAll = async (featureBranch: boolean, recheck: boolean) => {
         if (started) return;
         started = true;
         try {
-          if (!mounted.current) return;
+          let list = entries;
           if (recheck) {
-            await refresh();
+            list = await prepareAll();
+            if (!mounted.current) return;
+            const replanned = planQuickActionGitBatch(list);
+            if (
+              replanned.kind !== "run" ||
+              replanned.confirmations.length !== confirmedCwds.size ||
+              replanned.confirmations.some((entry) => !confirmedCwds.has(entry.cwd))
+            ) {
+              throw new Error("Repository status changed. Choose the updated action.");
+            }
+          }
+          const succeeded: string[] = [];
+          const failures: string[] = [];
+          let single: { title: string; description: string } | null = null;
+          for (const entry of list) {
+            if (!mounted.current) return;
+            setBusyCwd(entry.cwd);
+            try {
+              const result = await performRepository(
+                entry.repository,
+                entry,
+                featureBranch && confirmedCwds.has(entry.cwd),
+              );
+              single = result;
+              succeeded.push(`${entry.label} · ${result.title}`);
+            } catch (cause) {
+              failures.push(
+                list.length === 1
+                  ? cause instanceof Error
+                    ? cause.message
+                    : "Git action failed."
+                  : `${entry.label}: ${cause instanceof Error ? cause.message : "Git action failed."}`,
+              );
+            }
           }
           if (!mounted.current) return;
-          assertWrite();
-          if (
-            featureBranch &&
-            thread &&
-            !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
-          )
-            throw new Error("This connection cannot change the thread's branch.");
-          setBusyCwd(repository.cwd);
-          if (current.action.kind === "run_pull") {
-            const result = await vcsActionManager.track(
-              registry,
-              destination,
-              { operation: "pull", label: "Pulling latest changes…" },
-              () => pull({ environmentId: target.environmentId, input: { cwd: repository.cwd } }),
+          if (failures.length === 0 && single) {
+            showGitActionResult(
+              list.length === 1
+                ? { type: "success", title: single.title, description: single.description }
+                : {
+                    type: "success",
+                    title: `Synced ${list.length} repositories`,
+                    description: succeeded.join("\n"),
+                  },
             );
-            if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+            props.onClose();
+          } else if (list.length === 1) {
+            setError(failures[0] ?? "Git action failed.");
+          } else {
             showGitActionResult({
-              type: "success",
-              title: result.value.status === "pulled" ? "Pulled" : "Already up to date",
-              description: repository.label,
+              type: "error",
+              title: `${succeeded.length} of ${list.length} repositories synced`,
+              description: [...succeeded, ...failures].join("\n"),
             });
-          } else if (current.action.action) {
-            const result = await runAtomCommand(
-              registry,
-              vcsActionManager.runStackedAction(destination),
-              {
-                actionId: uuidv4(),
-                action: current.action.action,
-                featureBranch,
-                ...(thread ? { threadId: thread.id } : {}),
-                projectId: target.projectId,
-              },
-              { reportFailure: false },
-            );
-            if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-            const branch = result.value.branch;
-            if (
-              thread &&
-              branch.status === "created" &&
-              branch.name &&
-              !hasRepositorySet(thread.workspace) &&
-              readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
-            ) {
-              const updated = await update({
-                environmentId: target.environmentId,
-                input: { threadId: thread.id, branch: branch.name },
-              });
-              if (updated._tag === "Failure") throw squashAtomCommandFailure(updated);
-            }
-            showGitActionResult({
-              type: "success",
-              title: result.value.toast.title,
-              description: result.value.toast.description ?? repository.label,
-            });
+            setError(failures.join("\n"));
           }
-          if (mounted.current) props.onClose();
         } catch (cause) {
           if (mounted.current)
             setError(cause instanceof Error ? cause.message : "Git action failed.");
         } finally {
-          registry.refresh(
-            vcsEnvironment.status({
-              environmentId: target.environmentId,
-              input: { cwd: repository.cwd },
-            }),
-          );
-          preparing.current = false;
-          if (mounted.current) setBusyCwd(null);
+          finish();
         }
       };
-      if (
-        current.action.action &&
-        requiresDefaultBranchConfirmation(current.action.action, current.status.isDefaultRef)
-      ) {
-        confirming = true;
-        const branch = current.status.refName!;
-        // The prompt stays on this screen, so the exact repository is retained through confirmation.
-        Alert.alert(
-          `${current.action.label} on ${branch}?`,
-          `${repository.label}\n${describeQuickActionGit(repository)}`,
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-              onPress: () => {
-                preparing.current = false;
-                setBusyCwd(null);
-              },
-            },
-            ...(thread && !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
-              ? []
-              : [
-                  {
-                    text: "Create feature branch",
-                    onPress: () => {
-                      void execute(true, true);
-                    },
-                  },
-                ]),
-            {
-              text: `Continue on ${branch}`,
-              onPress: () => {
-                void execute(false, true);
-              },
-            },
-          ],
-          { cancelable: false },
-        );
+      if (plan.confirmations.length === 0) {
+        await executeAll(false, false);
         return;
       }
-      await execute(false, false);
+      confirming = true;
+      const only = plan.confirmations.length === 1 ? plan.confirmations[0]! : null;
+      const others = entries.length - plan.confirmations.length;
+      // The prompt stays on this screen, so the exact repositories are retained through confirmation.
+      Alert.alert(
+        only ? `${only.action.label} on ${only.status.refName!}?` : "Write to default branches?",
+        only && entries.length === 1
+          ? `${only.label}\n${describeQuickActionGit(only.repository)}`
+          : [
+              describeQuickActionGitConfirmations(plan.confirmations),
+              ...(others > 0 ? [`Plus ${others} other repositories`] : []),
+            ].join("\n"),
+        [
+          { text: "Cancel", style: "cancel", onPress: finish },
+          ...(thread && !readEnvironmentScope(target.environmentId, AuthOrchestrationOperateScope)
+            ? []
+            : [
+                {
+                  text: "Create feature branch",
+                  onPress: () => {
+                    void executeAll(true, true);
+                  },
+                },
+              ]),
+          {
+            text: only ? `Continue on ${only.status.refName!}` : "Continue on default branches",
+            onPress: () => {
+              void executeAll(false, true);
+            },
+          },
+        ],
+        { cancelable: false },
+      );
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : "Git action failed.");
     } finally {
-      if (!confirming) {
-        preparing.current = false;
-        if (mounted.current) setBusyCwd(null);
-      }
+      if (!confirming) finish();
     }
   };
 
@@ -283,12 +380,24 @@ export function MobileGitQuickAction(props: {
         <ForkScreenHeader
           title="Sync repositories"
           cancel={{ label: "Back", onPress: () => props.onChoosingChange(false) }}
+          action={{
+            accessibilityLabel: "Sync selected",
+            label: "Sync",
+            icon: "checkmark",
+            disabled: busy || selectedCwds.length === 0,
+            onPress: () =>
+              void runRepositories(
+                repositories.filter((repository) => selectedCwds.includes(repository.cwd)),
+              ),
+          }}
         />
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{ padding: 16, gap: 12 }}
         >
-          <PickerCaption>Choose a repository. Each row shows its next action.</PickerCaption>
+          <PickerCaption>
+            Choose one or more repositories. Each row shows its next action.
+          </PickerCaption>
           <PickerSurface>
             {repositories.map((repository, index) => (
               <PickerRow
@@ -310,13 +419,19 @@ export function MobileGitQuickAction(props: {
                     />
                   ) : undefined
                 }
+                selected={selectedCwds.includes(repository.cwd)}
+                accessibilityRole="checkbox"
                 disabled={
                   busy || !canWrite || !!repository.unavailable || repository.action.disabled
                 }
                 isLast={index === repositories.length - 1}
-                onPress={() => {
-                  void run(repository);
-                }}
+                onPress={() =>
+                  setSelectedCwds((previous) =>
+                    previous.includes(repository.cwd)
+                      ? previous.filter((cwd) => cwd !== repository.cwd)
+                      : [...previous, repository.cwd],
+                  )
+                }
               />
             ))}
           </PickerSurface>
@@ -355,7 +470,7 @@ export function MobileGitQuickAction(props: {
         isLast={props.isLast}
         disabled={busy || !canWrite || summary.disabled}
         onPress={() => {
-          if (repositories.length === 1) void run(repositories[0]!);
+          if (repositories.length === 1) void runRepositories([repositories[0]!]);
           else props.onChoosingChange(true);
         }}
       />

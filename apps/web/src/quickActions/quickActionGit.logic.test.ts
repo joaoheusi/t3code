@@ -4,6 +4,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   quickActionGitTargets,
   describeQuickActionGit,
+  describeQuickActionGitConfirmations,
+  planQuickActionGitBatch,
   quickActionGitRowTitle,
   summarizeQuickActionGit,
   resolveQuickActionGit,
@@ -197,6 +199,37 @@ describe("repository quick actions", () => {
     expect(resolveQuickActionGit(status({ hasWorkingTreeChanges: true }), true).disabled).toBe(
       true,
     );
+  });
+
+  it("plans a batch from each repository's own action and gates its special steps", () => {
+    const selection = (label: string, state: VcsStatusResult) => ({
+      label,
+      status: state,
+      action: resolveQuickActionGit(state, false),
+    });
+    const pull = selection("api", status({ behindCount: 1 }));
+    const commit = selection("web", status({ hasWorkingTreeChanges: true }));
+    const onDefault = selection(
+      "mobile",
+      status({ refName: "main", isDefaultRef: true, hasWorkingTreeChanges: true }),
+    );
+    const publish = selection(
+      "docs",
+      status({ hasUpstream: false, hasPrimaryRemote: false, aheadCount: 1 }),
+    );
+    expect(publish.action.kind).toBe("open_publish");
+
+    expect(planQuickActionGitBatch([pull, commit])).toEqual({ kind: "run", confirmations: [] });
+    const withDefault = planQuickActionGitBatch([pull, onDefault]);
+    expect(withDefault).toEqual({ kind: "run", confirmations: [onDefault] });
+    if (withDefault.kind === "run")
+      expect(describeQuickActionGitConfirmations(withDefault.confirmations)).toBe("mobile (main)");
+
+    expect(planQuickActionGitBatch([publish])).toEqual({ kind: "publish", repository: publish });
+    expect(planQuickActionGitBatch([commit, publish])).toMatchObject({
+      kind: "blocked",
+      reason: expect.stringContaining("docs"),
+    });
   });
 
   it("requires a new choice if refreshing changes the operation or branch", () => {

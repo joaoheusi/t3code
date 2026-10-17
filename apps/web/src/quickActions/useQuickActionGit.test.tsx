@@ -208,14 +208,85 @@ describe("Git palette actions", () => {
     expect(mocks.stacked).toHaveBeenCalledTimes(1);
   });
 
-  it("offers one entry for a mixed repository set and opens the repository picker", async () => {
+  it("offers one entry for a mixed repository set as a toggle picker like other quick actions", () => {
     expect(view().items).toHaveLength(1);
-    expect(view().items[0]!.title).toBe("Sync repositories");
-    await view().items[0]!.run();
-    const picker = (mocks.open.mock.calls[0]![0] as CommandPaletteOpenDetail).view!;
-    expect(picker.groups[0]!.items).toHaveLength(2);
+    const entry = view().items[0]!;
+    expect(entry.title).toBe("Sync repositories");
+    expect(entry.kind).toBe("submenu");
+    if (entry.kind !== "submenu") throw new Error("Expected the repository toggle picker");
+    expect(entry.multiSelect?.actionLabel).toBe("Sync selected");
+    expect(entry.groups[0]!.label).toBe("Choose repositories");
+    expect(entry.groups[0]!.items.map((row) => row.value)).toEqual([
+      "quick-action:git:/worktrees/web",
+      "quick-action:git:/worktrees/api",
+    ]);
     expect(mocks.stacked).not.toHaveBeenCalled();
     expect(mocks.pull).not.toHaveBeenCalled();
+  });
+
+  const submitBatch = async (values: readonly string[]) => {
+    const entry = view().items[0]!;
+    if (entry.kind !== "submenu" || !entry.multiSelect)
+      throw new Error("Expected the repository toggle picker");
+    await act(async () => {
+      await entry.multiSelect!.run(values);
+    });
+  };
+
+  it("runs each selected repository's own action in one batch and skips the rest", async () => {
+    await submitBatch(["quick-action:git:/worktrees/api"]);
+    expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/worktrees/api" } });
+    expect(mocks.stacked).not.toHaveBeenCalled();
+
+    await submitBatch(["quick-action:git:/worktrees/web", "quick-action:git:/worktrees/api"]);
+    expect(mocks.stacked.mock.calls[0]![1]).toEqual({ environmentId, cwd: "/worktrees/web" });
+    expect(mocks.stacked.mock.calls[0]![2]).toMatchObject({ action: "commit_push_pr" });
+    expect(mocks.pull).toHaveBeenCalledTimes(2);
+    expect(mocks.toast.update).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "success", title: "Synced 2 repositories" }),
+    );
+  });
+
+  it("checks every selected repository before any batch write", async () => {
+    mocks.load.mockImplementation(async ({ input }) =>
+      input.cwd === "/worktrees/api"
+        ? AsyncResult.success(status({ hasWorkingTreeChanges: true }))
+        : registry.get(statuses.get(input.cwd)!),
+    );
+    const entry = view().items[0]!;
+    if (entry.kind !== "submenu" || !entry.multiSelect)
+      throw new Error("Expected the repository toggle picker");
+    await expect(
+      entry.multiSelect.run(["quick-action:git:/worktrees/web", "quick-action:git:/worktrees/api"]),
+    ).rejects.toThrow("status changed");
+    expect(mocks.stacked).not.toHaveBeenCalled();
+    expect(mocks.pull).not.toHaveBeenCalled();
+  });
+
+  it("confirms default-branch repositories once for the whole batch", async () => {
+    await act(async () =>
+      registry.set(
+        statuses.get("/worktrees/web")!,
+        AsyncResult.success(
+          status({ refName: "main", isDefaultRef: true, hasWorkingTreeChanges: true }),
+        ),
+      ),
+    );
+    await submitBatch(["quick-action:git:/worktrees/web", "quick-action:git:/worktrees/api"]);
+    expect(mocks.stacked).not.toHaveBeenCalled();
+    expect(mocks.pull).not.toHaveBeenCalled();
+    const detail = mocks.open.mock.calls[0]![0] as CommandPaletteOpenDetail;
+    const confirmation = detail.pushView!;
+    const feature = confirmation.groups[0]!.items.find((entry) =>
+      entry.value.endsWith("batch:feature"),
+    )!;
+    if (feature.kind !== "action") throw new Error("Expected a confirmation action");
+    await act(async () => {
+      await feature.run();
+    });
+    expect(mocks.stacked.mock.calls[0]![2].featureBranch).toBe(true);
+    expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/worktrees/api" } });
   });
   it("disables writes for a read-only connection", async () => {
     mocks.permission.mockImplementation(
