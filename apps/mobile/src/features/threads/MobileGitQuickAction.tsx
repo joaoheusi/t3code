@@ -348,7 +348,9 @@ export function MobileGitQuickAction(props: {
           ? `${only.label}\n${describeQuickActionGit(only.repository)}`
           : [
               describeQuickActionGitConfirmations(plan.confirmations),
-              ...(others > 0 ? [`Plus ${others} other repositories`] : []),
+              ...(others > 0
+                ? [`Plus ${others} other ${others === 1 ? "repository" : "repositories"}`]
+                : []),
             ].join("\n"),
         [
           { text: "Cancel", style: "cancel", onPress: finish },

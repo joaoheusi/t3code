@@ -281,6 +281,7 @@ describe("Git palette actions", () => {
     const feature = confirmation.groups[0]!.items.find((entry) =>
       entry.value.endsWith("batch:feature"),
     )!;
+    expect(feature.description).toContain("plus 1 other repository");
     if (feature.kind !== "action") throw new Error("Expected a confirmation action");
     await act(async () => {
       await feature.run();

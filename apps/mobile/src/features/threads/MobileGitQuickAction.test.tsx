@@ -283,6 +283,7 @@ describe("native Git quick action", () => {
     expect(mocks.stacked).not.toHaveBeenCalled();
     expect(mocks.pull).not.toHaveBeenCalled();
     expect(mocks.alert).toHaveBeenCalledTimes(1);
+    expect(mocks.alert.mock.calls[0]![1]).toContain("Plus 1 other repository");
     const buttons = mocks.alert.mock.calls[0]![2];
     mocks.load.mockResolvedValue(
       AsyncResult.success(status({ refName: "another", hasWorkingTreeChanges: true })),

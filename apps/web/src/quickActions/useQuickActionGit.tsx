@@ -189,7 +189,10 @@ function useGitBatchRunner(input: {
       const first = plan.confirmations[0]!;
       const affected = describeQuickActionGitConfirmations(plan.confirmations);
       const others = entries.length - plan.confirmations.length;
-      const description = others > 0 ? `${affected} · plus ${others} other repositories` : affected;
+      const description =
+        others > 0
+          ? `${affected} · plus ${others} other ${others === 1 ? "repository" : "repositories"}`
+          : affected;
       const onlyAction = plan.confirmations.length === 1 ? first.action.action : undefined;
       const onlyCopy =
         onlyAction && onlyAction !== "commit"
