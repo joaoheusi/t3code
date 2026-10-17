@@ -7,6 +7,7 @@ import {
   AuthSourceControlWriteScope,
   type VcsStatusResult,
 } from "@t3tools/contracts";
+import { Cause } from "effect";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -233,6 +234,23 @@ describe("native Git quick action", () => {
       threadId: "thread",
     });
     expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/repo/api" } });
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops synced repositories from the selection so a partly failed batch can retry", async () => {
+    mocks.pull.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Network down"))));
+    await chooseAndSync("App", "API");
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+    expect(mocks.pull).toHaveBeenCalledTimes(1);
+    expect(mocks.close).not.toHaveBeenCalled();
+    // The synced repository now reports no work, so its row is disabled.
+    await act(async () => registry.set(statuses.get("/repo/app")!, AsyncResult.success(status())));
+    expect(submit().disabled).toBe(false);
+    await act(async () => {
+      submit().click();
+    });
+    expect(mocks.pull).toHaveBeenCalledTimes(2);
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
     expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 

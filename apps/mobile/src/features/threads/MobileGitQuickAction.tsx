@@ -278,6 +278,7 @@ export function MobileGitQuickAction(props: {
             }
           }
           const succeeded: string[] = [];
+          const succeededCwds: string[] = [];
           const failures: string[] = [];
           let single: { title: string; description: string } | null = null;
           for (const entry of list) {
@@ -290,6 +291,7 @@ export function MobileGitQuickAction(props: {
                 featureBranch && confirmedCwds.has(entry.cwd),
               );
               single = result;
+              succeededCwds.push(entry.cwd);
               succeeded.push(`${entry.label} · ${result.title}`);
             } catch (cause) {
               failures.push(
@@ -321,6 +323,8 @@ export function MobileGitQuickAction(props: {
               title: `${succeeded.length} of ${list.length} repositories synced`,
               description: [...succeeded, ...failures].join("\n"),
             });
+            // Succeeded repositories are done; keep only the failed ones selected for a retry.
+            setSelectedCwds((previous) => previous.filter((cwd) => !succeededCwds.includes(cwd)));
             setError(failures.join("\n"));
           }
         } catch (cause) {
@@ -374,7 +378,16 @@ export function MobileGitQuickAction(props: {
     }
   };
 
-  if (props.choosing)
+  if (props.choosing) {
+    // A selected repository can become unusable while this screen stays open, such as
+    // after it synced in a partly failed batch. Only runnable ones count as selected.
+    const selectable = repositories.filter(
+      (repository) =>
+        selectedCwds.includes(repository.cwd) &&
+        !repository.unavailable &&
+        !repository.action.disabled,
+    );
+    const selectableCwds = new Set(selectable.map((repository) => repository.cwd));
     return (
       <View className="flex-1 bg-sheet">
         <ForkScreenHeader
@@ -384,11 +397,8 @@ export function MobileGitQuickAction(props: {
             accessibilityLabel: "Sync selected",
             label: "Sync",
             icon: "checkmark",
-            disabled: busy || selectedCwds.length === 0,
-            onPress: () =>
-              void runRepositories(
-                repositories.filter((repository) => selectedCwds.includes(repository.cwd)),
-              ),
+            disabled: busy || selectable.length === 0,
+            onPress: () => void runRepositories(selectable),
           }}
         />
         <ScrollView
@@ -419,7 +429,7 @@ export function MobileGitQuickAction(props: {
                     />
                   ) : undefined
                 }
-                selected={selectedCwds.includes(repository.cwd)}
+                selected={selectableCwds.has(repository.cwd)}
                 accessibilityRole="checkbox"
                 disabled={
                   busy || !canWrite || !!repository.unavailable || repository.action.disabled
@@ -439,6 +449,7 @@ export function MobileGitQuickAction(props: {
         </ScrollView>
       </View>
     );
+  }
   if (
     props.query.trim() &&
     ![
