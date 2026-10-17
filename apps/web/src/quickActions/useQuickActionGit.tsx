@@ -3,15 +3,19 @@ import {
   AuthOrchestrationOperateScope,
   AuthSourceControlWriteScope,
   hasRepositorySet,
-  type GitStackedAction,
+  type VcsStatusResult,
 } from "@t3tools/contracts";
 import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { Atom, AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { CloudDownloadIcon, CloudUploadIcon, GitCommitIcon } from "lucide-react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { openCommandPalette } from "../commandPaletteBus";
-import { ITEM_ICON_CLASS, type CommandPaletteActionItem } from "../components/CommandPalette.logic";
+import {
+  ITEM_ICON_CLASS,
+  type CommandPaletteActionItem,
+  type CommandPaletteSubmenuItem,
+} from "../components/CommandPalette.logic";
 import { PublishRepositoryDialog } from "../components/GitActionsControl";
 import {
   requiresDefaultBranchConfirmation,
@@ -31,11 +35,218 @@ import type { QuickActionScope } from "./quickActionRunner";
 import {
   quickActionGitTargets,
   describeQuickActionGit,
+  describeQuickActionGitConfirmations,
+  planQuickActionGitBatch,
   quickActionGitRowTitle,
   summarizeQuickActionGit,
   resolveQuickActionGit,
   sameQuickActionGit,
+  type GitQuickAction,
 } from "@t3tools/client-runtime/quickActionGit";
+
+/** A repository's fresh status and the action it will run, checked against what was shown. */
+interface PreparedGitAction {
+  readonly status: VcsStatusResult;
+  readonly action: GitQuickAction;
+}
+
+/** The write one repository performs; single and batch runs share it and own their own feedback. */
+interface RepositoryGitHandler {
+  readonly value: string;
+  readonly label: string;
+  readonly cwd: string;
+  readonly icon: ReactNode;
+  readonly item: CommandPaletteActionItem;
+  readonly checkStatus: () => Promise<PreparedGitAction>;
+  readonly write: (
+    prepared: PreparedGitAction,
+    featureBranch: boolean,
+    onPhase: (label: string) => void,
+  ) => Promise<{ readonly title: string; readonly description?: string }>;
+}
+
+type BatchEntry = PreparedGitAction & { readonly handler: RepositoryGitHandler } & Pick<
+    RepositoryGitHandler,
+    "label" | "cwd"
+  >;
+
+/**
+ * Runs a batch like the merge runner: checks every selected repository before
+ * any write, then runs each one's own action in turn. Default-ref writes share
+ * one stacked confirmation, so Back returns to the same selection.
+ */
+function useGitBatchRunner(input: {
+  readonly close: () => void;
+  readonly onPublish: (cwd: string) => void;
+}) {
+  const preparingBatch = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  return async (
+    handlers: readonly RepositoryGitHandler[],
+    values: readonly string[],
+    options: { readonly canOperate: boolean; readonly hasThread: boolean },
+  ) => {
+    const selected = handlers.filter((handler) => values.includes(handler.value));
+    if (selected.length === 0 || preparingBatch.current) return;
+    preparingBatch.current = true;
+    try {
+      const checkAll = async (): Promise<BatchEntry[]> => {
+        const entries: BatchEntry[] = [];
+        for (const handler of selected) {
+          const prepared = await handler.checkStatus();
+          entries.push({ handler, label: handler.label, cwd: handler.cwd, ...prepared });
+        }
+        return entries;
+      };
+      const checking = toastManager.add({
+        type: "loading",
+        title: "Checking repository status…",
+      });
+      let entries: BatchEntry[];
+      try {
+        entries = await checkAll();
+      } finally {
+        toastManager.close(checking);
+      }
+      if (!mounted.current) return;
+      const plan = planQuickActionGitBatch(entries);
+      if (plan.kind === "blocked") throw new Error(plan.reason);
+      if (plan.kind === "publish") {
+        input.onPublish(plan.repository.cwd);
+        return;
+      }
+      const confirmedCwds = new Set(plan.confirmations.map((entry) => entry.cwd));
+      let started = false;
+      const executeBatch = async (featureBranch: boolean, recheck: boolean) => {
+        if (started) return;
+        started = true;
+        let list = entries;
+        try {
+          if (recheck) {
+            list = await checkAll();
+            const replanned = planQuickActionGitBatch(list);
+            if (
+              replanned.kind !== "run" ||
+              replanned.confirmations.length !== confirmedCwds.size ||
+              replanned.confirmations.some((entry) => !confirmedCwds.has(entry.cwd))
+            ) {
+              throw new Error("Repository status changed. Choose the updated action.");
+            }
+          }
+        } catch (error) {
+          // No write has started, so the confirmation can safely be retried.
+          started = false;
+          throw error;
+        }
+        input.close();
+        const progress = toastManager.add({
+          type: "loading",
+          title: `Syncing ${list.length} ${list.length === 1 ? "repository" : "repositories"}…`,
+        });
+        const succeeded: string[] = [];
+        const failures: string[] = [];
+        let firstTitle: string | null = null;
+        for (const entry of list) {
+          toastManager.update(progress, {
+            title: `${entry.action.label}…`,
+            description: entry.label,
+          });
+          try {
+            const result = await entry.handler.write(
+              entry,
+              featureBranch && confirmedCwds.has(entry.cwd),
+              (label) => toastManager.update(progress, { title: label }),
+            );
+            firstTitle ??= result.title;
+            succeeded.push(`${entry.label} · ${result.title}`);
+          } catch (error) {
+            failures.push(
+              `${entry.label}: ${error instanceof Error ? error.message : "Action failed."}`,
+            );
+          }
+        }
+        toastManager.update(progress, {
+          type: failures.length ? "error" : "success",
+          title: failures.length
+            ? `${succeeded.length} of ${list.length} repositories synced`
+            : list.length === 1
+              ? (firstTitle ?? "Synced")
+              : `Synced ${list.length} repositories`,
+          description: [...succeeded, ...failures].join("\n") || undefined,
+        });
+      };
+      if (plan.confirmations.length === 0) {
+        await executeBatch(false, false);
+        return;
+      }
+      const first = plan.confirmations[0]!;
+      const affected = describeQuickActionGitConfirmations(plan.confirmations);
+      const others = entries.length - plan.confirmations.length;
+      const description =
+        others > 0
+          ? `${affected} · plus ${others} other ${others === 1 ? "repository" : "repositories"}`
+          : affected;
+      const onlyAction = plan.confirmations.length === 1 ? first.action.action : undefined;
+      const onlyCopy =
+        onlyAction && onlyAction !== "commit"
+          ? resolveDefaultBranchActionDialogCopy({
+              action: onlyAction,
+              branchName: first.status.refName!,
+              includesCommit: first.status.hasWorkingTreeChanges,
+              ...(first.status.sourceControlProvider
+                ? {
+                    terminology: getSourceControlPresentation(first.status.sourceControlProvider)
+                      .terminology,
+                  }
+                : {}),
+            })
+          : null;
+      openCommandPalette({
+        pushView: {
+          addonIcon: first.handler.icon,
+          groups: [
+            {
+              value: "quick-action-git-batch-confirm",
+              label: onlyCopy?.title ?? `Write to default refs? · ${affected}`,
+              items: [
+                {
+                  kind: "action",
+                  value: "quick-action:git:batch:feature",
+                  keepOpen: true,
+                  title: "Create feature ref and continue",
+                  description,
+                  searchTerms: ["feature", "branch"],
+                  disabled: options.hasThread && !options.canOperate,
+                  icon: first.handler.icon,
+                  run: () => executeBatch(true, true),
+                },
+                {
+                  kind: "action",
+                  value: "quick-action:git:batch:confirm",
+                  keepOpen: true,
+                  title: onlyCopy?.continueLabel ?? "Continue on default refs",
+                  description,
+                  searchTerms: ["confirm", ...plan.confirmations.map((entry) => entry.label)],
+                  icon: first.handler.icon,
+                  run: () => executeBatch(false, true),
+                },
+              ],
+            },
+          ],
+        },
+      });
+    } finally {
+      preparingBatch.current = false;
+    }
+  };
+}
 
 /** Each repository subscribes to the same live status and operation state as its sidebar. */
 export function useQuickActionGit(
@@ -81,6 +292,7 @@ export function useQuickActionGit(
   const preparing = useRef(new Set<string>());
   const mounted = useRef(true);
   const [publishCwd, setPublishCwd] = useState<string | null>(null);
+  const runGitBatch = useGitBatchRunner({ close, onPublish: setPublishCwd });
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -88,7 +300,7 @@ export function useQuickActionGit(
     };
   }, []);
 
-  const items: CommandPaletteActionItem[] = scope
+  const handlers: RepositoryGitHandler[] = scope
     ? repositories.map((repository) => {
         const { environmentId, thread } = scope;
         const target = { environmentId, cwd: repository.cwd };
@@ -108,48 +320,125 @@ export function useQuickActionGit(
           <CloudUploadIcon className={ITEM_ICON_CLASS} />
         );
 
-        const readCurrentAction = async () => {
+        const checkStatus = async (): Promise<PreparedGitAction> => {
           assertWriteAccess();
+          const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
+          if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
+          assertWriteAccess();
+          const current = resolveQuickActionGit(
+            fresh.value,
+            registry.get(vcsActionManager.stateAtom(target)).isRunning,
+          );
+          if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
+          if (
+            !sameQuickActionGit(
+              action,
+              current,
+              repository.status?.refName ?? null,
+              fresh.value.refName,
+            )
+          ) {
+            throw new Error("Repository status changed. Choose the updated action.");
+          }
+          return { status: fresh.value, action: current };
+        };
+
+        const checkStatusWithToast = async (): Promise<PreparedGitAction> => {
           const progress = toastManager.add({
             type: "loading",
             title: "Checking repository status…",
             description: repository.label,
           });
           try {
-            const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
-            if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
-            assertWriteAccess();
-            const current = resolveQuickActionGit(
-              fresh.value,
-              registry.get(vcsActionManager.stateAtom(target)).isRunning,
-            );
-            if (current.disabled) throw new Error(current.hint ?? "This action is unavailable.");
-            if (
-              !sameQuickActionGit(
-                action,
-                current,
-                repository.status?.refName ?? null,
-                fresh.value.refName,
-              )
-            ) {
-              throw new Error("Repository status changed. Choose the updated action.");
-            }
-            return { status: fresh.value, action: current };
+            return await checkStatus();
           } finally {
             toastManager.close(progress);
           }
         };
 
+        const write: RepositoryGitHandler["write"] = async (prepared, featureBranch, onPhase) => {
+          assertWriteAccess();
+          if (
+            featureBranch &&
+            thread &&
+            !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+          )
+            throw new Error("This connection cannot change the thread's branch.");
+          try {
+            if (prepared.action.kind === "run_pull") {
+              const result = await vcsActionManager.track(
+                registry,
+                target,
+                { operation: "pull", label: "Pulling latest changes…" },
+                () => pull({ environmentId, input: { cwd: target.cwd } }),
+              );
+              if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+              return {
+                title: result.value.status === "pulled" ? "Pulled" : "Already up to date",
+              };
+            }
+            const kind = prepared.action.action;
+            if (!kind) throw new Error("This action is unavailable.");
+            const result = await runAtomCommand(
+              registry,
+              vcsActionManager.runStackedAction(target),
+              {
+                actionId: randomUUID(),
+                action: kind,
+                featureBranch,
+                onProgress: (event) => {
+                  if (
+                    event.kind === "phase_started" ||
+                    event.kind === "hook_started" ||
+                    event.kind === "hook_finished"
+                  ) {
+                    onPhase(
+                      registry.get(vcsActionManager.stateAtom(target)).currentLabel ??
+                        `${prepared.action.label}…`,
+                    );
+                  }
+                },
+                ...(thread ? { threadId: thread.id } : {}),
+                ...(scope.projectId ? { projectId: scope.projectId } : {}),
+              },
+              { reportFailure: false },
+            );
+            if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+            const branch = resolveThreadBranchUpdate(result.value);
+            if (
+              thread &&
+              branch &&
+              !hasRepositorySet(thread.workspace) &&
+              readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
+            ) {
+              const updated = await updateMetadata({
+                environmentId,
+                input: {
+                  threadId: thread.id,
+                  ...resolveThreadBranchMetadataPatch(branch.branch, thread.branch),
+                },
+              });
+              if (updated._tag === "Failure") throw squashAtomCommandFailure(updated);
+            }
+            return {
+              title: result.value.toast.title,
+              ...(result.value.toast.description
+                ? { description: result.value.toast.description }
+                : {}),
+            };
+          } finally {
+            registry.refresh(vcsEnvironment.status({ environmentId, input: { cwd: target.cwd } }));
+          }
+        };
+
         let started = false;
-        const execute = async (
-          kind: "pull" | GitStackedAction,
-          featureBranch = false,
-          recheck = false,
-        ) => {
+        const execute = async (featureBranch: boolean, preparedInput?: PreparedGitAction) => {
           if (started) return;
           started = true;
+          let prepared = preparedInput;
           try {
-            if (recheck) await readCurrentAction();
+            // A confirmation rechecks first; no write has started yet, so it can be retried.
+            prepared ??= await checkStatusWithToast();
             assertWriteAccess();
             if (
               featureBranch &&
@@ -158,87 +447,30 @@ export function useQuickActionGit(
             )
               throw new Error("This connection cannot change the thread's branch.");
           } catch (error) {
-            // No write has started, so the confirmation can safely be retried.
             started = false;
             throw error;
           }
           close();
           const progress = toastManager.add({
             type: "loading",
-            title: `${action.label}…`,
+            title: `${prepared.action.label}…`,
             description: repository.label,
           });
           try {
-            if (kind === "pull") {
-              const result = await vcsActionManager.track(
-                registry,
-                target,
-                { operation: "pull", label: "Pulling latest changes…" },
-                () => pull({ environmentId, input: { cwd: target.cwd } }),
-              );
-              if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-              toastManager.update(progress, {
-                type: "success",
-                title: result.value.status === "pulled" ? "Pulled" : "Already up to date",
-                description: repository.label,
-              });
-            } else {
-              const result = await runAtomCommand(
-                registry,
-                vcsActionManager.runStackedAction(target),
-                {
-                  actionId: randomUUID(),
-                  action: kind,
-                  featureBranch,
-                  onProgress: (event) => {
-                    if (
-                      event.kind === "phase_started" ||
-                      event.kind === "hook_started" ||
-                      event.kind === "hook_finished"
-                    ) {
-                      toastManager.update(progress, {
-                        title:
-                          registry.get(vcsActionManager.stateAtom(target)).currentLabel ??
-                          `${action.label}…`,
-                      });
-                    }
-                  },
-                  ...(thread ? { threadId: thread.id } : {}),
-                  ...(scope.projectId ? { projectId: scope.projectId } : {}),
-                },
-                { reportFailure: false },
-              );
-              if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-              const branch = resolveThreadBranchUpdate(result.value);
-              if (
-                thread &&
-                branch &&
-                !hasRepositorySet(thread.workspace) &&
-                readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
-              ) {
-                const updated = await updateMetadata({
-                  environmentId,
-                  input: {
-                    threadId: thread.id,
-                    ...resolveThreadBranchMetadataPatch(branch.branch, thread.branch),
-                  },
-                });
-                if (updated._tag === "Failure") throw squashAtomCommandFailure(updated);
-              }
-              toastManager.update(progress, {
-                type: "success",
-                title: result.value.toast.title,
-                description: result.value.toast.description ?? repository.label,
-              });
-            }
+            const result = await write(prepared, featureBranch, (label) =>
+              toastManager.update(progress, { title: label }),
+            );
+            toastManager.update(progress, {
+              type: "success",
+              title: result.title,
+              description: result.description ?? repository.label,
+            });
           } catch (error) {
             toastManager.update(progress, {
               type: "error",
               title: `${repository.label}: action failed`,
               description: error instanceof Error ? error.message : "Try again.",
             });
-          } finally {
-            registry.refresh(vcsEnvironment.status({ environmentId, input: { cwd: target.cwd } }));
           }
         };
 
@@ -246,18 +478,19 @@ export function useQuickActionGit(
           if (preparing.current.has(value)) return;
           preparing.current.add(value);
           try {
-            const { status, action: current } = await readCurrentAction();
+            const prepared = await checkStatusWithToast();
             if (!mounted.current) return;
-            if (current.kind === "open_publish") {
+            if (prepared.action.kind === "open_publish") {
               setPublishCwd(target.cwd);
               return;
             }
-            if (current.kind === "run_pull") {
-              await execute("pull");
+            if (prepared.action.kind === "run_pull") {
+              await execute(false, prepared);
               return;
             }
-            const kind = current.action;
+            const kind = prepared.action.action;
             if (!kind) return;
+            const status = prepared.status;
             if (
               kind !== "commit" &&
               requiresDefaultBranchConfirmation(kind, status.isDefaultRef ?? false)
@@ -290,7 +523,7 @@ export function useQuickActionGit(
                           searchTerms: ["feature", "branch"],
                           disabled: !!thread && !canOperate,
                           icon,
-                          run: () => execute(kind, true, true),
+                          run: () => execute(true),
                         },
                         {
                           kind: "action",
@@ -300,19 +533,19 @@ export function useQuickActionGit(
                           description: repository.label,
                           searchTerms: ["confirm", status.refName!],
                           icon,
-                          run: () => execute(kind, false, true),
+                          run: () => execute(false),
                         },
                       ],
                     },
                   ],
                 },
               });
-            } else await execute(kind);
+            } else await execute(false, prepared);
           } finally {
             preparing.current.delete(value);
           }
         };
-        return {
+        const item: CommandPaletteActionItem = {
           kind: "action",
           value,
           icon,
@@ -334,54 +567,68 @@ export function useQuickActionGit(
           disabled: !canWrite || !!repository.unavailable || action.disabled,
           run,
         };
+        return {
+          value,
+          label: repository.label,
+          cwd: repository.cwd,
+          icon,
+          item,
+          checkStatus,
+          write,
+        };
       })
     : [];
+  const items = handlers.map((handler) => handler.item);
 
   const summary = summarizeQuickActionGit(repositories);
-  const entry: CommandPaletteActionItem | null =
+  const entryIcon = repositories.some((repository) => repository.busy) ? (
+    <Spinner size="md" tone="muted" aria-label="Git action in progress" />
+  ) : (
+    items[0]?.icon
+  );
+  const entryBase = {
+    value: "quick-action:git",
+    title: summary.label,
+    description: !canWrite ? "This connection cannot change source control." : summary.description,
+    disabled: !canWrite || summary.disabled,
+    searchTerms: [
+      "git",
+      "commit",
+      "push",
+      "pull",
+      "pr",
+      "sync",
+      ...repositories.map((repository) => repository.label),
+    ],
+  };
+  const gitEntry: CommandPaletteActionItem | CommandPaletteSubmenuItem | null =
     items.length === 0
       ? null
-      : {
-          ...items[0]!,
-          value: "quick-action:git",
-          icon: repositories.some((repository) => repository.busy) ? (
-            <Spinner size="md" tone="muted" aria-label="Git action in progress" />
-          ) : (
-            items[0]!.icon
-          ),
-          title: summary.label,
-          description: !canWrite
-            ? "This connection cannot change source control."
-            : summary.description,
-          disabled: !canWrite || summary.disabled,
-          searchTerms: [
-            "git",
-            "commit",
-            "push",
-            "pull",
-            "pr",
-            "sync",
-            ...repositories.map((repository) => repository.label),
-          ],
-          run:
-            items.length === 1
-              ? items[0]!.run
-              : async () =>
-                  openCommandPalette({
-                    view: {
-                      addonIcon: items[0]!.icon,
-                      groups: [
-                        {
-                          value: "quick-action-git-repositories",
-                          label: "Choose a repository",
-                          items,
-                        },
-                      ],
-                    },
-                  }),
-        };
+      : items.length === 1
+        ? { ...items[0]!, ...entryBase, icon: entryIcon }
+        : {
+            ...entryBase,
+            kind: "submenu",
+            icon: entryIcon,
+            addonIcon: items[0]!.icon,
+            // Rows only toggle in this view, like the other quick actions; the
+            // submit runs every selected repository's own action in one pass.
+            multiSelect: {
+              actionLabel: "Sync selected",
+              keepOpen: true,
+              run: (values) =>
+                runGitBatch(handlers, values, { canOperate, hasThread: !!scope?.thread }),
+            },
+            groups: [
+              {
+                value: "quick-action-git-repositories",
+                label: "Choose repositories",
+                items,
+              },
+            ],
+          };
   return {
-    items: entry ? [entry] : [],
+    items: gitEntry ? [gitEntry] : [],
     repositoryItems: items,
     dialog:
       publishCwd && scope ? (

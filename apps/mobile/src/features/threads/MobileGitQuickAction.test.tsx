@@ -7,6 +7,7 @@ import {
   AuthSourceControlWriteScope,
   type VcsStatusResult,
 } from "@t3tools/contracts";
+import { Cause } from "effect";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -25,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("react-native", () => ({
   View: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ScrollView: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ActivityIndicator: () => null,
   Alert: { alert: mocks.alert },
 }));
 vi.mock("../../components/PickerList", () => ({
@@ -44,7 +46,18 @@ vi.mock("../../components/PickerList", () => ({
   ),
   PickerSurface: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
-vi.mock("./ForkScreenHeader", () => ({ ForkScreenHeader: () => null }));
+vi.mock("./ForkScreenHeader", () => ({
+  ForkScreenHeader: ({
+    action,
+  }: {
+    action?: { accessibilityLabel: string; disabled?: boolean; onPress: () => void };
+  }) =>
+    action ? (
+      <button disabled={action.disabled} onClick={action.onPress}>
+        {action.accessibilityLabel}
+      </button>
+    ) : null,
+}));
 vi.mock("../../state/entities", () => ({
   useProject: () => ({ workspaceRoot: "/repo" }),
   useThreadShell: () => ({
@@ -117,6 +130,18 @@ const row = (name: string) =>
   Array.from(container.querySelectorAll("button")).find((button) =>
     button.textContent!.startsWith(name),
   )!;
+const submit = () => row("Sync selected");
+/** Toggles the named rows, then submits the selection like the header action. */
+const chooseAndSync = async (...names: string[]) => {
+  for (const name of names) {
+    await act(async () => {
+      row(name).click();
+    });
+  }
+  await act(async () => {
+    submit().click();
+  });
+};
 const render = (choosing = true) => (
   <RegistryContext value={registry}>
     <MobileGitQuickAction
@@ -158,55 +183,80 @@ afterEach(() => {
 });
 
 describe("native Git quick action", () => {
-  it("shows status checking and server progress until the operation finishes", async () => {
+  it("keeps rows disabled while a submitted selection checks and runs", async () => {
     const refresh = Promise.withResolvers<AsyncResult.Success<VcsStatusResult>>();
     const complete = Promise.withResolvers<AsyncResult.Success<unknown>>();
-    const state = Atom.make({ isRunning: false, currentLabel: "Generating commit message..." });
-    mocks.busy.mockReturnValue(state);
     mocks.load.mockReturnValueOnce(refresh.promise);
-    mocks.stacked.mockImplementationOnce((_registry, _target, input) => {
-      input.onProgress({ kind: "phase_started" });
-      return complete.promise;
-    });
+    mocks.stacked.mockReturnValueOnce(complete.promise);
     await act(async () => {
       row("App").click();
     });
-    expect(container.textContent).toContain("Checking repository status…");
+    expect(submit().disabled).toBe(false);
+    await act(async () => {
+      submit().click();
+    });
     expect(row("App").disabled).toBe(true);
+    expect(mocks.stacked).not.toHaveBeenCalled();
     await act(async () => {
       refresh.resolve(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
     });
-    expect(container.textContent).toContain("Generating commit message...");
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
     expect(mocks.close).not.toHaveBeenCalled();
     await act(async () => {
       complete.resolve(
         AsyncResult.success({ branch: { status: "unchanged" }, toast: { title: "Committed" } }),
       );
     });
-    expect(container.textContent).not.toContain("Generating commit message...");
     expect(mocks.close).toHaveBeenCalledTimes(1);
   });
 
-  it("runs the selected repository's operation in its destination environment", async () => {
+  it("toggles rows without running them until the selection is submitted", async () => {
     await act(async () => {
       row("API").click();
+      row("API").click();
     });
+    expect(submit().disabled).toBe(true);
+    expect(mocks.pull).not.toHaveBeenCalled();
+    expect(mocks.stacked).not.toHaveBeenCalled();
+  });
+
+  it("runs only the selected repository's operation in its destination environment", async () => {
+    await chooseAndSync("API");
     expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/repo/api" } });
     expect(mocks.stacked).not.toHaveBeenCalled();
-    await act(async () => {
-      row("App").click();
-    });
+  });
+
+  it("runs each selected repository's own action in one batch", async () => {
+    await chooseAndSync("App", "API");
     expect(mocks.stacked.mock.calls[0]![1]).toEqual({ environmentId, cwd: "/repo/app" });
     expect(mocks.stacked.mock.calls[0]![2]).toMatchObject({
       action: "commit_push_pr",
       threadId: "thread",
     });
+    expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/repo/api" } });
+    expect(mocks.close).toHaveBeenCalledTimes(1);
   });
+
+  it("drops synced repositories from the selection so a partly failed batch can retry", async () => {
+    mocks.pull.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Network down"))));
+    await chooseAndSync("App", "API");
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+    expect(mocks.pull).toHaveBeenCalledTimes(1);
+    expect(mocks.close).not.toHaveBeenCalled();
+    // The synced repository now reports no work, so its row is disabled.
+    await act(async () => registry.set(statuses.get("/repo/app")!, AsyncResult.success(status())));
+    expect(submit().disabled).toBe(false);
+    await act(async () => {
+      submit().click();
+    });
+    expect(mocks.pull).toHaveBeenCalledTimes(2);
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses a write when the displayed branch changes during refresh", async () => {
     mocks.load.mockResolvedValue(AsyncResult.success(status({ refName: "other", behindCount: 2 })));
-    await act(async () => {
-      row("API").click();
-    });
+    await chooseAndSync("API");
     expect(mocks.pull).not.toHaveBeenCalled();
     expect(mocks.close).not.toHaveBeenCalled();
   });
@@ -217,12 +267,10 @@ describe("native Git quick action", () => {
       );
       return registry.get(statuses.get(input.cwd)!);
     });
-    await act(async () => {
-      row("App").click();
-    });
+    await chooseAndSync("App");
     expect(mocks.stacked).not.toHaveBeenCalled();
   });
-  it("confirms a default-branch push and rejects a later branch change", async () => {
+  it("confirms default-branch repositories once for the batch and rejects a later branch change", async () => {
     await act(async () =>
       registry.set(
         statuses.get("/repo/app")!,
@@ -231,10 +279,11 @@ describe("native Git quick action", () => {
         ),
       ),
     );
-    await act(async () => {
-      row("App").click();
-    });
+    await chooseAndSync("App", "API");
     expect(mocks.stacked).not.toHaveBeenCalled();
+    expect(mocks.pull).not.toHaveBeenCalled();
+    expect(mocks.alert).toHaveBeenCalledTimes(1);
+    expect(mocks.alert.mock.calls[0]![1]).toContain("Plus 1 other repository");
     const buttons = mocks.alert.mock.calls[0]![2];
     mocks.load.mockResolvedValue(
       AsyncResult.success(status({ refName: "another", hasWorkingTreeChanges: true })),
@@ -243,5 +292,6 @@ describe("native Git quick action", () => {
       buttons[2].onPress();
     });
     expect(mocks.stacked).not.toHaveBeenCalled();
+    expect(mocks.pull).not.toHaveBeenCalled();
   });
 });
