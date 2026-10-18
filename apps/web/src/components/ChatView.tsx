@@ -109,7 +109,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-execution";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
-import { HandoffRow } from "./chat/V2LifecycleRow";
+import { HandoffEndpointsDetail } from "./chat/V2LifecycleRow";
 import {
   codexFeedbackMessage,
   parseCodexFeedbackCommand,
@@ -303,6 +303,7 @@ import { resolveChatShortcutCommand, shortcutLabelForCommand } from "../keybindi
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   AlarmClockIcon,
+  ArrowRightLeftIcon,
   CheckCircle2Icon,
   MessageCircleIcon,
   PaperclipIcon,
@@ -7912,6 +7913,22 @@ export default function ChatView(props: ChatViewProps) {
     threadId: serverThread?.id ?? null,
     workspace: serverThread?.workspace,
   });
+  // A staged provider switch is composer state, not thread history. It sits
+  // with the other composer notices until the next send makes it a real
+  // handoff in the timeline.
+  const pendingHandoffBannerItem = useMemo<ComposerBannerStackItem | null>(() => {
+    if (pendingHandoff === null || !activeThread) return null;
+    return {
+      id: `pending-handoff:${activeThread.id}:${pendingHandoff.to.instanceId}:${pendingHandoff.to.model ?? ""}`,
+      variant: "info",
+      priority: "notice",
+      icon: <ArrowRightLeftIcon />,
+      title: "Context handoff on next send",
+      description: (
+        <HandoffEndpointsDetail endpoints={pendingHandoff} providers={providerStatuses} />
+      ),
+    };
+  }, [activeThread, pendingHandoff, providerStatuses]);
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const forkItems = [workspaceBannerItem, preparedTaskBannerItem].filter((item) => item !== null);
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
@@ -7923,6 +7940,7 @@ export default function ChatView(props: ChatViewProps) {
     // The user asked for this one, so it leads the notice tier instead of trailing it.
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const pendingHandoffItems = pendingHandoffBannerItem === null ? [] : [pendingHandoffBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -7932,6 +7950,7 @@ export default function ChatView(props: ChatViewProps) {
         ...projectCloneItems,
         ...systemComposerBannerItems,
         ...backgroundWorkItems,
+        ...pendingHandoffItems,
       ];
     }
     return [
@@ -7942,6 +7961,7 @@ export default function ChatView(props: ChatViewProps) {
       ...projectCloneItems,
       ...systemComposerBannerItems,
       ...backgroundWorkItems,
+      ...pendingHandoffItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
         variant: "info",
@@ -7995,6 +8015,7 @@ export default function ChatView(props: ChatViewProps) {
     childInputBannerItem,
     goalBannerItem,
     localCheckoutBranchMismatch,
+    pendingHandoffBannerItem,
     preparedTaskBannerItem,
     projectCloneBannerItem,
     workspaceBannerItem,
@@ -11724,22 +11745,7 @@ export default function ChatView(props: ChatViewProps) {
                 {...(draftId ? { onWorktreeSetupWorkLocally } : {})}
                 {...(onOpenWorktreeSetupTerminal ? { onOpenWorktreeSetupTerminal } : {})}
                 isPreparingWorktree={!paintOnlyDisplayedTimeline && isPreparingWorktree}
-                footer={
-                  paintOnlyDisplayedTimeline ? null : pendingHandoff === null ? (
-                    threadStatusLine
-                  ) : (
-                    <>
-                      <div className="chat-content-lane">
-                        <HandoffRow
-                          endpoints={pendingHandoff}
-                          providers={providerStatuses}
-                          pending
-                        />
-                      </div>
-                      {threadStatusLine}
-                    </>
-                  )
-                }
+                footer={paintOnlyDisplayedTimeline ? null : threadStatusLine}
                 listRef={legendListRef}
                 timelineEntries={displayedTimeline.entries}
                 providerStatuses={

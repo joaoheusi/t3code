@@ -16,6 +16,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { environmentThreadDetails } from "../../state/threads";
 import { serverEnvironment } from "../../state/server";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { ThreadContextDivider } from "./thread-context-divider";
 
 function handoffEndpointsAtom(
@@ -54,6 +55,22 @@ export function ThreadHandoffRow(props: {
       iconColor={color}
       label="Context handoff"
       failed={item.status === "failed"}
+    />
+  );
+}
+
+/** Composer notice for a staged provider switch. It is not thread history. */
+export function ThreadPendingHandoffNotice(props: {
+  environmentId: EnvironmentId;
+  endpoints: HandoffEndpoints;
+}) {
+  const theme = useUniwindTheme();
+  return (
+    <ThreadHandoffDivider
+      environmentId={props.environmentId}
+      endpoints={props.endpoints}
+      iconColor={theme["--color-icon-subtle"]}
+      label="Context handoff on next send"
     />
   );
 }

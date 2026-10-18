@@ -19,15 +19,34 @@ export type HandoffTimelineRun = Pick<
 
 export type HandoffEndpoints = ReturnType<typeof resolveHandoffEndpoints>;
 
+const ACTIVE_RUN_STATUSES: ReadonlySet<OrchestrationV2Run["status"]> = new Set([
+  "preparing",
+  "queued",
+  "starting",
+  "running",
+  "waiting",
+]);
+
 /** Preview the next send's handoff without adding anything to durable history. */
 export function resolvePendingHandoff(
   projection: OrchestrationV2ThreadProjection | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
 ): HandoffEndpoints | null {
-  const from = projection?.runs.findLast(
-    (run) => run.startedAt !== null && run.status !== "rolled_back",
-  )?.modelSelection;
+  // The newest run that has reached, or will reach, a provider. An unstarted
+  // run already carrying the target selection is consuming the handoff, so
+  // it must not preview a second one while it prepares.
+  const from = projection?.runs
+    .filter(
+      (run) =>
+        run.status !== "rolled_back" &&
+        run.status !== "cancelled" &&
+        (run.startedAt !== null || ACTIVE_RUN_STATUSES.has(run.status)),
+    )
+    .reduce<OrchestrationV2Run | undefined>(
+      (latest, run) => (latest === undefined || run.ordinal > latest.ordinal ? run : latest),
+      undefined,
+    )?.modelSelection;
   if (from === undefined || selection == null) return null;
   const source = providers.find((provider) => provider.instanceId === from.instanceId);
   const target = providers.find((provider) => provider.instanceId === selection.instanceId);
