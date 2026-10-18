@@ -303,6 +303,11 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         .realPath(requestedCwd)
         .pipe(Effect.orElseSucceed(() => requestedCwd));
       const workspaceRoot = yield* museWorkspaceRoot(cwd);
+      // Extra roots get the same canonical form as `cwd`, for the same reason.
+      const resolveWorkspaceRoot = Effect.fnUntraced(function* (path: string) {
+        const resolved = yield* fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));
+        return yield* museWorkspaceRoot(resolved);
+      });
       const now = yield* DateTime.now;
       let session: OrchestrationV2ProviderSession = {
         id: input.providerSessionId,
@@ -2019,24 +2024,33 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                 `Muse returned an unsupported compaction status: ${result.status}`,
               );
           } else {
+            const extraRoots = yield* Effect.forEach(
+              turnInput.runtimePolicy.additionalDirectories ?? [],
+              resolveWorkspaceRoot,
+            );
+            const instructions =
+              buildRuntimeInstructions({
+                harness: "Muse Code",
+                model: session.model ?? undefined,
+                reasoningEffort: effort,
+              }) +
+              (turnInput.runtimePolicy.workspaceInstructions === undefined
+                ? ""
+                : `\n\n${turnInput.runtimePolicy.workspaceInstructions}`);
             const result = yield* request(
               "turn/start",
               {
                 input: [
                   {
                     type: "text",
-                    text: buildRuntimeInstructions({
-                      harness: "Muse Code",
-                      model: session.model ?? undefined,
-                      reasoningEffort: effort,
-                    }),
+                    text: instructions,
                   },
                   ...parts,
                 ],
                 displayText: turnInput.message.text || "Image attachment",
                 // A resumed session keeps the root it was created with; pin it to
                 // this thread's current checkout so edits land where T3 tracks them.
-                workspaceRoots: [workspaceRoot],
+                workspaceRoots: [...new Set([workspaceRoot, ...extraRoots])],
                 ifBusy: "queue",
                 ...(effort ? { reasoningEffort: effort } : {}),
               },

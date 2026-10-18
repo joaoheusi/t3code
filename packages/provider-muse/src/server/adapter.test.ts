@@ -561,6 +561,35 @@ describe("MuseAdapterV2", () => {
     ),
   );
 
+  it.effect("grants additional workspace roots and instructions on turn start", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const policy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        ...runtimePolicy,
+        cwd: "/work/web",
+        // The primary root repeated here must not be granted twice.
+        additionalDirectories: ["/work/api", "/work/web"],
+        workspaceInstructions: "WORKSPACE-INSTRUCTIONS-SENTINEL",
+      });
+      const harness = yield* makeHarness(
+        fake,
+        INSTANCE_ID,
+        undefined,
+        undefined,
+        undefined,
+        policy,
+      );
+      yield* startConversation(harness, fake);
+      const turnStart = fake.calls.find((call) => call.method === "turn/start");
+      assert.deepStrictEqual(turnStart?.params.workspaceRoots, ["/work/web", "/work/api"]);
+      assert.match(JSON.stringify(turnStart?.params.input), /WORKSPACE-INSTRUCTIONS-SENTINEL/);
+    }).pipe(
+      Effect.provideService(HostProcess.Platform, "darwin"),
+      Effect.scoped,
+      Effect.provide(testLayer),
+    ),
+  );
+
   it.effect("skips an unreadable usage notification without ending the turn", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakeMuse();
