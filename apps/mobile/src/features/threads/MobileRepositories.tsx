@@ -84,24 +84,21 @@ export function RepositoriesControl(props: {
   readonly onOpen: () => void;
 }) {
   const choice = useMobileRepositories(props.project, props.draftKey);
-  if (!choice.supported) return null;
+  if (!choice.supported && !choice.loading) return null;
   const total = choice.repositories.length + (choice.selection.folder ? 0 : 1);
   const several = total > 1 || choice.selection.folder;
+  const finding = choice.loading || (choice.discovery.isPending && !choice.discovery.data);
   return (
     <ComposerInlineControl
       accessibilityLabel={several ? `Repositories: ${repositoryCount(total)}` : "Add repositories"}
       accessibilityHint="Choose the repositories this task works in"
       label={
-        choice.discovery.isPending && !choice.discovery.data
-          ? "Finding repositories…"
-          : several
-            ? repositoryCount(total)
-            : "Add repositories"
+        finding ? "Finding repositories…" : several ? repositoryCount(total) : "Add repositories"
       }
       icon={several ? "folder" : "folder.badge.plus"}
       selected={several}
       chevronDirection="right"
-      disabled={props.disabled}
+      disabled={props.disabled || choice.loading}
       onPress={props.onOpen}
     />
   );

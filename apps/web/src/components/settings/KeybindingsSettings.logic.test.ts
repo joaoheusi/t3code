@@ -31,6 +31,7 @@ describe("KeybindingsSettings.logic", () => {
       "composer.mode",
       "composer.workspace",
       "composer.branch",
+      "composer.repositories",
       "composer.previousWorktree",
       "modelPicker.previousProvider",
       "modelPicker.nextProvider",

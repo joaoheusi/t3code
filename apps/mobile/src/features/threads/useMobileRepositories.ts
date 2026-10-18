@@ -59,6 +59,8 @@ export function useMobileRepositories(project: EnvironmentProject | null, draftK
   }, [draft.repositorySelection, found, project, config]);
   return {
     supported,
+    /** The server's capabilities have not loaded, so support is still unknown. */
+    loading: project !== null && config === null,
     selection,
     discovery,
     foundCount: found.length,

@@ -48,14 +48,15 @@ export function useComposerRepositories(input: {
   readonly choosing: boolean;
 }) {
   const { environmentId, project, isGitRepo, workspace, choosing } = input;
-  const version = useMultiRepositoryVersion(environmentId);
+  const serverConfig = useServerConfigs().get(environmentId);
+  const version = serverConfig?.environment.capabilities.forkMultiRepoVersion ?? 0;
   const saved = useEnvironmentSettings(environmentId, (settings) =>
     project
       ? (settings.projectSettingsOverrides[project.id]?.workspaceRepositories ?? NO_DEFAULTS)
       : NO_DEFAULTS,
   );
   // The "No project" scratch folder holds unrelated work, never a folder project.
-  const scratchRoot = useServerConfigs().get(environmentId)?.scratchWorkspaceRoot ?? null;
+  const scratchRoot = serverConfig?.scratchWorkspaceRoot ?? null;
   const discovery = useEnvironmentQuery(
     version >= 2 && choosing && !isGitRepo && project && project.workspaceRoot !== scratchRoot
       ? forkWorkspace.discoverQuery({
@@ -83,6 +84,16 @@ export function useComposerRepositories(input: {
   }, [chosen, found, recorded, saved, version, workspace]);
   return {
     repositories,
+    /**
+     * Whether the choice can be shown is still unknown: the server's capabilities
+     * have not loaded, or the folder is still being scanned for repositories.
+     * Callers keep their control mounted but disabled so it does not pop in late.
+     */
+    loading: Boolean(
+      choosing &&
+      project &&
+      (serverConfig === undefined || (discovery.isPending && discovery.data === null)),
+    ),
     /** The project folder isn't a repository, so the thread works in the folder itself. */
     folder: version >= 2 && !isGitRepo && (repositories.length > 0 || found.length > 0),
     foundCount: found.length,
