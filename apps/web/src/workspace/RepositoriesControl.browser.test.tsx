@@ -1,15 +1,20 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { act } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
 
+const picker = vi.hoisted(() => ({
+  projects: [] as ReadonlyArray<unknown>,
+  onAddPath: null as ((path: string) => void) | null,
+}));
+
 vi.mock(import("./useAddRepository"), () => ({
   useAddRepository: (() => ({
-    projects: [],
-    addPath: vi.fn(async () => undefined),
+    projects: picker.projects,
+    addPath: vi.fn(async (path: string) => picker.onAddPath?.(path)),
     browse: vi.fn(),
   })) as never,
 }));
@@ -21,6 +26,8 @@ let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  picker.projects = [];
+  picker.onAddPath = null;
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   container = document.createElement("div");
   document.body.append(container);
@@ -111,6 +118,82 @@ it("opens from the keyboard, closes on Escape, and returns focus to the trigger"
   await userEvent.keyboard("{Escape}");
   await vi.waitFor(() => expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull());
   expect(document.activeElement).toBe(trigger.element());
+});
+
+function AtLimitHarness() {
+  const [repositories, setRepositories] = useState<readonly DraftRepository[]>(() =>
+    Array.from({ length: 19 }, (_, index) => repository(`repo-${index + 1}`)),
+  );
+  useEffect(() => {
+    picker.onAddPath = () => setRepositories((current) => [...current, repository("movitera-new")]);
+  });
+  return (
+    <RepositoriesControl
+      environmentId={EnvironmentId.make("local")}
+      threadId={ThreadId.make("thread")}
+      composerKey="draft-1"
+      project={{
+        id: ProjectId.make("project"),
+        title: "movitera",
+        workspaceRoot: "/tmp/movitera",
+      }}
+      isGitRepo={false}
+      repositories={
+        {
+          workspace: undefined,
+          started: false,
+          editable: true,
+          selection: {
+            repositories,
+            loading: false,
+            folder: true,
+            foundCount: repositories.length,
+            untouched: true,
+            saved: [],
+          },
+          visible: true,
+          loading: false,
+          folder: true,
+          labels: repositories.map((entry) => entry.label),
+          multiple: true,
+        } as never
+      }
+      envMode="worktree"
+      envModeLocked={false}
+      startFromOrigin={false}
+      onEnvModeChange={vi.fn()}
+      worktreePath={null}
+      branch={null}
+      primaryBranch={null}
+    />
+  );
+}
+
+it("keeps focus inside the popover when adding reaches the repository limit", async () => {
+  picker.projects = [
+    {
+      id: "candidate",
+      title: "movitera-new",
+      workspaceRoot: "/tmp/movitera/movitera-new",
+      environmentId: "local",
+    },
+  ];
+  await act(async () => root.render(<AtLimitHarness />));
+
+  const trigger = page.getByRole("button", { name: "movitera · 19 repositories" });
+  (trigger.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  const add = page.getByRole("button", { name: "Add a repository" });
+  await expect.element(add).toBeVisible();
+  (add.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+
+  await userEvent.click(page.getByRole("option", { name: /movitera-new/ }));
+
+  // The Add button is disabled at the limit, so focus must land on an enabled action.
+  const removeNew = page.getByRole("button", { name: "Remove movitera-new" });
+  await expect.element(removeNew).toBeVisible();
+  await vi.waitFor(() => expect(document.activeElement).toBe(removeNew.element()));
 });
 
 it("moves focus to Add a repository after removing one with the keyboard", async () => {

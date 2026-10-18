@@ -323,13 +323,24 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const focusAddButtonOnReturnRef = useRef(false);
   const { repositories } = selection;
   // Leaving the picker unmounts its search field; land back on the button that opened it.
   useEffect(() => {
     if (adding || !focusAddButtonOnReturnRef.current) return;
     focusAddButtonOnReturnRef.current = false;
-    addButtonRef.current?.focus({ preventScroll: true });
+    const addButton = addButtonRef.current;
+    if (addButton && !addButton.disabled) {
+      addButton.focus({ preventScroll: true });
+      return;
+    }
+    // Adding the final allowed repository disables that button. Land on the last
+    // repository's Remove button instead of dropping focus to the body.
+    const removeButtons = listRef.current?.querySelectorAll<HTMLButtonElement>(
+      "button[data-remove-repository]:not(:disabled)",
+    );
+    removeButtons?.[removeButtons.length - 1]?.focus({ preventScroll: true });
   }, [adding]);
   // Edits apply to the draft's own copy of the list, made on the first change.
   const seed = () => {
@@ -448,7 +459,7 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
         <Toggle value="worktree">New worktrees</Toggle>
         <Toggle value="local">{folder ? "Current folder" : "Current checkouts"}</Toggle>
       </ToggleGroup>
-      <ul className="flex flex-col gap-0.5" aria-label="Repositories in this thread">
+      <ul ref={listRef} className="flex flex-col gap-0.5" aria-label="Repositories in this thread">
         {folder ? (
           <RepositoryRow
             icon={<FolderTreeIcon className="size-3.5 shrink-0 text-muted-foreground" />}
@@ -516,6 +527,7 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
                   variant="ghost-muted"
                   // The chevron and X glyphs carry their own whitespace; this evens the visible gap.
                   className="-ms-0.75"
+                  data-remove-repository
                   aria-label={`Remove ${repository.label}`}
                   onClick={() => {
                     seed();
