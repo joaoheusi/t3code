@@ -3,12 +3,14 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
   CommandId,
+  hasRepositorySet,
   type ThreadId,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
+import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
@@ -25,6 +27,7 @@ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -133,12 +136,7 @@ export function isAutoSettlementCandidate(
   nowMs: number,
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
-  if (
-    thread.pinnedAt != null ||
-    thread.autoSettleDisabledAt != null ||
-    (thread.workspace?.bindings.length ?? 0) > 1
-  )
-    return false;
+  if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
   // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   if (thread.activityRunStatus != null) return false;
@@ -186,6 +184,7 @@ export function isSnoozed(
 export function resolveAutoSettlementAt(input: {
   readonly thread: ProjectionStore.ProjectionSettlementCandidate;
   readonly pullRequest: SettlementPullRequest | null;
+  readonly workspacePullRequests?: ReadonlyArray<SettlementPullRequest>;
   readonly nowMs: number;
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
@@ -195,24 +194,36 @@ export function resolveAutoSettlementAt(input: {
   let pullRequest = input.pullRequest;
   const links = visibleThreadPullRequests(thread.pullRequests ?? []);
   if (links.some((link) => link.snapshot === null || link.snapshot.state === "open")) return null;
-  if (links.length > 0) {
-    const terminalAt = (link: (typeof links)[number]) => {
-      const snapshot = link.snapshot;
-      const value = snapshot?.state === "merged" ? snapshot.mergedAt : snapshot?.closedAt;
+  const repositorySet = hasRepositorySet(thread.workspace);
+  if (
+    repositorySet &&
+    (input.workspacePullRequests === undefined || input.workspacePullRequests.length === 0)
+  )
+    return null;
+  const requests: SettlementPullRequest[] = links.flatMap((link) =>
+    link.snapshot === null
+      ? []
+      : [
+          {
+            state: link.snapshot.state,
+            mergedAt: link.snapshot.mergedAt ?? null,
+            closedAt: link.snapshot.closedAt ?? null,
+          },
+        ],
+  );
+  if (repositorySet) {
+    requests.push(...(input.workspacePullRequests ?? []));
+    if (requests.some((request) => request.state !== "merged")) return null;
+  }
+  if (requests.length > 0) {
+    const terminalAt = (request: SettlementPullRequest) => {
+      const value = request.state === "merged" ? request.mergedAt : request.closedAt;
       const timestamp = Date.parse(value ?? "");
       return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
     };
-    const latest = links.reduce((current, candidate) =>
+    pullRequest = requests.reduce((current, candidate) =>
       terminalAt(candidate) > terminalAt(current) ? candidate : current,
     );
-    pullRequest =
-      latest.snapshot === null
-        ? null
-        : {
-            state: latest.snapshot.state,
-            mergedAt: latest.snapshot.mergedAt ?? null,
-            closedAt: latest.snapshot.closedAt ?? null,
-          };
   }
   if (!isAutoSettlementCandidate(thread, input.nowMs)) return null;
   const activityAtMs = latestMillis([
@@ -224,6 +235,7 @@ export function resolveAutoSettlementAt(input: {
   if (pullRequest !== null && pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
     return activityAtMs === null ? thread.createdAt : DateTime.makeUnsafe(activityAtMs);
   }
+  if (repositorySet) return null;
   const hasPullRequest =
     pullRequest !== null || thread.linkedPullRequest != null || thread.branchPullRequest != null;
   if (input.autoSettleKeepPullRequests === true && hasPullRequest) return null;
@@ -295,6 +307,7 @@ export const make = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const terminals = yield* TerminalManager.TerminalManager;
   const projectScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+  const repositories = yield* WorkspaceRepositories.WorkspaceRepositories;
   // Settling a settled thread re-emits thread.settled with the same settledAt,
   // so this keeps the settle action to one run per settlement.
   const settleActionRunAt = new Map<ThreadId, number>();
@@ -319,7 +332,11 @@ export const make = Effect.gen(function* () {
     const candidates = threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs));
 
     const settleThread = Effect.fn("ThreadSettlementServiceV2.settleThread")(
-      function* (thread: (typeof candidates)[number], pullRequest: SettlementPullRequest | null) {
+      function* (
+        thread: (typeof candidates)[number],
+        pullRequest: SettlementPullRequest | null,
+        workspacePullRequests?: ReadonlyArray<SettlementPullRequest>,
+      ) {
         const currentSettings = resolveProjectSettings(
           yield* settingsService.getSettings,
           thread.projectId,
@@ -328,6 +345,7 @@ export const make = Effect.gen(function* () {
         const settledAt = resolveAutoSettlementAt({
           thread,
           pullRequest,
+          ...(workspacePullRequests === undefined ? {} : { workspacePullRequests }),
           nowMs: DateTime.toEpochMillis(decisionNow),
           autoSettleAfterDays: currentSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: currentSettings.sidebarAutoSettleOnMerge,
@@ -357,8 +375,72 @@ export const make = Effect.gen(function* () {
         ),
     );
 
+    const repositoryInspections = yield* Cache.make({
+      capacity: 1_000,
+      lookup: (cwd: string) => repositories.inspect(cwd),
+    });
+    const invalidatedWorkspaceCwds = new Set<string>();
+    yield* Effect.forEach(
+      candidates.filter((thread) => hasRepositorySet(thread.workspace)),
+      (thread) =>
+        Effect.gen(function* () {
+          const workspace = thread.workspace;
+          if (!hasRepositorySet(workspace) || workspace.state !== "ready") return;
+          const { settings: currentSettings } = resolveProjectSettings(settings, thread.projectId);
+          if (!currentSettings.sidebarAutoSettleOnMerge) return;
+          const links = visibleThreadPullRequests(thread.pullRequests ?? []);
+          if (links.some((link) => link.snapshot?.state !== "merged")) return;
+          const requests: SettlementPullRequest[] = [];
+          for (const binding of workspace.bindings) {
+            if (binding.state !== "ready") return;
+            const actual = yield* Cache.get(repositoryInspections, binding.checkoutPath);
+            if (
+              actual.path !== binding.checkoutPath ||
+              actual.commonDir !== binding.commonDir ||
+              actual.dirty ||
+              actual.operation !== null
+            )
+              return;
+            // An unchanged repository needs no PR. A linked branch still counts when
+            // its commits already existed when the workspace was configured.
+            if (
+              actual.head === binding.baseCommit &&
+              !links.some((link) => link.bindingId === binding.id)
+            )
+              continue;
+            if (actual.branch === null) return;
+            if (mergedPullRequest !== null && !invalidatedWorkspaceCwds.has(binding.checkoutPath)) {
+              invalidatedWorkspaceCwds.add(binding.checkoutPath);
+              yield* git.invalidateStatus(binding.checkoutPath);
+            }
+            const request = yield* git.branchPullRequest(
+              { cwd: binding.checkoutPath, branch: actual.branch },
+              { freshGitState: true },
+            );
+            if (
+              request?.state !== "merged" ||
+              request.mergedAt == null ||
+              Number.isNaN(Date.parse(request.mergedAt))
+            )
+              return;
+            requests.push(request);
+          }
+          yield* settleThread(thread, null, requests);
+        }).pipe(
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("automatic workspace thread settlement skipped", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }),
+          ),
+        ),
+      { concurrency: 4, discard: true },
+    );
+
     const lookupCandidates = (yield* Effect.forEach(
-      candidates,
+      candidates.filter((thread) => !hasRepositorySet(thread.workspace)),
       (thread) => settleThread(thread, null),
       { concurrency: 8 },
     ))
