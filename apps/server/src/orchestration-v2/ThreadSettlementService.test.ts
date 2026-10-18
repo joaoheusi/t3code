@@ -525,6 +525,7 @@ function makeBranchPullRequest(state: "open" | "closed" | "merged") {
     updatedAt: NOW,
     closedAt: state === "closed" ? NOW : null,
     mergedAt: state === "merged" ? NOW : null,
+    headSha: "changed",
   } satisfies GitManager.GitBranchPullRequest;
 }
 
@@ -556,6 +557,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
   >([]);
+  const branchCallOptions = yield* Ref.make<
+    ReadonlyArray<{ readonly refresh?: boolean; readonly freshGitState?: boolean } | undefined>
+  >([]);
   const summaryCalls = yield* Ref.make<
     ReadonlyArray<{
       readonly projectId: ProjectId;
@@ -578,9 +582,13 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       return next;
     });
 
-  const branchPullRequest: GitManager.GitManager["Service"]["branchPullRequest"] = (input) =>
+  const branchPullRequest: GitManager.GitManager["Service"]["branchPullRequest"] = (
+    input,
+    callOptions,
+  ) =>
     Ref.update(branchCalls, (calls) => [...calls, input]).pipe(
-      Effect.andThen(options.branchPullRequest?.(input) ?? Effect.succeed(null)),
+      Effect.andThen(Ref.update(branchCallOptions, (calls) => [...calls, callOptions])),
+      Effect.andThen(options.branchPullRequest?.(input, callOptions) ?? Effect.succeed(null)),
     );
   const pullRequestSummary: PullRequestService.PullRequestService["Service"]["summary"] = (
     input,
@@ -694,6 +702,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     candidateReads,
     commands,
     branchCalls,
+    branchCallOptions,
     summaryCalls,
     summaryRecovery,
     invalidatedCwds,
@@ -802,6 +811,8 @@ describe("ThreadSettlementServiceV2 repository sets", () => {
     { name: "keeps an open linked review active", linkedState: "open", settle: false },
     { name: "keeps an unsynced linked review active", linkedState: null, settle: false },
     { name: "keeps a closed linked review active", linkedState: "closed", settle: false },
+    { name: "keeps commits added after a merged PR active", staleHead: true, settle: false },
+    { name: "keeps a merged PR without a head commit active", missingHeadSha: true, settle: false },
   ] satisfies ReadonlyArray<{
     name: string;
     settle: boolean;
@@ -819,6 +830,8 @@ describe("ThreadSettlementServiceV2 repository sets", () => {
     mergedAt?: string | null;
     disabled?: boolean;
     linkedState?: "open" | "closed" | "merged" | null;
+    staleHead?: boolean;
+    missingHeadSha?: boolean;
   }>;
 
   it.effect.each(cases)("$name", (scenario) =>
@@ -886,6 +899,13 @@ describe("ThreadSettlementServiceV2 repository sets", () => {
                       cwd === "/repos/1" ? (scenario.state ?? "merged") : "merged",
                     ),
                     ...(scenario.mergedAt !== undefined ? { mergedAt: scenario.mergedAt } : {}),
+                    headSha: scenario.staleHead
+                      ? "other-head"
+                      : scenario.missingHeadSha
+                        ? null
+                        : scenario.allUntouched || (scenario.untouched && cwd === "/repos/1")
+                          ? "initial"
+                          : "changed",
                   },
             ),
         });
@@ -933,6 +953,62 @@ describe("ThreadSettlementServiceV2 repository sets", () => {
             thread.id,
           ]);
           expect(yield* Ref.get(fixture.invalidatedCwds)).toEqual(["/repos/0", "/repos/1"]);
+          expect(yield* Ref.get(fixture.branchCallOptions)).toEqual([
+            { freshGitState: true },
+            { freshGitState: true },
+            { refresh: true },
+            { refresh: true },
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("shares repository lookups between threads in one sweep", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const workspace = makeWorkspace();
+        const first = makeThread("workspace-shared-a", { workspace });
+        const second = makeThread("workspace-shared-b", { workspace });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([first, second]),
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect(
+            (yield* Ref.get(fixture.commands)).map((command) => command.threadId).toSorted(),
+          ).toEqual([first.id, second.id].toSorted());
+          expect(yield* Ref.get(fixture.branchCalls)).toHaveLength(2);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("settles a folder thread with one repository by inactivity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("folder-single-age", { workspace: makeWorkspace(true, 1) });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleOnMerge: false,
+            sidebarAutoSettleAfterDays: 1,
+          },
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            thread.id,
+          ]);
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),

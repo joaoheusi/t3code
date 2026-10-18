@@ -5,6 +5,7 @@ import {
   CommandId,
   hasRepositorySet,
   type ThreadId,
+  type ThreadWorkspace,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
@@ -181,6 +182,16 @@ export function isSnoozed(
   return !wokeOnError && !wokeOnCompletion;
 }
 
+/**
+ * Only a workspace with several bindings settles solely on merge. A folder
+ * holding one repository keeps the single-repository inactivity rules.
+ */
+function isMultiRepositoryWorkspace(
+  workspace: ThreadWorkspace | undefined,
+): workspace is ThreadWorkspace {
+  return workspace !== undefined && workspace.bindings.length > 1;
+}
+
 export function resolveAutoSettlementAt(input: {
   readonly thread: ProjectionStore.ProjectionSettlementCandidate;
   readonly pullRequest: SettlementPullRequest | null;
@@ -194,9 +205,9 @@ export function resolveAutoSettlementAt(input: {
   let pullRequest = input.pullRequest;
   const links = visibleThreadPullRequests(thread.pullRequests ?? []);
   if (links.some((link) => link.snapshot === null || link.snapshot.state === "open")) return null;
-  const repositorySet = hasRepositorySet(thread.workspace);
+  const multiRepository = isMultiRepositoryWorkspace(thread.workspace);
   if (
-    repositorySet &&
+    multiRepository &&
     (input.workspacePullRequests === undefined || input.workspacePullRequests.length === 0)
   )
     return null;
@@ -211,9 +222,17 @@ export function resolveAutoSettlementAt(input: {
           },
         ],
   );
-  if (repositorySet) {
+  if (multiRepository) {
     requests.push(...(input.workspacePullRequests ?? []));
-    if (requests.some((request) => request.state !== "merged")) return null;
+    if (
+      requests.some(
+        (request) =>
+          request.state !== "merged" ||
+          request.mergedAt == null ||
+          Number.isNaN(Date.parse(request.mergedAt)),
+      )
+    )
+      return null;
   }
   if (requests.length > 0) {
     const terminalAt = (request: SettlementPullRequest) => {
@@ -235,7 +254,7 @@ export function resolveAutoSettlementAt(input: {
   if (pullRequest !== null && pullRequestSettles(thread, pullRequest, input.autoSettleOnMerge)) {
     return activityAtMs === null ? thread.createdAt : DateTime.makeUnsafe(activityAtMs);
   }
-  if (repositorySet) return null;
+  if (multiRepository) return null;
   const hasPullRequest =
     pullRequest !== null || thread.linkedPullRequest != null || thread.branchPullRequest != null;
   if (input.autoSettleKeepPullRequests === true && hasPullRequest) return null;
@@ -379,53 +398,120 @@ export const make = Effect.gen(function* () {
       capacity: 1_000,
       lookup: (cwd: string) => repositories.inspect(cwd),
     });
+    // One host lookup per checkout and branch serves every thread in the sweep.
+    // A merge event forces a host refresh; other sweeps reread git state only.
+    const repositoryPullRequests = yield* Cache.make({
+      capacity: 1_000,
+      lookup: (key: string) => {
+        const separator = key.indexOf("\0");
+        return git.branchPullRequest(
+          { cwd: key.slice(0, separator), branch: key.slice(separator + 1) },
+          mergedPullRequest !== null ? { refresh: true } : { freshGitState: true },
+        );
+      },
+    });
     const invalidatedWorkspaceCwds = new Set<string>();
+    const reportedRepositoryFailures = new Set<string>();
+    const evaluateBinding = (
+      threadId: ThreadId,
+      binding: ThreadWorkspace["bindings"][number],
+      links: ReturnType<typeof visibleThreadPullRequests>,
+    ) =>
+      Effect.gen(function* () {
+        if (binding.state !== "ready") return { kind: "blocked" } as const;
+        const actual = yield* Cache.get(repositoryInspections, binding.checkoutPath);
+        if (
+          actual.path !== binding.checkoutPath ||
+          actual.commonDir !== binding.commonDir ||
+          actual.dirty ||
+          actual.operation !== null
+        )
+          return { kind: "blocked" } as const;
+        // An unchanged repository needs no PR. A linked branch still counts when
+        // its commits already existed when the workspace was configured.
+        if (
+          actual.head === binding.baseCommit &&
+          !links.some((link) => link.bindingId === binding.id)
+        )
+          return { kind: "unchanged" } as const;
+        if (actual.branch === null) return { kind: "blocked" } as const;
+        if (mergedPullRequest !== null && !invalidatedWorkspaceCwds.has(binding.checkoutPath)) {
+          invalidatedWorkspaceCwds.add(binding.checkoutPath);
+          yield* git.invalidateStatus(binding.checkoutPath);
+        }
+        const request = yield* Cache.get(
+          repositoryPullRequests,
+          `${binding.checkoutPath}\0${actual.branch}`,
+        );
+        // The merged PR must cover the exact current head. Commits added to
+        // the branch after its PR merged keep the thread active.
+        if (
+          request?.state !== "merged" ||
+          request.mergedAt == null ||
+          Number.isNaN(Date.parse(request.mergedAt)) ||
+          request.headSha == null ||
+          request.headSha !== actual.head
+        )
+          return { kind: "blocked" } as const;
+        return {
+          kind: "merged",
+          request: {
+            state: request.state,
+            mergedAt: request.mergedAt,
+            closedAt: request.closedAt ?? null,
+          },
+        } as const;
+      }).pipe(
+        Effect.catchCauseIf(
+          (cause) => !Cause.hasInterruptsOnly(cause),
+          (cause) =>
+            Effect.gen(function* () {
+              const firstReport = yield* Effect.sync(() => {
+                if (reportedRepositoryFailures.has(binding.checkoutPath)) return false;
+                reportedRepositoryFailures.add(binding.checkoutPath);
+                return true;
+              });
+              if (firstReport) {
+                yield* Effect.logWarning("automatic workspace thread settlement skipped", {
+                  threadId,
+                  checkoutPath: binding.checkoutPath,
+                  cause: Cause.pretty(cause),
+                });
+              }
+              return { kind: "blocked" } as const;
+            }),
+        ),
+      );
     yield* Effect.forEach(
       candidates.filter((thread) => hasRepositorySet(thread.workspace)),
       (thread) =>
         Effect.gen(function* () {
           const workspace = thread.workspace;
-          if (!hasRepositorySet(workspace) || workspace.state !== "ready") return;
+          if (!hasRepositorySet(workspace)) return;
           const { settings: currentSettings } = resolveProjectSettings(settings, thread.projectId);
-          if (!currentSettings.sidebarAutoSettleOnMerge) return;
           const links = visibleThreadPullRequests(thread.pullRequests ?? []);
-          if (links.some((link) => link.snapshot?.state !== "merged")) return;
-          const requests: SettlementPullRequest[] = [];
-          for (const binding of workspace.bindings) {
-            if (binding.state !== "ready") return;
-            const actual = yield* Cache.get(repositoryInspections, binding.checkoutPath);
-            if (
-              actual.path !== binding.checkoutPath ||
-              actual.commonDir !== binding.commonDir ||
-              actual.dirty ||
-              actual.operation !== null
-            )
-              return;
-            // An unchanged repository needs no PR. A linked branch still counts when
-            // its commits already existed when the workspace was configured.
-            if (
-              actual.head === binding.baseCommit &&
-              !links.some((link) => link.bindingId === binding.id)
-            )
-              continue;
-            if (actual.branch === null) return;
-            if (mergedPullRequest !== null && !invalidatedWorkspaceCwds.has(binding.checkoutPath)) {
-              invalidatedWorkspaceCwds.add(binding.checkoutPath);
-              yield* git.invalidateStatus(binding.checkoutPath);
-            }
-            const request = yield* git.branchPullRequest(
-              { cwd: binding.checkoutPath, branch: actual.branch },
-              { freshGitState: true },
+          if (
+            workspace.state === "ready" &&
+            currentSettings.sidebarAutoSettleOnMerge &&
+            !links.some((link) => link.snapshot?.state !== "merged")
+          ) {
+            const evaluations = yield* Effect.forEach(
+              workspace.bindings,
+              (binding) => evaluateBinding(thread.id, binding, links),
+              { concurrency: 4 },
             );
-            if (
-              request?.state !== "merged" ||
-              request.mergedAt == null ||
-              Number.isNaN(Date.parse(request.mergedAt))
-            )
-              return;
-            requests.push(request);
+            if (!evaluations.some((evaluation) => evaluation.kind === "blocked")) {
+              const requests = evaluations.flatMap((evaluation) =>
+                evaluation.kind === "merged" ? [evaluation.request] : [],
+              );
+              if ((yield* settleThread(thread, null, requests)) === null) return;
+            }
           }
-          yield* settleThread(thread, null, requests);
+          // A folder with one repository also settles under the single-repository
+          // inactivity and linked-review rules when the merge check did not settle it.
+          if (!isMultiRepositoryWorkspace(workspace)) {
+            yield* settleThread(thread, null);
+          }
         }).pipe(
           Effect.catchCauseIf(
             (cause) => !Cause.hasInterruptsOnly(cause),
