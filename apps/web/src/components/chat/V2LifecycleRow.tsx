@@ -548,46 +548,48 @@ function SubagentTimelineTooltip(
 export function HandoffRow(props: {
   readonly endpoints: HandoffEndpoints;
   readonly providers: ReadonlyArray<ServerProvider>;
-  readonly pending?: boolean;
   readonly failed?: boolean;
 }) {
-  const { from: fromEndpoints, to } = props.endpoints;
   return (
     <TimelineSystemDivider
-      label={props.pending ? "Context handoff pending" : "Context handoff"}
+      label="Context handoff"
       icon={ArrowRightLeftIcon}
       showDetailSeparator={false}
       tone={props.failed ? "danger" : "neutral"}
-      detail={
-        <span className="inline-flex min-w-0 flex-wrap items-center justify-center gap-1.5">
-          {fromEndpoints.map((endpoint, index) => (
-            <span
-              key={`${endpoint.instanceId}:${endpoint.model ?? ""}`}
-              className="inline-flex min-w-0 items-center"
-            >
-              <HandoffEndpoint
-                providers={props.providers}
-                instanceId={endpoint.instanceId}
-                model={endpoint.model}
-              />
-              {index < fromEndpoints.length - 1 ? (
-                <span aria-hidden="true" className="ml-0.5">
-                  ,
-                </span>
-              ) : null}
-            </span>
-          ))}
-          {fromEndpoints.length > 0 ? (
-            <ArrowRightIcon aria-hidden="true" className="size-3 shrink-0" />
-          ) : null}
+      detail={<HandoffEndpointsDetail endpoints={props.endpoints} providers={props.providers} />}
+    />
+  );
+}
+
+export function HandoffEndpointsDetail(props: {
+  readonly endpoints: HandoffEndpoints;
+  readonly providers: ReadonlyArray<ServerProvider>;
+}) {
+  const { from: fromEndpoints, to } = props.endpoints;
+  return (
+    <span className="inline-flex min-w-0 flex-wrap items-center justify-center gap-1.5">
+      {fromEndpoints.map((endpoint, index) => (
+        <span
+          key={`${endpoint.instanceId}:${endpoint.model ?? ""}`}
+          className="inline-flex min-w-0 items-center"
+        >
           <HandoffEndpoint
             providers={props.providers}
-            instanceId={to.instanceId}
-            model={to.model}
+            instanceId={endpoint.instanceId}
+            model={endpoint.model}
           />
+          {index < fromEndpoints.length - 1 ? (
+            <span aria-hidden="true" className="ml-0.5">
+              ,
+            </span>
+          ) : null}
         </span>
-      }
-    />
+      ))}
+      {fromEndpoints.length > 0 ? (
+        <ArrowRightIcon aria-hidden="true" className="size-3 shrink-0" />
+      ) : null}
+      <HandoffEndpoint providers={props.providers} instanceId={to.instanceId} model={to.model} />
+    </span>
   );
 }
 

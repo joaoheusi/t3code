@@ -146,6 +146,7 @@ import {
 } from "./ThreadComposer";
 import { ComposerPopoverHost } from "./ComposerPopoverHost";
 import { ThreadFeed, type ThreadFeedHistoryControls } from "./ThreadFeed";
+import { ThreadPendingHandoffNotice } from "./thread-handoff-row";
 import { useThreadTurnSubagents } from "./ThreadAgentsSheet";
 import { ComposerQueuedEditBanner } from "./ComposerQueuedEdit";
 import { useThreadQueuedCount } from "./ThreadQueueControl";
@@ -1160,7 +1161,6 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
               threadId={props.selectedThread.id}
               workspaceRoot={props.threadCwd}
               feed={props.selectedThreadFeed}
-              pendingHandoff={props.pendingHandoff}
               worktreeSetup={props.worktreeSetup}
               setupWorkingStartedAt={props.setupWorkingStartedAt}
               queuedMessages={props.queuedMessages}
@@ -1292,6 +1292,12 @@ export const ThreadDetailScreen = memo(function ThreadDetailScreen(props: Thread
                         }}
                       />
                     </Animated.View>
+                  ) : null}
+                  {props.pendingHandoff ? (
+                    <ThreadPendingHandoffNotice
+                      environmentId={props.environmentId}
+                      endpoints={props.pendingHandoff}
+                    />
                   ) : null}
                   <UsageLimitRecoveryCard
                     key={props.selectedThread.latestRun?.runId}
