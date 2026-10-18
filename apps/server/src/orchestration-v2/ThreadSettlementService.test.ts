@@ -3,11 +3,15 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import {
   DEFAULT_SERVER_SETTINGS,
+  CommandId,
   ProjectId,
   EventId,
   ProviderInstanceId,
   ProviderSessionId,
   ThreadId,
+  WorkspaceError,
+  type ThreadWorkspace,
+  type WorkspaceRepository,
   type OrchestrationProjectShell,
   type OrchestrationV2AppThread,
   type OrchestrationV2Command,
@@ -36,6 +40,7 @@ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerActivation from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -520,6 +525,7 @@ function makeBranchPullRequest(state: "open" | "closed" | "merged") {
     updatedAt: NOW,
     closedAt: state === "closed" ? NOW : null,
     mergedAt: state === "merged" ? NOW : null,
+    headSha: "changed",
   } satisfies GitManager.GitBranchPullRequest;
 }
 
@@ -529,6 +535,7 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager.GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService.PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
+  readonly inspectRepository?: WorkspaceRepositories.WorkspaceRepositories["Service"]["inspect"];
   readonly onDispatch?: (command: AutoSettleCommand) => Effect.Effect<void>;
   readonly onScriptRun?: (
     input: ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput,
@@ -549,6 +556,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
+  >([]);
+  const branchCallOptions = yield* Ref.make<
+    ReadonlyArray<{ readonly refresh?: boolean; readonly freshGitState?: boolean } | undefined>
   >([]);
   const summaryCalls = yield* Ref.make<
     ReadonlyArray<{
@@ -572,9 +582,13 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       return next;
     });
 
-  const branchPullRequest: GitManager.GitManager["Service"]["branchPullRequest"] = (input) =>
+  const branchPullRequest: GitManager.GitManager["Service"]["branchPullRequest"] = (
+    input,
+    callOptions,
+  ) =>
     Ref.update(branchCalls, (calls) => [...calls, input]).pipe(
-      Effect.andThen(options.branchPullRequest?.(input) ?? Effect.succeed(null)),
+      Effect.andThen(Ref.update(branchCallOptions, (calls) => [...calls, callOptions])),
+      Effect.andThen(options.branchPullRequest?.(input, callOptions) ?? Effect.succeed(null)),
     );
   const pullRequestSummary: PullRequestService.PullRequestService["Service"]["summary"] = (
     input,
@@ -662,6 +676,10 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       branchPullRequest,
       invalidateStatus: (cwd) => Ref.update(invalidatedCwds, (cwds) => [...cwds, cwd]),
     }),
+    Layer.mock(WorkspaceRepositories.WorkspaceRepositories)({
+      inspect: (path) =>
+        options.inspectRepository?.(path) ?? Effect.die("Unexpected repository inspection"),
+    }),
     Layer.mock(PullRequestService.PullRequestService)({
       summary: pullRequestSummary,
       subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(
@@ -684,6 +702,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     candidateReads,
     commands,
     branchCalls,
+    branchCallOptions,
     summaryCalls,
     summaryRecovery,
     invalidatedCwds,
@@ -710,6 +729,316 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
   yield* Deferred.succeed(activation, undefined);
   yield* Queue.take(snapshotReads);
   yield* reactor.drain;
+});
+
+function makeWorkspace(folder = false, count = 2): ThreadWorkspace {
+  return {
+    schemaVersion: 1,
+    revision: 1,
+    operationId: CommandId.make("workspace"),
+    state: "ready",
+    primaryBindingId: "repo-0",
+    bindings: Array.from({ length: count }, (_, index) => ({
+      id: `repo-${index}`,
+      label: `Repository ${index}`,
+      sourcePath: `/repos/${index}`,
+      checkoutPath: `/repos/${index}`,
+      commonDir: `/repos/${index}/.git`,
+      mode: "current",
+      branch: `feature-${index}`,
+      head: "initial",
+      baseCommit: "initial",
+      state: "ready",
+      owned: false,
+      error: null,
+    })),
+    ...(folder ? { root: { mode: "current", sourcePath: "/repos", checkoutPath: "/repos" } } : {}),
+  };
+}
+
+function makeRepository(
+  path: string,
+  overrides: Partial<WorkspaceRepository> = {},
+): WorkspaceRepository {
+  return {
+    path,
+    commonDir: `${path}/.git`,
+    gitDir: `${path}/.git`,
+    branch: `feature-${path.split("/").at(-1)}`,
+    head: "changed",
+    dirty: false,
+    operation: null,
+    unmergedPaths: [],
+    ...overrides,
+  };
+}
+
+describe("ThreadSettlementServiceV2 repository sets", () => {
+  const cases = [
+    { name: "settles when all changed branches merged", settle: true },
+    { name: "settles a folder with a single repository", folder: true, count: 1, settle: true },
+    { name: "settles a folder with multiple repositories", folder: true, settle: true },
+    { name: "ignores an unchanged repository", untouched: true, settle: true },
+    { name: "keeps a changed branch without a PR active", missing: true, settle: false },
+    { name: "keeps an open PR active", state: "open", settle: false },
+    { name: "keeps a PR closed without merging active", state: "closed", settle: false },
+    { name: "keeps uncommitted changes active", dirty: true, settle: false },
+    { name: "keeps an active merge active", operation: "merge", settle: false },
+    { name: "keeps a missing checkout active", unavailable: true, settle: false },
+    { name: "rejects a replaced repository", replaced: true, settle: false },
+    { name: "keeps a detached checkout active", detached: true, settle: false },
+    { name: "requires a merge timestamp", mergedAt: null, settle: false },
+    { name: "rejects an invalid merge timestamp", mergedAt: "invalid", settle: false },
+    {
+      name: "keeps work resumed after all merges active",
+      mergedAt: "2026-08-19T00:00:00.000Z",
+      settle: false,
+    },
+    { name: "respects disabled merge settlement", disabled: true, settle: false },
+    { name: "does not settle an entirely unchanged workspace", allUntouched: true, settle: false },
+    {
+      name: "checks a linked branch present at workspace creation",
+      allUntouched: true,
+      linkedState: "merged",
+      settle: true,
+    },
+    {
+      name: "does not trust merged links while a changed branch has no PR",
+      linkedState: "merged",
+      missing: true,
+      settle: false,
+    },
+    { name: "keeps an open linked review active", linkedState: "open", settle: false },
+    { name: "keeps an unsynced linked review active", linkedState: null, settle: false },
+    { name: "keeps a closed linked review active", linkedState: "closed", settle: false },
+    { name: "keeps commits added after a merged PR active", staleHead: true, settle: false },
+    { name: "keeps a merged PR without a head commit active", missingHeadSha: true, settle: false },
+  ] satisfies ReadonlyArray<{
+    name: string;
+    settle: boolean;
+    folder?: boolean;
+    count?: number;
+    untouched?: boolean;
+    allUntouched?: boolean;
+    missing?: boolean;
+    state?: "open" | "closed";
+    dirty?: boolean;
+    operation?: "merge";
+    unavailable?: boolean;
+    replaced?: boolean;
+    detached?: boolean;
+    mergedAt?: string | null;
+    disabled?: boolean;
+    linkedState?: "open" | "closed" | "merged" | null;
+    staleHead?: boolean;
+    missingHeadSha?: boolean;
+  }>;
+
+  it.effect.each(cases)("$name", (scenario) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("repository-set", {
+          workspace: makeWorkspace(scenario.folder, scenario.count),
+          ...(scenario.linkedState === undefined
+            ? {}
+            : {
+                pullRequests: [
+                  {
+                    host: "example.test",
+                    repository: "owner/repository",
+                    number: 42,
+                    url: "https://example.test/owner/repository/pull/42",
+                    source: "created",
+                    bindingId: "repo-0",
+                    linkedAt: "2026-08-20T00:00:00.000Z",
+                    snapshot:
+                      scenario.linkedState === null
+                        ? null
+                        : {
+                            state: scenario.linkedState,
+                            title: "Pull request",
+                            headBranch: "feature-0",
+                            baseBranch: "main",
+                            isDraft: false,
+                            updatedAt: NOW,
+                            syncedAt: NOW,
+                            mergedAt: scenario.linkedState === "merged" ? NOW : null,
+                            closedAt: scenario.linkedState === "closed" ? NOW : null,
+                          },
+                    stack: null,
+                  },
+                ],
+              }),
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: { ...DEFAULT_SERVER_SETTINGS, sidebarAutoSettleOnMerge: !scenario.disabled },
+          inspectRepository: (path) => {
+            if (scenario.unavailable)
+              return Effect.fail(new WorkspaceError({ detail: "Missing checkout" }));
+            return Effect.succeed(
+              makeRepository(path, {
+                head:
+                  scenario.allUntouched || (scenario.untouched && path === "/repos/1")
+                    ? "initial"
+                    : "changed",
+                dirty: scenario.dirty ?? false,
+                operation: scenario.operation ?? null,
+                ...(scenario.replaced ? { commonDir: "/another/.git" } : {}),
+                ...(scenario.detached ? { branch: null } : {}),
+              }),
+            );
+          },
+          branchPullRequest: ({ cwd }) =>
+            Effect.succeed(
+              cwd === "/repos/1" && scenario.missing
+                ? null
+                : {
+                    ...makeBranchPullRequest(
+                      cwd === "/repos/1" ? (scenario.state ?? "merged") : "merged",
+                    ),
+                    ...(scenario.mergedAt !== undefined ? { mergedAt: scenario.mergedAt } : {}),
+                    headSha: scenario.staleHead
+                      ? "other-head"
+                      : scenario.missingHeadSha
+                        ? null
+                        : scenario.allUntouched || (scenario.untouched && cwd === "/repos/1")
+                          ? "initial"
+                          : "changed",
+                  },
+            ),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual(
+            scenario.settle ? [thread.id] : [],
+          );
+          if (scenario.untouched)
+            expect(yield* Ref.get(fixture.branchCalls)).toEqual([
+              { cwd: "/repos/0", branch: "feature-0" },
+            ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("settles on the final branch merge and refreshes each repository", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const finalMerged = yield* Ref.make(false);
+        const settled = yield* Deferred.make<void>();
+        const thread = makeThread("workspace-merge", { workspace: makeWorkspace(true) });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: ({ cwd }) =>
+            Ref.get(finalMerged).pipe(
+              Effect.map((merged) =>
+                makeBranchPullRequest(cwd === "/repos/0" || merged ? "merged" : "open"),
+              ),
+            ),
+          onDispatch: () => Deferred.succeed(settled, undefined),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect(yield* Ref.get(fixture.commands)).toEqual([]);
+          yield* Ref.set(finalMerged, true);
+          yield* fixture.publishMerge;
+          yield* Deferred.await(settled);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            thread.id,
+          ]);
+          expect(yield* Ref.get(fixture.invalidatedCwds)).toEqual(["/repos/0", "/repos/1"]);
+          expect(yield* Ref.get(fixture.branchCallOptions)).toEqual([
+            { freshGitState: true },
+            { freshGitState: true },
+            { refresh: true },
+            { refresh: true },
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("shares repository lookups between threads in one sweep", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const workspace = makeWorkspace();
+        const first = makeThread("workspace-shared-a", { workspace });
+        const second = makeThread("workspace-shared-b", { workspace });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([first, second]),
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect(
+            (yield* Ref.get(fixture.commands)).map((command) => command.threadId).toSorted(),
+          ).toEqual([first.id, second.id].toSorted());
+          expect(yield* Ref.get(fixture.branchCalls)).toHaveLength(2);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("settles a folder thread with one repository on merge without inactivity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("folder-single-merge", { workspace: makeWorkspace(true, 1) });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleOnMerge: true,
+            sidebarAutoSettleAfterDays: null,
+          },
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            thread.id,
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("settles a folder thread with one repository by inactivity", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const thread = makeThread("folder-single-age", { workspace: makeWorkspace(true, 1) });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: {
+            ...DEFAULT_SERVER_SETTINGS,
+            sidebarAutoSettleOnMerge: false,
+            sidebarAutoSettleAfterDays: 1,
+          },
+          inspectRepository: (path) => Effect.succeed(makeRepository(path)),
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          expect((yield* Ref.get(fixture.commands)).map((command) => command.threadId)).toEqual([
+            thread.id,
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
 });
 
 describe("ThreadSettlementServiceV2 worker", () => {

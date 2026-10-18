@@ -274,6 +274,12 @@ closed reviews refresh periodically so reopening one on the host is detected. Me
 when requested. A settled thread's reviews stop refreshing until you unsettle it. With **Auto-settle merged threads** enabled, a thread can settle after every linked
 review is terminal. An open or unsynced link keeps it active.
 
+For a thread with multiple repositories, automatic settlement waits until the pull requests for
+every changed repository branch have merged and each merged pull request covers the branch's
+current commit. Unchanged repositories need no pull request. Uncommitted changes, missing
+checkouts, and pull requests closed without merging keep the thread active. A folder workspace
+with a single repository follows the single-repository rules above.
+
 Ask the agent to watch, monitor, or babysit a pull request and it calls `watch_pull_request`. While
 the thread is active, the server checks the pull request every two minutes and wakes the agent when a
 check fails, the required checks pass, someone else comments or reviews, or the branch starts to
