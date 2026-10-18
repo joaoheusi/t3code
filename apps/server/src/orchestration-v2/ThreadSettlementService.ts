@@ -222,7 +222,7 @@ export function resolveAutoSettlementAt(input: {
           },
         ],
   );
-  if (multiRepository) {
+  if (multiRepository || input.workspacePullRequests !== undefined) {
     requests.push(...(input.workspacePullRequests ?? []));
     if (
       requests.some(
