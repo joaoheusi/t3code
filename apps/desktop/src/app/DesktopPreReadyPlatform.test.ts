@@ -179,7 +179,7 @@ describe("DesktopPreReadyPlatform", () => {
         const identity = yield* Effect.promise(() => portalIdentity);
         assert.equal(identity.desktopName, production.linuxDesktopEntryName);
         assert.include(identity.desktopEntry ?? "", 'Exec="/Applications/current.AppImage" %U');
-        assert.include(identity.desktopEntry ?? "", `Name=${FORK_IDENTITY.name} (Alpha)`);
+        assert.include(identity.desktopEntry ?? "", `Name=${FORK_IDENTITY.name} (Beta)`);
         assert.include(
           identity.desktopEntry ?? "",
           `MimeType=x-scheme-handler/${production.scheme};`,

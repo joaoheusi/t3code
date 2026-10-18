@@ -27,7 +27,6 @@ const environmentFor = (
     appImagePath: Option.none(),
   } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]);
 
-/** The service for a packaged app; the launcher is written on Install. */
 const commandIn = (
   input: { home: string; baseDir?: string; platform?: NodeJS.Platform; isPackaged?: boolean },
   spawner?: ChildProcessSpawner.ChildProcessSpawner["Service"],
@@ -48,7 +47,6 @@ const commandIn = (
       : make;
   });
 
-/** A PowerShell that keeps the user's PATH in memory and can be told to fail reads. */
 const fakePowerShell = (initial: string) => {
   const registry = { path: initial, failReads: false, writes: 0 };
   const spawner = ChildProcessSpawner.make((command) =>
@@ -107,7 +105,6 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       yield* fs.writeFileString(upstreamCommand, "upstream t3", { mode: 0o755 });
 
       expect(yield* command.state).toEqual({ supported: true, installedPath: null, onPath: false });
-      // Install writes the launcher itself, even when no local backend ever did.
       const installed = yield* command.install;
       expect(installed.installedPath).toBe(link);
       expect(yield* fs.readLink(link)).toBe(path.join(home, ".j4code", "bin", "j4code"));
@@ -152,7 +149,6 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
 
       const after = yield* commandIn({ home, baseDir: path.join(home, "new-j4code") });
       expect((yield* after.state).installedPath).toBe(link);
-      // Installing again points the link at this home's launcher.
       expect((yield* after.install).installedPath).toBe(link);
       expect(yield* fs.readLink(link!)).toBe(path.join(home, "new-j4code", "bin", "j4code"));
       yield* after.uninstall;
@@ -191,7 +187,6 @@ it.layer(NodeServices.layer)("DesktopCliCommand", (it) => {
       const command = yield* commandIn({ home });
       const theirs = path.join(shadow, "j4code");
       expect((yield* command.state).shadowedBy).toBe(theirs);
-      // A link behind it would never run, so nothing is created.
       const error = yield* Effect.flip(command.install);
       expect(error.message).toContain(theirs);
       expect(yield* fs.exists(path.join(home, ".local", "bin", "j4code"))).toBe(false);
