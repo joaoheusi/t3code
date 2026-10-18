@@ -3,6 +3,7 @@ import {
   ModelSelection,
   OrchestrationV2AppThread,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   type RuntimeMode,
   type ThreadWorkspace,
@@ -89,6 +90,16 @@ export function workspaceDirectories(workspace: ThreadWorkspace) {
   };
 }
 
+/**
+ * Drivers whose adapters grant `additionalDirectories` to the agent and have
+ * been verified against a multi-repository workspace. Others fail closed:
+ * starting them would confine the agent to the primary checkout while the
+ * thread claims every binding.
+ */
+const MULTI_REPOSITORY_DRIVERS: ReadonlySet<ProviderDriverKind> = new Set(
+  ["codex", "claudeAgent", "muse"].map((driver) => ProviderDriverKind.make(driver)),
+);
+
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
@@ -129,11 +140,10 @@ export const layerFromProjectStore: Layer.Layer<
           const { cwd, additionalDirectories } = workspaceDirectories(workspace);
           if (
             additionalDirectories.length > 0 &&
-            instance?.driverKind !== "codex" &&
-            instance?.driverKind !== "claudeAgent"
+            !(instance && MULTI_REPOSITORY_DRIVERS.has(instance.driverKind))
           )
             return yield* error(
-              "This provider has not been verified for multi-repository access. Select Codex or Claude.",
+              "This provider has not been verified for multi-repository access. Select Codex, Claude, or Muse.",
             );
           workspacePolicy = {
             cwd,
