@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { cloneElement, isValidElement, type ReactElement } from "react";
-import { AndroidAnchoredMenu } from "./AndroidAnchoredMenu";
+import { AndroidAnchoredMenu } from "./ui/AndroidAnchoredMenu";
 import type { ControlPillMenuProps } from "./ControlPillMenu.types";
 
 /** Uses the same actions as iOS menus, with Android appearance and editor anchoring. */

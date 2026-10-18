@@ -193,11 +193,6 @@ export class VcsStatusBroadcaster extends Context.Service<
       cwd: string,
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
     readonly refreshStatus: (cwd: string) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
-    /**
-     * Refresh a loaded cwd after a turn if background policy allows it.
-     * GitManager retries missing PRs for the current branch and keeps known
-     * PRs and failed lookup backoff cached. This does not fetch Git remotes.
-     */
     readonly refreshPullRequestStatus: (
       cwd: string,
     ) => Effect.Effect<VcsStatusRemoteResult | null, GitManagerServiceError>;

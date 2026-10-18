@@ -22,13 +22,6 @@ export interface CreatedPullRequestKey {
   readonly url: string;
 }
 
-/**
- * The identity a stacked action's pull request should be linked under, or
- * null when the action did not leave one behind. Reading the host and
- * repository from the URL keeps the link host-level even when the checkout's
- * remote differs from where the PR was opened (a fork, say); the project is
- * only consulted when the URL is one this cannot read.
- */
 export function createdPullRequestKey(
   result: Pick<GitRunStackedActionResult, "pr">,
   project: OrchestrationProjectShell | undefined,

@@ -1,9 +1,9 @@
 import { useNavigation } from "@react-navigation/native";
 import { Platform } from "react-native";
 
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import type { AppSymbolName } from "../../components/AppSymbol";
-import { MaterialButton } from "../../components/MaterialButton";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import type { AppSymbolName } from "../../components/ui/AppSymbol";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
 
 type HeaderButton = {

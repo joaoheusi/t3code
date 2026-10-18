@@ -198,8 +198,6 @@ export function buildMenuItems(
     dialogAction: "push",
   };
 
-  // An open change request is surfaced by the standalone attribution row, so
-  // the menu offers no change-request entry at all while one is open.
   if (hasOpenPr) {
     return [commitItem, pushItem];
   }
@@ -322,7 +320,6 @@ export function resolveLiveThreadBranchUpdate(input: {
   };
 }
 
-// Re-export from shared for backwards compatibility in this module's exports
 export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
 
 export { resolveQuickAction, type GitQuickAction } from "@t3tools/client-runtime/quickActionGit";

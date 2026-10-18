@@ -1,4 +1,7 @@
-import { AppActivityIndicator } from "../../components/AppActivityIndicator";
+import { Toolbar } from "../../components/ui/Toolbar";
+import * as Dialog from "../../components/ui/Dialog";
+import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
+import { NavigationRow } from "../../components/ui/NavigationRow";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { shouldCheckoutNewTaskBranch } from "./new-task-context-presentation";
 import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
@@ -10,14 +13,16 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
-import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { AppText as Text } from "../../components/AppText";
+import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { ScreenContent } from "../../components/ui/ScreenContent";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { EnvironmentMachineSymbol } from "../../components/EnvironmentMachineSymbol";
+import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import {
   PickerRow,
   PickerSearchField,
@@ -32,6 +37,115 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsEnvironment } from "../../state/vcs";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
+
+function SelectionRow(props: {
+  readonly icon?: "arrow.triangle.branch" | ReactNode;
+  readonly onPress: () => void;
+  readonly disabled?: boolean;
+  readonly selected: boolean;
+  readonly isLast?: boolean;
+  readonly subtitle?: string;
+  readonly title: string;
+}) {
+  if (Platform.OS === "android") {
+    return (
+      <NavigationRow
+        className="bg-grouped-card"
+        title={props.title}
+        subtitle={props.subtitle}
+        leading={
+          props.icon === "arrow.triangle.branch" ? (
+            <SymbolView
+              name="arrow.triangle.branch"
+              size={24}
+              tintColorClassName="accent-icon-muted"
+            />
+          ) : (
+            props.icon
+          )
+        }
+        trailing={
+          props.selected ? (
+            <SymbolView name="checkmark" size={20} tintColorClassName="accent-focus" />
+          ) : null
+        }
+        accessibilityRole="radio"
+        accessibilityState={{ checked: props.selected }}
+        disabled={props.disabled}
+        onPress={props.onPress}
+      />
+    );
+  }
+  return (
+    <Pressable
+      accessibilityLabel={[props.title, props.subtitle].filter(Boolean).join(", ")}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: props.selected }}
+      className={cn(
+        "min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3 active:bg-subtle",
+        !props.isLast && "border-b border-border-subtle",
+      )}
+      disabled={props.disabled}
+      onPress={props.onPress}
+      style={{ opacity: props.disabled ? 0.45 : 1 }}
+    >
+      {props.icon === "arrow.triangle.branch" ? (
+        <SymbolView
+          name="arrow.triangle.branch"
+          size={17}
+          tintColorClassName="accent-icon-muted"
+          type="monochrome"
+        />
+      ) : (
+        (props.icon ?? null)
+      )}
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="text-base font-t3-medium text-foreground" numberOfLines={1}>
+          {props.title}
+        </Text>
+        {props.subtitle ? (
+          <Text className="text-xs text-foreground-muted" numberOfLines={1}>
+            {props.subtitle}
+          </Text>
+        ) : null}
+      </View>
+      {props.selected ? (
+        <SymbolView
+          name="checkmark"
+          size={16}
+          tintColorClassName="accent-icon"
+          type="monochrome"
+          weight="semibold"
+        />
+      ) : null}
+    </Pressable>
+  );
+}
+
+function ToggleRow(props: {
+  readonly title: string;
+  readonly value: boolean;
+  readonly onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <View className="min-h-14 flex-row items-center gap-3 bg-grouped-card px-4 py-3">
+      <Text
+        className={cn(
+          "min-w-0 flex-1 text-base text-foreground",
+          Platform.OS !== "android" && "font-t3-medium",
+        )}
+        numberOfLines={1}
+      >
+        {props.title}
+      </Text>
+      <ThemedSwitch
+        accessibilityLabel={props.title}
+        onValueChange={props.onValueChange}
+        value={props.value}
+      />
+    </View>
+  );
+}
 
 function BranchSelectionRow(props: {
   readonly badge: string | null;
@@ -90,7 +204,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
           onBack={() => navigation.goBack()}
         />
       ) : null}
-      <MaterialScreenContent>
+      <ScreenContent>
         <ScrollView
           contentInsetAdjustmentBehavior="automatic"
           contentContainerStyle={{
@@ -127,7 +241,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
             ))}
           </PickerSurface>
         </ScrollView>
-      </MaterialScreenContent>
+      </ScreenContent>
     </View>
   );
 }
@@ -188,7 +302,7 @@ export function NewTaskBranchPickerRouteScreen() {
         if (result._tag === "Failure") {
           if (mountedRef.current && navigation.isFocused() && !isAtomCommandInterrupted(result)) {
             const error = squashAtomCommandFailure(result);
-            Alert.alert(
+            Dialog.alert(
               "Could not switch branch",
               error instanceof Error ? error.message : "The branch could not be checked out.",
             );
@@ -258,7 +372,6 @@ export function NewTaskBranchPickerRouteScreen() {
   );
 }
 
-/** The searchable branch screen shared by new threads and scheduled tasks. */
 export function BranchPickerScreen(props: {
   readonly title: string;
   readonly project: EnvironmentProject | null;
@@ -417,7 +530,7 @@ export function BranchPickerScreen(props: {
             value={props.query}
           />
         </View>
-        <MaterialScreenContent>{branchContent}</MaterialScreenContent>
+        <ScreenContent>{branchContent}</ScreenContent>
       </View>
     );
   }

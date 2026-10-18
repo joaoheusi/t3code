@@ -103,7 +103,6 @@ export type LoadEarlierThreadHistoryInput = {
 export type {
   ArchiveThreadInput,
   CancelQueuedRunInput,
-  RetryWorkspacePreparationInput,
   CreateThreadInput,
   DeleteThreadInput,
   EditQueuedRunInput,
@@ -117,6 +116,7 @@ export type {
   RespondToThreadApprovalInput,
   RespondToThreadUserInputInput,
   DismissThreadUserInputInput,
+  RetryWorkspacePreparationInput,
   RevertThreadCheckpointInput,
   SetThreadInteractionModeInput,
   SetThreadRuntimeModeInput,
