@@ -303,7 +303,7 @@ import {
   DeviceSession,
   DeviceShutdownInput,
 } from "./device.ts";
-import {} from "./previewAutomation.ts";
+import "./previewAutomation.ts";
 import {
   ServerConfigStreamEvent,
   DesktopUpdateCommitInput,
@@ -1878,7 +1878,11 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
   { error: EnvironmentAuthorizationError },
 ) {}
 
-export const WsRpcGroup = RpcGroup.make(
+/**
+ * The fork's workspace and quick-action RPCs. Their handlers are a separate layer
+ * on the server, so the main handlers stay upstream-shaped.
+ */
+export const ForkWsRpcGroup = RpcGroup.make(
   Rpc.make(WS_METHODS.actionContext, {
     payload: ActionContextInput,
     success: ActionContextResult,
@@ -1919,6 +1923,9 @@ export const WsRpcGroup = RpcGroup.make(
     success: Schema.Void,
     error: Schema.Union([QuickActionError, EnvironmentAuthorizationError]),
   }),
+).middleware(RpcScopeAuthorization);
+
+export const BaseWsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerRefreshProvidersRpc,
@@ -2115,3 +2122,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
   WsOrchestrationV2SubscribeCommandOutputRpc,
 ).middleware(RpcScopeAuthorization);
+
+export const WsRpcGroup = BaseWsRpcGroup.merge(ForkWsRpcGroup);

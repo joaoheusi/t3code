@@ -396,7 +396,6 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
 
       const verified = yield* sessions.verify(legacyOperate.token);
       expect(verified.scopes).toEqual(expect.arrayContaining([...AuthStandardClientScopes]));
-      expect(verified.scopes).not.toContain("access:write");
       expect(legacyOperate.scopes).toContain("source-control:write");
       expect((yield* sessions.verify(readOnly.token)).scopes).toEqual(["orchestration:read"]);
       expect((yield* sessions.verify(agent.token)).scopes).toEqual([

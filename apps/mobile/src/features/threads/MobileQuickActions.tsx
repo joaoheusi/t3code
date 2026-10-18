@@ -39,10 +39,10 @@ import {
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { rankQuickActionMenu } from "@t3tools/shared/quickActions";
 
-import { AppText as Text } from "../../components/AppText";
-import { SymbolView } from "../../components/AppSymbol";
-import { useAndroidControlSizing } from "../../components/useAndroidControlSizing";
-import { ControlPillMenu } from "../../components/ControlPill";
+import { AppText as Text } from "../../components/ui/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { useAndroidControlSizing } from "../../components/ui/useAndroidControlSizing";
+import { ControlPillMenu } from "../../components/ControlPillMenu";
 import {
   PickerCaption,
   PickerRow,

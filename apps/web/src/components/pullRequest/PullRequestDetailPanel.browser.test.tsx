@@ -15,8 +15,12 @@ import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 
 import "~/index.css";
 
-const { newThread, prepareThread, refresh } = vi.hoisted(() => ({
+const { newThread, paletteEvents, prepareThread, refresh } = vi.hoisted(() => ({
   newThread: vi.fn(),
+  // Views handed to the command palette bus, so a test can run the item the reader would pick.
+  paletteEvents: [] as Array<{
+    view?: { groups: Array<{ items: Array<{ value: string; run?: () => unknown }> }> };
+  }>,
   prepareThread: vi.fn(),
   refresh: vi.fn(),
 }));
@@ -44,7 +48,27 @@ vi.mock(import("~/lib/sourceControlActions"), async (original) => ({
 }));
 vi.mock(import("~/state/use-atom-command"), async (original) => ({
   ...(await original()),
-  useAtomCommand: (() => vi.fn()) as never,
+  useAtomCommand: (() => async () => ({ _tag: "Success", value: [] })) as never,
+}));
+vi.mock(import("~/hooks/useEnvironmentOperateAccess"), async (original) => ({
+  ...(await original()),
+  useEnvironmentOperateAccess: (() => "granted") as never,
+}));
+vi.mock(import("~/quickActions/useQuickActions"), async (original) => ({
+  ...(await original()),
+  useResolveActionContext: (() => async () => ({
+    threadTitle: null,
+    workspaceRevision: null,
+    repositories: [],
+    pullRequest: {
+      url: "https://github.com/owner/repo/pull/1",
+      headSha: null,
+      observedAt: "2026-09-01T00:00:00Z",
+      failures: "ci failures",
+      conflicts: "conflicts",
+    },
+    notices: [],
+  })) as never,
 }));
 vi.mock(import("~/state/pullRequests"), async (original) => {
   const actual = await original();
@@ -146,6 +170,10 @@ vi.mock(import("./PullRequestCodeTab"), async (original) => ({
   )) as never,
 }));
 
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import type { ComposerThreadTarget } from "~/composerDraftStore";
+import { registerActionEditor } from "~/quickActions/dispatcher";
+
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import { pullRequestPanelContext } from "./pullRequestDetail.logic";
 
@@ -238,17 +266,52 @@ function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = 
   );
 }
 
+window.addEventListener("t3code:open-command-palette", (event) => {
+  paletteEvents.push((event as CustomEvent).detail ?? {});
+});
+
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  useComposerDraftStore.setState({ draftsByThreadKey: {} });
+  paletteEvents.length = 0;
+  useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   newThread
     .mockReset()
-    .mockResolvedValue({ draftId: newDraftId, threadId: ThreadId.make("new-thread") });
+    .mockImplementation(
+      async (projectRef: { environmentId: EnvironmentId; projectId: ProjectId }) => {
+        const threadId = ThreadId.make("new-thread");
+        useComposerDraftStore
+          .getState()
+          .setProjectDraftThreadId(projectRef, newDraftId, { threadId });
+        return { draftId: newDraftId, threadId };
+      },
+    );
   prepareThread.mockReset().mockResolvedValue({
     _tag: "Success",
     value: { branch: "feature", worktreePath: "/workspace/pr" },
   });
 });
+
+/** Stands in for the mounted composer: insertions splice into the draft's prompt. */
+function registerComposer(target: ComposerThreadTarget) {
+  let unregister: (() => void) | undefined;
+  act(() => {
+    unregister = registerActionEditor(target, {
+      available: () => true,
+      read: () => {
+        const text = useComposerDraftStore.getState().getComposerDraft(target)?.prompt ?? "";
+        return { text, selection: { start: text.length, end: text.length } };
+      },
+      replace: (start, end, text) => {
+        const store = useComposerDraftStore.getState();
+        const current = store.getComposerDraft(target)?.prompt ?? "";
+        store.setPrompt(target, current.slice(0, start) + text + current.slice(end));
+        return true;
+      },
+      submit: () => false,
+    });
+  });
+  return () => act(() => unregister?.());
+}
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.replaceChildren();
@@ -318,17 +381,44 @@ describe.each([
     "Fix check",
     "Add to agent",
   ])("%s writes to the correct composer", async (action) => {
+    if (typeof target === "string") {
+      useComposerDraftStore
+        .getState()
+        .setProjectDraftThreadId(
+          scopeProjectRef(EnvironmentId.make("env-1"), detail.projectId),
+          target,
+          { threadId: ThreadId.make("draft-thread") },
+        );
+    }
     if (target) useComposerDraftStore.getState().setPrompt(target, "Keep my draft");
-    await renderPanel();
-    await runAction(target ? action : action.replace("in this thread", "in a thread"));
+    const unregister = registerComposer(target ?? newDraftId);
+    try {
+      await renderPanel();
+      await runAction(target ? action : action.replace("in this thread", "in a thread"));
+      if (!target) {
+        // With no thread to write into, the task waits in the palette until the reader picks one.
+        const item = paletteEvents
+          .at(-1)
+          ?.view?.groups.flatMap((group) => group.items)
+          .find((entry) => entry.value === "new-thread");
+        if (!item?.run) throw new Error("Expected a palette destination picker");
+        await act(async () => item.run?.());
+      }
+    } finally {
+      unregister();
+    }
     const draft = () => useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
     await vi.waitFor(() => {
       if (action === "Resolve conflicts")
-        expect(draft()?.prompt).toContain("resolve every conflict");
+        expect(draft()?.prompt).toContain("resolve conflicts against");
       else if (action === "Fix check") expect(draft()?.prompt).toContain("Fix the failing check");
       else if (action.startsWith("Fix findings"))
         expect(draft()?.prompt).toContain("Fix the actionable findings");
-      else expect(draft()?.reviewComments?.length).toBeGreaterThan(0);
+      else {
+        expect(draft()?.reviewComments?.length).toBeGreaterThan(0);
+        // The prompt reference is what makes the attached comment survive the next edit.
+        expect(draft()?.prompt).toContain("t3-context://");
+      }
     });
     if (action === "Add to agent") {
       expect(draft()?.prompt).toContain("Fix this line");

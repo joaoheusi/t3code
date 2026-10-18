@@ -9,7 +9,7 @@ import {
 } from "@t3tools/contracts";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuickActionScope } from "./quickActionRunner";
 import type { CommandPaletteOpenDetail } from "../commandPaletteBus";
@@ -84,26 +84,29 @@ const status = (overrides: Partial<VcsStatusResult> = {}): VcsStatusResult => ({
   ...overrides,
 });
 let registry: ReturnType<typeof AtomRegistry.make>;
-let renderer: ReactTestRenderer;
+let root: Root;
 
 let statuses: Map<
   string,
   Atom.Writable<AsyncResult.Success<VcsStatusResult>, AsyncResult.Success<VcsStatusResult>>
 >;
-function Probe(_props: { view: ReturnType<typeof useQuickActionGit> }) {
+let latestProbeView: ReturnType<typeof useQuickActionGit>;
+function Probe(props: { view: ReturnType<typeof useQuickActionGit> }) {
+  latestProbeView = props.view;
   return null;
 }
 function Surface() {
   return <Probe view={useQuickActionGit(scope, "/parent", mocks.close)} />;
 }
 function view(): ReturnType<typeof useQuickActionGit> {
-  return renderer.root.findByType(Probe).props.view;
+  return latestProbeView;
 }
 const item = (name: string) =>
   view().repositoryItems.find((entry) => entry.value === `quick-action:git:/worktrees/${name}`)!;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  root = createRoot(document.createElement("div"));
   vi.clearAllMocks();
   mocks.permission.mockReturnValue(true);
   mocks.toast.add.mockImplementation(({ title }) => title);
@@ -121,7 +124,7 @@ beforeEach(() => {
   );
   mocks.pull.mockResolvedValue(AsyncResult.success({ status: "pulled" }));
   act(() => {
-    renderer = create(
+    root.render(
       <RegistryContext value={registry}>
         <Surface />
       </RegistryContext>,
@@ -129,7 +132,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
-  act(() => renderer.unmount());
+  act(() => root.unmount());
   registry.dispose();
   vi.unstubAllGlobals();
 });
@@ -294,7 +297,7 @@ describe("Git palette actions", () => {
       (_environment, permission) => permission !== AuthSourceControlWriteScope,
     );
     act(() =>
-      renderer.update(
+      root.render(
         <RegistryContext value={registry}>
           <Surface />
         </RegistryContext>,

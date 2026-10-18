@@ -26,10 +26,10 @@ import {
 } from "@t3tools/client-runtime/workspaceModel";
 import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
 
-import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { SymbolView } from "../../components/ui/AppSymbol";
+import { AppText as Text } from "../../components/ui/AppText";
 import { ComposerInlineControl } from "../../components/ComposerToolbar";
-import { MaterialButton } from "../../components/MaterialButton";
+import { Button as MaterialButton } from "../../components/ui/Button";
 import {
   PickerCaption,
   PickerRow,

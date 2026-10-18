@@ -180,8 +180,7 @@ export const resolveHostCliCommand = (subcommand: string, args: ReadonlyArray<st
     const binName = packageJson.version.includes("-j4.") ? "j4code" : "t3";
     if (command !== `${binName} ${subcommand}`)
       return { command: withArgs(command), launcher: false };
-    if (yield* isCommandAvailable(binName))
-      return { command: withArgs(command), launcher: false };
+    if (yield* isCommandAvailable(binName)) return { command: withArgs(command), launcher: false };
     const launcher = yield* resolveInstallLauncher;
     if (Option.isNone(launcher)) return { command: withArgs(command), launcher: false };
     // PowerShell runs a quoted path only through the call operator.

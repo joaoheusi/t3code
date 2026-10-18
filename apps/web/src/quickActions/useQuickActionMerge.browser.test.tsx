@@ -7,7 +7,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import * as Cause from "effect/Cause";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { CommandPaletteOpenDetail } from "../commandPaletteBus";
 
@@ -43,29 +43,32 @@ const detail = (overrides: Partial<PullRequestDetail> = {}) =>
     mergeCapabilities: { merge: true, squash: true, rebase: true },
     ...overrides,
   }) as PullRequestDetail;
-let renderer: ReactTestRenderer;
-function Probe(_props: { view: ReturnType<typeof useQuickActionMerge> }) {
+let root: Root;
+let latestProbeView: ReturnType<typeof useQuickActionMerge>;
+function Probe(props: { view: ReturnType<typeof useQuickActionMerge> }) {
+  latestProbeView = props.view;
   return null;
 }
 function Surface() {
   return <Probe view={useQuickActionMerge()} />;
 }
 function currentMerge(): ReturnType<typeof useQuickActionMerge> {
-  return renderer.root.findByType(Probe).props.view;
+  return latestProbeView;
 }
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  root = createRoot(document.createElement("div"));
   vi.clearAllMocks();
   toast.add.mockImplementation(({ title }) => title);
   loadDetail.mockReset().mockResolvedValue(AsyncResult.success(detail()));
   runAction.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   act(() => {
-    renderer = create(<Surface />);
+    root.render(<Surface />);
   });
 });
 afterEach(() => {
-  act(() => renderer.unmount());
+  act(() => root.unmount());
   vi.unstubAllGlobals();
 });
 

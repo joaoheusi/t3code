@@ -101,6 +101,8 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  BaseWsRpcGroup,
+  ForkWsRpcGroup,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -546,6 +548,8 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerBaseWsRpcGroup = BaseWsRpcGroup.middleware(RpcInstrumentation);
+const ServerForkWsRpcGroup = ForkWsRpcGroup.middleware(RpcInstrumentation);
 // Replaying each intervening event costs a shell refetch; past this gap a
 // single O(active-threads) snapshot is cheaper and bounded.
 const SHELL_RESUME_MAX_GAP = 1_000;
@@ -1167,7 +1171,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerBaseWsRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1281,8 +1285,6 @@ const layerWsRpc = (
           Effect.ignore,
         ),
       );
-      const quickActions = yield* QuickActions.QuickActions;
-      const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
       const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
@@ -1792,7 +1794,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerBaseWsRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2372,15 +2374,6 @@ const layerWsRpc = (
             const keybindingsConfig = yield* keybindings.removeKeybindingRule(rule);
             return { keybindings: keybindingsConfig, issues: [] };
           }),
-        [WS_METHODS.actionContext]: workspaceApi.context,
-        [WS_METHODS.workspaceInspect]: (input) => workspaceRepositories.inspect(input.path),
-        [WS_METHODS.workspaceDiscover]: (input) =>
-          workspaceRepositories.discover(input.root, input.depth),
-        [WS_METHODS.workspaceTerminal]: workspaceApi.terminal,
-        [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
-        [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
-        [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),
-        [WS_METHODS.quickActionsDelete]: (input) => quickActions.remove(input),
         [WS_METHODS.serverRunStorageCleanup]: () => storageCleanup.runNow,
         [WS_METHODS.serverGetStorageCleanupReport]: () => storageCleanup.reports,
         [WS_METHODS.serverGetDatabaseStorage]: () => databaseStorage.status,
@@ -2869,7 +2862,7 @@ const layerWsRpc = (
         [WS_METHODS.terminalOpen]: (input) =>
           workspaceApi.terminalTarget(input).pipe(
             Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
-            Effect.flatMap((target) => terminalManager.open({ ...input, ...(target ?? {}) })),
+            Effect.flatMap((target) => terminalManager.open({ ...input, ...target })),
           ),
         [WS_METHODS.terminalAttach]: (input) =>
           Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
@@ -2877,7 +2870,7 @@ const layerWsRpc = (
               workspaceApi.terminalTarget(input).pipe(
                 Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
                 Effect.flatMap((target) =>
-                  terminalManager.attachStream({ ...input, ...(target ?? {}) }, (event) =>
+                  terminalManager.attachStream({ ...input, ...target }, (event) =>
                     Queue.offer(queue, event),
                   ),
                 ),
@@ -2891,7 +2884,7 @@ const layerWsRpc = (
         [WS_METHODS.terminalRestart]: (input) =>
           workspaceApi.terminalTarget(input).pipe(
             Effect.mapError((error) => new TerminalWorkspaceError({ detail: error.message })),
-            Effect.flatMap((target) => terminalManager.restart({ ...input, ...(target ?? {}) })),
+            Effect.flatMap((target) => terminalManager.restart({ ...input, ...target })),
           ),
         [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
         [WS_METHODS.terminalObserve]: (input) =>
@@ -3137,6 +3130,26 @@ const layerWsRpc = (
     }),
   );
 
+/** The fork's workspace and quick-action handlers, kept out of the main handlers layer. */
+const layerForkWsRpc = ServerForkWsRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const quickActions = yield* QuickActions.QuickActions;
+    const workspaceRepositories = yield* WorkspaceRepositories.WorkspaceRepositories;
+    const workspaceApi = yield* WorkspaceApi.WorkspaceApi;
+    return ServerForkWsRpcGroup.of({
+      [WS_METHODS.actionContext]: workspaceApi.context,
+      [WS_METHODS.workspaceInspect]: (input) => workspaceRepositories.inspect(input.path),
+      [WS_METHODS.workspaceDiscover]: (input) =>
+        workspaceRepositories.discover(input.root, input.depth),
+      [WS_METHODS.workspaceTerminal]: workspaceApi.terminal,
+      [WS_METHODS.quickActionsList]: (input) => quickActions.list(input.projectId),
+      [WS_METHODS.quickActionsSave]: (input) => quickActions.save(input),
+      [WS_METHODS.quickActionsImport]: (input) => quickActions.importCopies(input),
+      [WS_METHODS.quickActionsDelete]: (input) => quickActions.remove(input),
+    });
+  }),
+);
+
 // RpcServer's default sends a socket-level Defect frame instead, and the client
 // ends every pending request on the socket with it.
 export const WS_RPC_SERVER_OPTIONS = {
@@ -3202,48 +3215,52 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            layerWsRpc(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-              serverBrowser,
-            ).pipe(
-              Layer.provide(Layer.succeed(QuickActions.QuickActions, quickActions)),
-              Layer.provide(
-                Layer.succeed(WorkspaceRepositories.WorkspaceRepositories, workspaceRepositories),
-              ),
-              Layer.provide(Layer.succeed(WorkspaceApi.WorkspaceApi, workspaceApi)),
-              Layer.provideMerge(RpcSerialization.layerJson),
-              // Request fibers run in the handlers' context, so this reporter sees
-              // their defects, not the rest of the server's.
-              Layer.provide(DefectReporter.layer),
-              Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
-              Layer.provide(AgentSessionScanner.layer),
-              Layer.provide(ProviderMaintenanceRunner.layer),
-              Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
-              // One server-lifetime service means clients share the same PR caches, and a WS
-              // mutation invalidates the HTTP diff cache that every client reads from.
-              Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
-              Layer.provide(OtlpEndpointCheck.layer),
-              Layer.provide(
-                Layer.succeed(
-                  PullRequestReviewGuideService.PullRequestReviewGuideService,
-                  reviewGuides,
+            Layer.mergeAll(
+              layerWsRpc(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+                serverBrowser,
+              ).pipe(
+                Layer.provideMerge(RpcSerialization.layerJson),
+                // Request fibers run in the handlers' context, so this reporter sees
+                // their defects, not the rest of the server's.
+                Layer.provide(DefectReporter.layer),
+                Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)),
+                Layer.provide(AgentSessionScanner.layer),
+                Layer.provide(ProviderMaintenanceRunner.layer),
+                Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
+                // One server-lifetime service means clients share the same PR caches, and a WS
+                // mutation invalidates the HTTP diff cache that every client reads from.
+                Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
+                Layer.provide(OtlpEndpointCheck.layer),
+                Layer.provide(
+                  Layer.succeed(
+                    PullRequestReviewGuideService.PullRequestReviewGuideService,
+                    reviewGuides,
+                  ),
                 ),
-              ),
-              Layer.provide(
-                SourceControlDiscovery.layer.pipe(
-                  Layer.provide(
-                    SourceControlProviderRegistry.layer.pipe(
-                      Layer.provide(SourceControlBuiltInDrivers.layer),
-                      Layer.provideMerge(GitVcsDriver.layer),
-                      Layer.provide(
-                        VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
+                Layer.provide(
+                  SourceControlDiscovery.layer.pipe(
+                    Layer.provide(
+                      SourceControlProviderRegistry.layer.pipe(
+                        Layer.provide(SourceControlBuiltInDrivers.layer),
+                        Layer.provideMerge(GitVcsDriver.layer),
+                        Layer.provide(
+                          VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer)),
+                        ),
                       ),
                     ),
                   ),
                 ),
+              ),
+              layerForkWsRpc.pipe(
+                Layer.provide(Layer.succeed(QuickActions.QuickActions, quickActions)),
+                Layer.provide(
+                  Layer.succeed(WorkspaceRepositories.WorkspaceRepositories, workspaceRepositories),
+                ),
+                Layer.provide(Layer.succeed(WorkspaceApi.WorkspaceApi, workspaceApi)),
               ),
             ),
           ),

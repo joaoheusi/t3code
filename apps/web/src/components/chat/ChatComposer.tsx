@@ -3832,7 +3832,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const submitComposerRef = useRef<(() => boolean) | null>(null);
   // The `/query` token is already gone; the rendered text goes where it was, unless
   // the draft moved on while context loaded. Then it waits in a composer banner.
-  const insertQuickActionAtCaret = useCallback(
+  const insertQuickActionAtCaret = useStableCallback(
     async (item: Extract<ComposerCommandItem, { type: "quick-action" }>, insertAt: number) => {
       const variant = item.variant;
       if (!variant || variant === "choose") return;
@@ -3876,15 +3876,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         else toastManager.add(failure);
       }
     },
-    [
-      actionThreadShell,
-      activeProjectId,
-      applyPromptReplacement,
-      composerDraftTarget,
-      environmentId,
-      promptRef,
-      resolveActionContext,
-    ],
   );
 
   const { onUsageLimitsCommand } = props;

@@ -30,7 +30,7 @@ export function resolvePendingHandoff(
 ): HandoffEndpoints | null {
   // A thread with an empty timeline has nothing to hand off. Any loaded row
   // counts: paging can leave a window of only tool rows.
-  if (!projection?.visibleTurnItems.length) return null;
+  if (!projection?.visibleTurnItems?.length) return null;
   // The newest run that has reached, or will reach, a provider. An unstarted
   // run already carrying the target selection is consuming the handoff, so
   // it must not preview a second one while it prepares.

@@ -33,15 +33,7 @@ import {
   UploadIcon,
   ZapIcon,
 } from "lucide-react";
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAccess";
 import { shortcutLabelForCommand } from "../../keybindings";
@@ -177,26 +169,19 @@ function QuickActionsEnvironmentSettings(props: {
     supported ? quickActionsEnvironment.list({ environmentId, input: {} }) : null,
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
-  const scopedProjectIds = useMemo(
-    () =>
-      scope.kind === "project" || scope.kind === "checkout"
-        ? new Set(
-            scope.members
-              .filter((member) => member.environmentId === environmentId)
-              .map((member) => member.id),
-          )
-        : null,
-    [environmentId, scope],
-  );
-  const actions = useMemo(
-    () =>
-      (list.data ?? []).filter(
-        (action) =>
-          scopedProjectIds === null ||
-          action.projectId === null ||
-          scopedProjectIds.has(action.projectId),
-      ),
-    [list.data, scopedProjectIds],
+  const scopedProjectIds =
+    scope.kind === "project" || scope.kind === "checkout"
+      ? new Set(
+          scope.members
+            .filter((member) => member.environmentId === environmentId)
+            .map((member) => member.id),
+        )
+      : null;
+  const actions = (list.data ?? []).filter(
+    (action) =>
+      scopedProjectIds === null ||
+      action.projectId === null ||
+      scopedProjectIds.has(action.projectId),
   );
   const [editor, setEditor] = useState<EditorRequest | null>(null);
   const [importing, setImporting] = useState(false);
@@ -206,6 +191,7 @@ function QuickActionsEnvironmentSettings(props: {
   const navigate = useNavigate();
   useEffect(() => {
     if (hash !== NEW_QUICK_ACTION_HASH || !canOperate || !supported) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- opening the editor also clears the hash, which must not run during render.
     setEditor({ action: null });
     void navigate({ hash: "", replace: true, resetScroll: false, hashScrollIntoView: false });
   }, [canOperate, hash, navigate, supported]);
@@ -238,7 +224,7 @@ function QuickActionsEnvironmentSettings(props: {
       });
   };
 
-  const categories = useMemo(() => {
+  const categories = (() => {
     const groups = new Map<string, QuickAction[]>();
     for (const action of rankQuickActions(actions, "").concat(
       actions.filter((action) => !action.enabled),
@@ -249,7 +235,7 @@ function QuickActionsEnvironmentSettings(props: {
     return [...groups.entries()].toSorted(([left], [right]) =>
       left === "Other" ? 1 : right === "Other" ? -1 : left.localeCompare(right),
     );
-  }, [actions]);
+  })();
 
   return (
     <SettingsPageContainer>
@@ -570,7 +556,7 @@ function QuickActionEditorDialog(props: {
   const ownCommand = actionId ? quickActionCommand(actionId) : null;
   const shortcutConflicts = draft.shortcut
     ? keybindingConflictLabels(
-        buildKeybindingRows(mergeWithDefaultKeybindings(keybindings), "").filter(
+        buildKeybindingRows(mergeWithDefaultKeybindings(keybindings)).filter(
           (row) => row.command !== ownCommand,
         ),
         { rowId: "", key: draft.shortcut, when: SHORTCUT_WHEN },
@@ -899,7 +885,7 @@ function QuickActionImportDialog(props: {
   const importCopies = useAtomCommand(quickActionsEnvironment.importCopies, {
     reportFailure: false,
   });
-  const parsed = useMemo(() => {
+  const parsed = (() => {
     if (!text.trim()) return null;
     try {
       return { actions: importPortableActions(text), error: null };
@@ -909,7 +895,7 @@ function QuickActionImportDialog(props: {
         error: error instanceof SyntaxError ? "This isn't valid JSON." : (error as Error).message,
       };
     }
-  }, [text]);
+  })();
   const collisions =
     parsed?.actions.filter((action) => props.existingIds.has(action.id)).length ?? 0;
 

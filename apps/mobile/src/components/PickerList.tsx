@@ -9,10 +9,10 @@ import {
 } from "react-native";
 
 import { cn } from "../lib/cn";
-import { SymbolView, type AppSymbolName } from "./AppSymbol";
-import { AppText as Text } from "./AppText";
+import { SymbolView, type AppSymbolName } from "./ui/AppSymbol";
+import { AppText as Text } from "./ui/AppText";
 import { MaterialListRow } from "./MaterialListRow";
-import { ThemedSwitch } from "./ThemedSwitch";
+import { ThemedSwitch } from "./ui/ThemedSwitch";
 
 /** A grouped card holding picker rows, matching the new-task pickers. */
 export function PickerSurface(props: {

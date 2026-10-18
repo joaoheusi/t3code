@@ -110,7 +110,6 @@ function sameProjectWorktreePolicies(left: ServerSettings, right: ServerSettings
 export function storageCleanupThreadIdle(thread: OrchestrationV2ThreadShell, now: number): boolean {
   return (
     thread.workspace === undefined &&
-    thread.branch !== null &&
     thread.worktreePath !== null &&
     thread.activeRunId === null &&
     (thread.status === "idle" ||

@@ -1,6 +1,6 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { act } from "react";
-import { create, type ReactTestRenderer } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { QuickActionScope } from "./quickActionRunner";
 
@@ -58,8 +58,10 @@ const scope = {
   },
 } as unknown as QuickActionScope;
 
-let renderer: ReactTestRenderer;
-function Probe(_props: { view: ReturnType<typeof useQuickActionPalette> }) {
+let root: Root;
+let latestProbeView: ReturnType<typeof useQuickActionPalette>;
+function Probe(props: { view: ReturnType<typeof useQuickActionPalette> }) {
+  latestProbeView = props.view;
   return null;
 }
 function Surface() {
@@ -77,20 +79,21 @@ function Surface() {
   );
 }
 function view(): ReturnType<typeof useQuickActionPalette> {
-  return renderer.root.findByType(Probe).props.view;
+  return latestProbeView;
 }
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  root = createRoot(document.createElement("div"));
   vi.clearAllMocks();
   mocks.merge.mockReset().mockResolvedValue(undefined);
   mocks.gitItems = [];
   act(() => {
-    renderer = create(<Surface />);
+    root.render(<Surface />);
   });
 });
 afterEach(() => {
-  act(() => renderer.unmount());
+  act(() => root.unmount());
   vi.unstubAllGlobals();
 });
 
@@ -126,7 +129,7 @@ describe("quick action palette order", () => {
     mocks.gitItems = [
       { kind: "action", value: "quick-action:git", disabled: true, run: async () => {} },
     ];
-    act(() => renderer.update(<Surface />));
+    act(() => root.render(<Surface />));
     expect(view().groups[0]!.items.map((item) => item.value)).toEqual([
       "quick-action:merge",
       "quick-action:git",

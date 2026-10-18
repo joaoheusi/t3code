@@ -187,10 +187,7 @@ describe("DesktopAppIdentity", () => {
         yield* identity.configure;
 
         assert.deepEqual(calls.setName, ["J4 Code Unofficial Beta"]);
-        assert.equal(
-          calls.setAboutPanelOptions[0]?.applicationName,
-          "J4 Code (Unofficial) (Beta)",
-        );
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, "J4 Code (Unofficial) (Beta)");
         assert.equal(calls.setAboutPanelOptions[0]?.applicationVersion, "1.2.3");
         assert.equal(calls.setAboutPanelOptions[0]?.version, "0123456789ab");
         assert.deepEqual(calls.setDockIcon, []);

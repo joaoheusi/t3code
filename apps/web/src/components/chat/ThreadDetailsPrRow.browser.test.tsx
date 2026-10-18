@@ -45,7 +45,12 @@ vi.mock(import("~/state/query"), async (importOriginal) => ({
 vi.mock(import("../pullRequest/usePullRequestActions"), async (importOriginal) => ({
   ...(await importOriginal()),
   usePullRequestActionRunner: () => ({ actionPending: false, perform: state.perform }),
-  usePullRequestHandoffs: () => ({ handoff: null, startAsk: vi.fn(), startHandoff: vi.fn() }),
+  usePullRequestHandoffs: () => ({
+    handoff: null,
+    startAsk: vi.fn(),
+    startHandoff: vi.fn(),
+    openNew: vi.fn(),
+  }),
 }));
 
 import { ThreadDetailsPrRow } from "./ThreadDetailsPrRow";
