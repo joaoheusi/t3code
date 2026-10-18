@@ -67,6 +67,8 @@ export function shouldShowComposerContextStrip(input: {
   isGitRepo: boolean;
   /** A folder project or a thread with several repositories lists them in the strip. */
   hasRepositories?: boolean;
+  /** Repositories are still being found, so the strip stays up with them disabled. */
+  repositoriesLoading?: boolean;
   showEnvironmentIndicator: boolean;
   hostsRestingComposerControls: boolean;
 }): boolean {
@@ -75,6 +77,7 @@ export function shouldShowComposerContextStrip(input: {
     (input.isDraftHeroState || input.persistInActiveThreads) &&
     (input.isGitRepo ||
       input.hasRepositories === true ||
+      input.repositoriesLoading === true ||
       input.showEnvironmentIndicator ||
       input.hostsRestingComposerControls)
   );

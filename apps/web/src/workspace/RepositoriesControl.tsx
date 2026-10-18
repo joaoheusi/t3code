@@ -25,7 +25,15 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useState, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import { ComposerControl, ComposerControlChevron } from "../components/chat/ComposerControl";
 import { useComposerMenuProps } from "../components/chat/composerEventScope";
@@ -43,6 +51,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip"
 import { toastManager } from "../components/ui/toast";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useEnvironmentSettings } from "../hooks/useSettings";
+import { shortcutLabelForCommand } from "../keybindings";
+import { primaryServerKeybindingsAtom } from "../state/server";
 import { cn, randomUUID } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useThreadShell } from "../state/entities";
@@ -117,10 +127,11 @@ export function useThreadRepositories(
     choosing: editable,
   });
   const configured = hasRepositorySet(workspace);
+  const loading = selection.loading && !configured;
   const visible =
-    version >= 1 &&
     props.project !== null &&
-    (configured || (editable && (props.isGitRepo || selection.folder)));
+    (configured ||
+      (editable && (loading || (version >= 1 && (props.isGitRepo || selection.folder)))));
   const folder = configured ? workspace!.root !== undefined : selection.folder;
   const labels = configured
     ? workspace!.bindings.map((binding) => binding.label)
@@ -136,14 +147,21 @@ export function useThreadRepositories(
     editable,
     selection,
     visible,
+    /** Still finding the repositories, so the control renders disabled instead of late. */
+    loading,
     folder,
     labels,
     /** More than the project's own checkout, so the popover owns every repository's base. */
-    multiple: visible && (folder || labels.length > 1),
+    multiple: visible && !loading && (folder || labels.length > 1),
   };
 }
 
+export interface RepositoriesControlHandle {
+  open: () => void;
+}
+
 interface RepositoriesControlProps extends RepositoriesProps {
+  readonly ref?: Ref<RepositoriesControlHandle>;
   readonly repositories: ReturnType<typeof useThreadRepositories>;
   readonly envMode: "local" | "worktree";
   readonly envModeLocked: boolean;
@@ -160,13 +178,40 @@ interface RepositoriesControlProps extends RepositoriesProps {
  * message the user picks them here; afterwards this shows them and their actions.
  * A project folder that holds repositories rather than being one lists them here too.
  */
-export const RepositoriesControl = memo(function RepositoriesControl(
-  props: RepositoriesControlProps,
-) {
-  const { workspace, started, editable, visible, folder, labels, multiple } = props.repositories;
+export const RepositoriesControl = memo(function RepositoriesControl({
+  ref,
+  ...props
+}: RepositoriesControlProps) {
+  const { workspace, started, editable, visible, loading, folder, labels, multiple } =
+    props.repositories;
   const menuProps = useComposerMenuProps();
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [open, setOpen] = useState(false);
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: () => {
+        if (!loading) setOpen(true);
+      },
+    }),
+    [loading],
+  );
   if (!visible) return null;
+
+  // The strip keeps its place while repositories are found; the control wakes up in place.
+  if (loading) {
+    return (
+      <ComposerControl
+        size="xs"
+        disabled
+        aria-label="Finding repositories"
+        data-composer-context-control
+      >
+        <Spinner size="xs" />
+        <ComposerContextLabel>Finding repositories…</ComposerContextLabel>
+      </ComposerControl>
+    );
+  }
 
   const progress = workspace ? workspaceProgress(workspace) : null;
   const preparing = workspace && ["planned", "validating", "preparing"].includes(workspace.state);
@@ -192,6 +237,14 @@ export const RepositoriesControl = memo(function RepositoriesControl(
     <FolderPlusIcon className="size-3" />
   );
 
+  const shortcutLabel = shortcutLabelForCommand(keybindings, "composer.repositories");
+  const tooltipLabel =
+    preparing && progress
+      ? `Preparing ${progress.ready} of ${progress.total} repositories`
+      : multiple
+        ? summary
+        : "Add repositories to this thread";
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip>
@@ -201,7 +254,8 @@ export const RepositoriesControl = memo(function RepositoriesControl(
               render={
                 <ComposerControl
                   size="xs"
-                  aria-label={multiple ? "Repositories" : "Add repositories"}
+                  aria-label={multiple ? summary : "Add repositories"}
+                  data-composer-shortcut="composer.repositories"
                   data-composer-context-control
                 />
               }
@@ -211,14 +265,17 @@ export const RepositoriesControl = memo(function RepositoriesControl(
           {trigger}
         </TooltipTrigger>
         <TooltipPopup>
-          {preparing && progress
-            ? `Preparing ${progress.ready} of ${progress.total} repositories`
-            : multiple
-              ? summary
-              : "Add repositories to this thread"}
+          {shortcutLabel ? `${tooltipLabel} · ${shortcutLabel}` : tooltipLabel}
         </TooltipPopup>
       </Tooltip>
-      <PopoverPopup side="top" align="start" width="lg" padding="compact" {...menuProps}>
+      <PopoverPopup
+        side="top"
+        align="start"
+        width="lg"
+        padding="compact"
+        aria-label="Repositories"
+        {...menuProps}
+      >
         {editable ? (
           <EditableRepositories {...props} onDone={() => setOpen(false)} />
         ) : (
@@ -265,7 +322,15 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
   });
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAddButtonOnReturnRef = useRef(false);
   const { repositories } = selection;
+  // Leaving the picker unmounts its search field; land back on the button that opened it.
+  useEffect(() => {
+    if (adding || !focusAddButtonOnReturnRef.current) return;
+    focusAddButtonOnReturnRef.current = false;
+    addButtonRef.current?.focus({ preventScroll: true });
+  }, [adding]);
   // Edits apply to the draft's own copy of the list, made on the first change.
   const seed = () => {
     if (selection.untouched)
@@ -353,6 +418,7 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
         onPick={async (path) => {
           seed();
           await add.addPath(path);
+          focusAddButtonOnReturnRef.current = true;
           setAdding(false);
         }}
         onBrowse={() => {
@@ -360,7 +426,10 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
           props.onDone();
           add.browse();
         }}
-        onBack={() => setAdding(false)}
+        onBack={() => {
+          focusAddButtonOnReturnRef.current = true;
+          setAdding(false);
+        }}
       />
     );
 
@@ -379,7 +448,7 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
         <Toggle value="worktree">New worktrees</Toggle>
         <Toggle value="local">{folder ? "Current folder" : "Current checkouts"}</Toggle>
       </ToggleGroup>
-      <ul className="flex flex-col gap-0.5">
+      <ul className="flex flex-col gap-0.5" aria-label="Repositories in this thread">
         {folder ? (
           <RepositoryRow
             icon={<FolderTreeIcon className="size-3.5 shrink-0 text-muted-foreground" />}
@@ -453,6 +522,11 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
                     useWorkspaceUiStore
                       .getState()
                       .removeDraftRepository(composerKey, repository.id);
+                    // This button unmounts with its row; land on Add instead of the body.
+                    // Deferred because removing can be what re-enables that button.
+                    requestAnimationFrame(() =>
+                      addButtonRef.current?.focus({ preventScroll: true }),
+                    );
                   }}
                 >
                   <XIcon />
@@ -471,8 +545,9 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
         </p>
       ) : null}
       <button
+        ref={addButtonRef}
         type="button"
-        className="mt-0.5 flex min-h-8 items-center gap-2 rounded-md ps-2 pe-1 text-muted-foreground text-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+        className="mt-0.5 flex min-h-8 items-center gap-2 rounded-md ps-2 pe-1 text-muted-foreground text-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
         // The project's own checkout takes one of the thread's places unless it's a folder.
         disabled={repositories.length >= REPOSITORY_LIMIT - (folder ? 0 : 1)}
         onClick={() => setAdding(true)}
@@ -612,7 +687,18 @@ function RepositoryRow(props: {
         <span className="flex min-w-0 items-center gap-1.5 text-sm">
           {props.path ? (
             <Tooltip>
-              <TooltipTrigger render={<span className="truncate" />}>{props.label}</TooltipTrigger>
+              {/* Focusable so keyboard users can reach the path hover shows. */}
+              <TooltipTrigger
+                render={
+                  <span
+                    className="truncate rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    tabIndex={0}
+                    aria-label={`${props.label}: ${props.path}`}
+                  />
+                }
+              >
+                {props.label}
+              </TooltipTrigger>
               <TooltipPopup>{props.path}</TooltipPopup>
             </Tooltip>
           ) : (

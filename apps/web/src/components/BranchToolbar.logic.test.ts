@@ -454,6 +454,20 @@ describe("shouldShowComposerContextStrip", () => {
     ).toBe(true);
   });
 
+  it("keeps the strip while a non-Git project's repositories are still loading", () => {
+    expect(
+      shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
+        hasActiveProject: true,
+        isGitRepo: false,
+        repositoriesLoading: true,
+        showEnvironmentIndicator: false,
+        hostsRestingComposerControls: false,
+      }),
+    ).toBe(true);
+  });
+
   it("hides the strip when a non-Git project has nothing to show", () => {
     expect(
       shouldShowComposerContextStrip({

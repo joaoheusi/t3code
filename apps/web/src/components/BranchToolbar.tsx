@@ -7,7 +7,11 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { RepositoriesControl, useThreadRepositories } from "../workspace/RepositoriesControl";
+import {
+  RepositoriesControl,
+  useThreadRepositories,
+  type RepositoriesControlHandle,
+} from "../workspace/RepositoriesControl";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
@@ -588,6 +592,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   contextStripVisible = true,
 }: BranchToolbarProps) {
   const branchSelectorRef = useRef<BranchToolbarBranchSelectorHandle>(null);
+  const repositoriesControlRef = useRef<RepositoriesControlHandle>(null);
   const threadRef = scopeThreadRef(environmentId, threadId);
   const draftThread = useComposerDraftStore((store) =>
     draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
@@ -631,10 +636,29 @@ export const BranchToolbar = memo(function BranchToolbar({
     });
   };
 
+  const composerKey = draftId ?? scopedThreadKey(threadRef);
+  const threadBranch =
+    activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null;
+  const repositories = useThreadRepositories({
+    environmentId,
+    threadId,
+    composerKey,
+    project: activeProject ?? null,
+    isGitRepo: showGitControls,
+  });
+
   useImperativeHandle(
     ref,
     () => ({
-      openBranchPicker: () => branchSelectorRef.current?.open(),
+      openBranchPicker: () => {
+        if (branchSelectorRef.current) {
+          branchSelectorRef.current.open();
+          return;
+        }
+        // With several repositories the branch picker lives in their popover,
+        // which is unmounted while closed; open that instead of doing nothing.
+        if (repositories.multiple) repositoriesControlRef.current?.open();
+      },
       usePreviousWorktree: () => {
         if (!showGitControls || !canUsePreviousWorktree || !previousWorktreeSeed) return;
         onUsePreviousWorktree();
@@ -646,20 +670,10 @@ export const BranchToolbar = memo(function BranchToolbar({
       onComposerFocusRequest,
       onUsePreviousWorktree,
       previousWorktreeSeed,
+      repositories.multiple,
       showGitControls,
     ],
   );
-
-  const composerKey = draftId ?? scopedThreadKey(threadRef);
-  const threadBranch =
-    activeThreadBranchOverride ?? draftThread?.branch ?? serverThread?.branch ?? null;
-  const repositories = useThreadRepositories({
-    environmentId,
-    threadId,
-    composerKey,
-    project: activeProject ?? null,
-    isGitRepo: showGitControls,
-  });
 
   const showEnvironmentPicker = Boolean(
     availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
@@ -800,6 +814,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       {/* Also shown outside Git: a folder project lists the repositories inside it. */}
       {activeProject ? (
         <RepositoriesControl
+          ref={repositoriesControlRef}
           environmentId={environmentId}
           threadId={threadId}
           composerKey={composerKey}

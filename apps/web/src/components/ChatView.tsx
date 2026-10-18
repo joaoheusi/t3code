@@ -3063,6 +3063,7 @@ export default function ChatView(props: ChatViewProps) {
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
+    repositoriesLoading: composerRepositories.loading,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
@@ -3072,6 +3073,7 @@ export default function ChatView(props: ChatViewProps) {
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
     isGitRepo,
     hasRepositories: composerRepositories.folder || hasRepositorySet(serverThread?.workspace),
+    repositoriesLoading: composerRepositories.loading,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -5638,6 +5640,7 @@ export default function ChatView(props: ChatViewProps) {
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
       "composer.workspace": openComposerControl("composer.workspace"),
+      "composer.repositories": openComposerControl("composer.repositories"),
       "composer.cycleHost": ({ event }) => {
         if (envLocked || !draftId || !hasMultipleEnvironments) return false;
         if (event.repeat) return;
