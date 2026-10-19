@@ -1649,6 +1649,24 @@ describe("composer and pull request shortcuts", () => {
 
   for (const platform of ["MacIntel", "Win32", "Linux"]) {
     it.each([
+      ["ArrowUp", "thread.previous"],
+      ["ArrowDown", "thread.next"],
+    ] as const)(`navigates threads with Mod+Alt+%s on ${platform}`, (key, command) => {
+      const input = event({
+        key,
+        altKey: true,
+        metaKey: platform === "MacIntel",
+        ctrlKey: platform !== "MacIntel",
+      });
+      assert.strictEqual(
+        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, { platform }),
+        command,
+      );
+    });
+  }
+
+  for (const platform of ["MacIntel", "Win32", "Linux"]) {
+    it.each([
       ["ArrowUp", "modelPicker.previousProvider"],
       ["ArrowDown", "modelPicker.nextProvider"],
     ] as const)(`limits %s to the model picker on ${platform}`, (key, command) => {

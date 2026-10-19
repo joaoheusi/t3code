@@ -263,6 +263,24 @@ describe("serverSettings helpers", () => {
     ).toBeNull();
   });
 
+  it("keeps the fallback chain and its mirrored single default in sync", () => {
+    const first = createModelSelection(ProviderInstanceId.make("claude-a"), "opus");
+    const second = createModelSelection(ProviderInstanceId.make("claude-b"), "opus");
+    const third = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.4");
+    const withChain = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      defaultModelSelectionChain: [first, second, first, third],
+    });
+    expect(withChain.defaultModelSelectionChain).toEqual([first, second, third]);
+    expect(withChain.defaultModelSelection).toEqual(first);
+
+    const reheaded = applyServerSettingsPatch(withChain, { defaultModelSelection: third });
+    expect(reheaded.defaultModelSelectionChain).toEqual([third, first, second]);
+
+    const cleared = applyServerSettingsPatch(withChain, { defaultModelSelectionChain: [] });
+    expect(cleared.defaultModelSelection).toBeNull();
+    expect(cleared.defaultModelSelectionChain).toEqual([]);
+  });
+
   it("ignores missing and blank persisted observability URLs", () => {
     expect(parsePersistedServerObservabilitySettings("{}")).toEqual({
       otlpTracesUrl: undefined,

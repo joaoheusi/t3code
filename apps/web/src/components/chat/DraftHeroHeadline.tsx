@@ -24,7 +24,11 @@ import {
   projectGroupsSpanEnvironments,
 } from "~/sidebarProjectGrouping";
 import { useProjects, useThreadShells } from "~/state/entities";
-import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
+import {
+  useEnvironmentProviders,
+  useEnvironments,
+  usePrimaryEnvironmentId,
+} from "~/state/environments";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
@@ -42,6 +46,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { InlineButton } from "../ui/button";
 import { DraftProjectName } from "./DraftProjectName";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  limitedInstanceIdsFromFailures,
+  resolveDefaultModelSelectionForNewThread,
+} from "@t3tools/shared/modelSelectionChain";
 
 const ADD_PROJECT_VALUE = "add-project";
 
@@ -64,6 +72,7 @@ export function DraftHeroHeadline({
   const projects = useProjects();
   const threads = useThreadShells();
   const { environments } = useEnvironments();
+  const providersByEnvironment = useEnvironmentProviders();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
   const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
@@ -188,12 +197,28 @@ export function DraftHeroHeadline({
     );
     if (!hasExplicitComposerModelSelection(currentDraft)) {
       applyStickyState(draftId);
-      const environmentSettings = environments.find(
+      const environmentConfig = environments.find(
         (environment) => environment.environmentId === project.environmentId,
-      )?.serverConfig?.settings;
+      )?.serverConfig;
+      const environmentSettings = environmentConfig?.settings;
       const defaultModelSelection = environmentSettings
-        ? resolveProjectSettings(environmentSettings, project.id, project).settings
-            .defaultModelSelection
+        ? resolveDefaultModelSelectionForNewThread({
+            settings: resolveProjectSettings(environmentSettings, project.id, project).settings,
+            providers: providersByEnvironment.get(project.environmentId) ?? [],
+            limitedInstanceIds: limitedInstanceIdsFromFailures(
+              threads.flatMap((shell) =>
+                shell.environmentId === project.environmentId &&
+                shell.runtime?.lastErrorClass === "usage_limit"
+                  ? [
+                      {
+                        instanceId: shell.providerInstanceId,
+                        usageLimitResetAt: shell.runtime.usageLimitResetAt,
+                      },
+                    ]
+                  : [],
+              ),
+            ),
+          })
         : project.defaultModelSelection;
       if (defaultModelSelection) {
         setModelSelection(draftId, defaultModelSelection, {

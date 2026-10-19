@@ -142,6 +142,16 @@ function resolveProjectOverrides(
     // A forward-compatible decode leaves an unknown value as a present
     // undefined; that is not an override.
     if (value === undefined) continue;
+    if (key === "defaultModelSelectionChain") {
+      const chain = value as readonly ModelSelection[];
+      const enabled = chain.filter((entry) =>
+        resolveProjectProviderInstanceEnabled(settings, projectId, entry.instanceId),
+      );
+      if (chain.length > 0 && enabled.length === 0) continue;
+      effective[key] = enabled;
+      sources[key] = "project";
+      continue;
+    }
     if (
       (key === "textGenerationModelSelection" || key === "defaultModelSelection") &&
       value !== undefined &&
@@ -156,6 +166,13 @@ function resolveProjectOverrides(
     }
     effective[key] = value;
     sources[key] = "project";
+  }
+  if (sources.defaultModelSelectionChain === "project") {
+    effective.defaultModelSelection =
+      (effective.defaultModelSelectionChain as readonly ModelSelection[])[0] ?? null;
+  } else if (sources.defaultModelSelection === "project") {
+    const single = effective.defaultModelSelection as ModelSelection | null;
+    effective.defaultModelSelectionChain = single === null ? [] : [single];
   }
   const textGeneration = effective.textGenerationModelSelection as ModelSelection;
   if (!resolveProjectProviderInstanceEnabled(settings, projectId, textGeneration.instanceId)) {
