@@ -337,6 +337,72 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("replaces the previous thread navigation defaults once", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const previous = { key: "mod+shift+[", command: "thread.previous" } as const;
+      const next = { key: "mod+shift+]", command: "thread.next" } as const;
+      const threadRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+        rules
+          .filter((entry) => entry.command === "thread.previous" || entry.command === "thread.next")
+          .map(({ key, command }) => ({ key, command })),
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [previous, next]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(yield* threadRules, [
+        { key: "mod+alt+arrowup", command: "thread.previous" },
+        { key: "mod+alt+arrowdown", command: "thread.next" },
+      ]);
+
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [previous, next]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(yield* threadRules, [previous, next]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("leaves customized thread navigation without the arrow defaults", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const previous = { key: "alt+p", command: "thread.previous" } as const;
+      const next = { key: "alt+n", command: "thread.next" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [previous, next]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted
+          .filter((entry) => entry.command === "thread.previous" || entry.command === "thread.next")
+          .map(({ key, command }) => ({ key, command })),
+        [previous, next],
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("keeps the previous thread navigation default when its replacement key is taken", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const previous = { key: "mod+shift+[", command: "thread.previous" } as const;
+      const taken = { key: "mod+alt+arrowup", command: "script.custom-action.run" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [previous, taken]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted
+          .filter(
+            (entry) =>
+              entry.command === "thread.previous" || entry.command === "script.custom-action.run",
+          )
+          .map(({ key, command }) => ({ key, command })),
+        [previous, taken],
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("keeps a late default pending while the config is full", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
