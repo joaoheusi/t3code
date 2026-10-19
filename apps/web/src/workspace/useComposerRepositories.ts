@@ -5,7 +5,6 @@ import {
   type WorkspaceRepositoryDefault,
 } from "@t3tools/contracts";
 import { clearProjectSettingsOverrides } from "@t3tools/shared/projectSettings";
-import { useCallback, useMemo } from "react";
 
 import { toastManager } from "../components/ui/toast";
 import { useEnvironmentSettings } from "../hooks/useSettings";
@@ -65,13 +64,10 @@ export function useComposerRepositories(input: {
         })
       : null,
   );
-  const found = useMemo(
-    () => topLevelRepositories(discovery.data?.repositories ?? []),
-    [discovery.data],
-  );
+  const found = topLevelRepositories(discovery.data?.repositories ?? []);
   const chosen = useDraftRepositories(input.composerKey, environmentId, project?.id ?? null);
   const recorded = workspace && ["failed", "cancelled"].includes(workspace.state);
-  const repositories = useMemo((): readonly DraftRepository[] => {
+  const repositories = ((): readonly DraftRepository[] => {
     if (chosen) return chosen;
     if (recorded)
       return workspace!.bindings
@@ -81,7 +77,7 @@ export function useComposerRepositories(input: {
     return found
       .slice(0, REPOSITORY_LIMIT)
       .map((repository) => draftRepositoryFrom(repository, repository.path));
-  }, [chosen, found, recorded, saved, version, workspace]);
+  })();
   return {
     repositories,
     /**
@@ -112,28 +108,25 @@ export function useSaveRepositoryDefault(
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     reportFailure: false,
   });
-  return useCallback(
-    async (repositories: readonly DraftRepository[] | null) => {
-      if (!projectId) return;
-      const result = await updateSettings({
-        environmentId,
-        input: {
-          patch: {
-            projectSettingsOverrides: {
-              [projectId]:
-                repositories === null
-                  ? clearProjectSettingsOverrides(settings, projectId, ["workspaceRepositories"])
-                  : {
-                      ...settings.projectSettingsOverrides[projectId],
-                      workspaceRepositories: repositories.map(repositoryDefaultFrom),
-                    },
-            },
+  return async (repositories: readonly DraftRepository[] | null) => {
+    if (!projectId) return;
+    const result = await updateSettings({
+      environmentId,
+      input: {
+        patch: {
+          projectSettingsOverrides: {
+            [projectId]:
+              repositories === null
+                ? clearProjectSettingsOverrides(settings, projectId, ["workspaceRepositories"])
+                : {
+                    ...settings.projectSettingsOverrides[projectId],
+                    workspaceRepositories: repositories.map(repositoryDefaultFrom),
+                  },
           },
         },
-      });
-      if (result._tag === "Failure")
-        toastManager.add({ type: "error", title: "Couldn't save the project's repositories" });
-    },
-    [environmentId, projectId, settings, updateSettings],
-  );
+      },
+    });
+    if (result._tag === "Failure")
+      toastManager.add({ type: "error", title: "Couldn't save the project's repositories" });
+  };
 }

@@ -1,5 +1,5 @@
 import { ZapIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { useComposerDraftStore, type ComposerThreadTarget } from "../composerDraftStore";
 import type { ComposerBannerStackItem } from "../components/chat/ComposerBannerStack";
@@ -16,7 +16,7 @@ export function usePreparedTaskBannerItem(
   const task = usePreparedTask(target);
   const resolveContext = useResolveActionContext();
   const [busy, setBusy] = useState(false);
-  return useMemo(() => {
+  return (() => {
     if (!task) return null;
 
     const insert = async () => {
@@ -77,5 +77,5 @@ export function usePreparedTaskBannerItem(
       dismissLabel: "Discard prepared text",
       onDismiss: () => dismissPreparedTask(target, task.id),
     } satisfies ComposerBannerStackItem;
-  }, [busy, resolveContext, target, task]);
+  })();
 }

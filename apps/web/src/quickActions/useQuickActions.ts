@@ -1,7 +1,6 @@
 import type { ActionContextInput, EnvironmentId, ProjectId, QuickAction } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { quickActionRequirements } from "@t3tools/shared/quickActions";
-import { useCallback } from "react";
 
 import type { ComposerThreadTarget } from "../composerDraftStore";
 import { toastManager } from "../components/ui/toast";
@@ -51,14 +50,11 @@ export function useQuickActionLibrary(
 /** Context reads stay on the action's own environment; failures surface as thrown errors. */
 export function useResolveActionContext() {
   const resolve = useAtomCommand(forkWorkspace.context, { reportFailure: false });
-  return useCallback(
-    async (environmentId: EnvironmentId, input: ActionContextInput) => {
-      const result = await resolve({ environmentId, input });
-      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
-      return result.value;
-    },
-    [resolve],
-  );
+  return async (environmentId: EnvironmentId, input: ActionContextInput) => {
+    const result = await resolve({ environmentId, input });
+    if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+    return result.value;
+  };
 }
 
 /**
@@ -70,121 +66,109 @@ export function useRunQuickAction() {
   const resolveContext = useResolveActionContext();
 
   // The server owns the template, so every run reads the current, enabled version.
-  const loadAction = useCallback(
-    async (scope: QuickActionScope, actionId: string) => {
-      const library = await reload({
-        environmentId: scope.environmentId,
-        input: scope.projectId ? { projectId: scope.projectId } : {},
-      });
-      if (library._tag === "Failure") throw squashAtomCommandFailure(library);
-      const action = library.value.find((entry) => entry.id === actionId && entry.enabled);
-      if (!action) throw new Error("This action was deleted or disabled.");
-      return action;
-    },
-    [reload],
-  );
+  const loadAction = async (scope: QuickActionScope, actionId: string) => {
+    const library = await reload({
+      environmentId: scope.environmentId,
+      input: scope.projectId ? { projectId: scope.projectId } : {},
+    });
+    if (library._tag === "Failure") throw squashAtomCommandFailure(library);
+    const action = library.value.find((entry) => entry.id === actionId && entry.enabled);
+    if (!action) throw new Error("This action was deleted or disabled.");
+    return action;
+  };
 
-  const execute = useCallback(
-    async (input: {
-      readonly name: string;
-      readonly actionId: string;
-      readonly scope: QuickActionScope;
-      readonly target: ComposerThreadTarget;
-      readonly invocation: ActionInvocation | null;
-      readonly choose: (action: QuickAction) => readonly QuickActionChoice[] | "deferred";
-      readonly showProgress: boolean;
-    }) => {
-      // Only environment reads are slow enough to need a progress toast.
-      const loading = input.showProgress
-        ? toastManager.add({ type: "loading", title: `Preparing ${input.name}…` })
-        : null;
-      try {
-        const action = await loadAction(input.scope, input.actionId);
-        const choice = input.choose(action);
-        if (choice === "deferred") {
-          if (input.invocation) actionDispatcher.cancel(input.invocation);
-          if (loading) toastManager.close(loading);
-          return;
-        }
-        const rendered = await renderQuickActionSelection({
-          action,
-          scope: input.scope,
-          choices: choice,
-          resolveContext,
-        });
-        if (loading) toastManager.close(loading);
-        insertQuickActionText({
-          target: input.target,
-          invocation: input.invocation,
-          action,
-          rendered,
-          environmentId: input.scope.environmentId,
-          projectId: input.scope.projectId,
-        });
-      } catch (error) {
+  const execute = async (input: {
+    readonly name: string;
+    readonly actionId: string;
+    readonly scope: QuickActionScope;
+    readonly target: ComposerThreadTarget;
+    readonly invocation: ActionInvocation | null;
+    readonly choose: (action: QuickAction) => readonly QuickActionChoice[] | "deferred";
+    readonly showProgress: boolean;
+  }) => {
+    // Only environment reads are slow enough to need a progress toast.
+    const loading = input.showProgress
+      ? toastManager.add({ type: "loading", title: `Preparing ${input.name}…` })
+      : null;
+    try {
+      const action = await loadAction(input.scope, input.actionId);
+      const choice = input.choose(action);
+      if (choice === "deferred") {
         if (input.invocation) actionDispatcher.cancel(input.invocation);
-        const failure = {
-          type: "error" as const,
-          title: `Could not prepare ${input.name}`,
-          description: error instanceof Error ? error.message : "Try again.",
-        };
-        if (loading) toastManager.update(loading, failure);
-        else toastManager.add(failure);
+        if (loading) toastManager.close(loading);
+        return;
       }
-    },
-    [loadAction, resolveContext],
-  );
+      const rendered = await renderQuickActionSelection({
+        action,
+        scope: input.scope,
+        choices: choice,
+        resolveContext,
+      });
+      if (loading) toastManager.close(loading);
+      insertQuickActionText({
+        target: input.target,
+        invocation: input.invocation,
+        action,
+        rendered,
+        environmentId: input.scope.environmentId,
+        projectId: input.scope.projectId,
+      });
+    } catch (error) {
+      if (input.invocation) actionDispatcher.cancel(input.invocation);
+      const failure = {
+        type: "error" as const,
+        title: `Could not prepare ${input.name}`,
+        description: error instanceof Error ? error.message : "Try again.",
+      };
+      if (loading) toastManager.update(loading, failure);
+      else toastManager.add(failure);
+    }
+  };
 
   /** Runs a chosen action and target, as the palette does. */
-  const run = useCallback(
-    (
-      input: {
-        readonly action: QuickAction;
-        readonly scope: QuickActionScope;
-        readonly target: ComposerThreadTarget;
-      } & (
-        | { readonly choice: QuickActionChoice }
-        | { readonly choices: readonly QuickActionChoice[] }
-      ),
-    ) =>
-      execute({
-        name: input.action.name,
-        actionId: input.action.id,
-        scope: input.scope,
-        target: input.target,
-        // Capture before any await so a later focus change cannot redirect the text.
-        invocation: captureQuickActionInvocation(input.target, input.action),
-        choose: () => ("choices" in input ? input.choices : [input.choice]),
-        showProgress: quickActionRequirements(input.action.template).host,
-      }),
-    [execute],
-  );
-
-  /** A direct shortcut runs its action when one target fits and otherwise asks in the palette. */
-  const runShortcut = useCallback(
-    (input: {
-      readonly actionId: string;
+  const run = (
+    input: {
+      readonly action: QuickAction;
       readonly scope: QuickActionScope;
       readonly target: ComposerThreadTarget;
-    }) =>
-      execute({
-        name: "quick action",
-        actionId: input.actionId,
-        scope: input.scope,
-        target: input.target,
-        invocation: actionDispatcher.capture(actionTargetKey(input.target), input.actionId, 0),
-        choose: (action) => {
-          const targets = quickActionTargets(action, input.scope);
-          if (targets.kind === "unavailable") throw new Error(`${action.name}: ${targets.reason}.`);
-          const [only, ...others] = targets.variants;
-          if (only && others.length === 0) return [only.choice];
-          openCommandPalette({ open: "quick-actions", actionId: action.id });
-          return "deferred";
-        },
-        showProgress: false,
-      }),
-    [execute],
-  );
+    } & (
+      | { readonly choice: QuickActionChoice }
+      | { readonly choices: readonly QuickActionChoice[] }
+    ),
+  ) =>
+    execute({
+      name: input.action.name,
+      actionId: input.action.id,
+      scope: input.scope,
+      target: input.target,
+      // Capture before any await so a later focus change cannot redirect the text.
+      invocation: captureQuickActionInvocation(input.target, input.action),
+      choose: () => ("choices" in input ? input.choices : [input.choice]),
+      showProgress: quickActionRequirements(input.action.template).host,
+    });
+
+  /** A direct shortcut runs its action when one target fits and otherwise asks in the palette. */
+  const runShortcut = (input: {
+    readonly actionId: string;
+    readonly scope: QuickActionScope;
+    readonly target: ComposerThreadTarget;
+  }) =>
+    execute({
+      name: "quick action",
+      actionId: input.actionId,
+      scope: input.scope,
+      target: input.target,
+      invocation: actionDispatcher.capture(actionTargetKey(input.target), input.actionId, 0),
+      choose: (action) => {
+        const targets = quickActionTargets(action, input.scope);
+        if (targets.kind === "unavailable") throw new Error(`${action.name}: ${targets.reason}.`);
+        const [only, ...others] = targets.variants;
+        if (only && others.length === 0) return [only.choice];
+        openCommandPalette({ open: "quick-actions", actionId: action.id });
+        return "deferred";
+      },
+      showProgress: false,
+    });
 
   return { run, runShortcut };
 }

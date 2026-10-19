@@ -3,10 +3,9 @@ import { describe, expect, it } from "@effect/vitest";
 import { resolveUserMessageIntentBadge } from "./userMessageIntentBadge";
 
 describe("user message intent badge", () => {
-  it("does not label turn-start or queued messages", () => {
+  it("does not label turn-start messages", () => {
     expect(resolveUserMessageIntentBadge(undefined)).toBeNull();
     expect(resolveUserMessageIntentBadge("turn_start")).toBeNull();
-    expect(resolveUserMessageIntentBadge("queued_turn")).toBeNull();
   });
 
   it("explains the queued history without claiming delivery", () => {

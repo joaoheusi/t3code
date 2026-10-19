@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
@@ -504,7 +505,9 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
                 signals={quickActionSignals(action)}
                 title={variant.label ?? action.name}
                 symbol={
-                  variant.choice.pullRequest ? "arrow.triangle.pull" : "arrow.triangle.branch"
+                  variant.choice.pullRequest
+                    ? PullRequestGlyph.pullRequest
+                    : "arrow.triangle.branch"
                 }
                 selected={selected.includes(variant.key)}
                 accessibilityRole="checkbox"
