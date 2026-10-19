@@ -106,6 +106,15 @@ T3 Code remembers your provider, model, and model options for new threads. A
 project's configured model takes precedence; resetting that project setting
 returns to the remembered selection.
 
+Under **Settings → General → New threads**, add **Fallback models** to put
+accounts and models in order, such as Opus on one Claude account, then Opus
+on a second Claude account, then a Codex model. A new thread starts on the
+first entry whose account still has usage left. An account that does not
+report limits is always tried. If every entry is out of usage, the thread
+keeps the first entry. Fallbacks apply when a thread starts; a thread that
+runs out of usage mid-task keeps its current recovery flow. Projects can
+override the fallback list the same way they override the model.
+
 Leaving reasoning level or service tier unset uses the provider's own configuration.
 
 ## Quote an assistant response

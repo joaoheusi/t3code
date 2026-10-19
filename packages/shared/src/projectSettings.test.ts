@@ -144,6 +144,41 @@ describe("resolveProjectSettings", () => {
     expect(resolved.sources.defaultModelSelection).toBe("environment");
   });
 
+  it("resolves a project fallback chain and mirrors its head as the default", () => {
+    const first = createModelSelection(ProviderInstanceId.make("claudeAgent"), "opus");
+    const second = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5");
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      projectSettingsOverrides: {
+        [projectId]: { defaultModelSelectionChain: [first, second] },
+      },
+    });
+    const resolved = resolveProjectSettings(settings, projectId);
+    expect(resolved.settings.defaultModelSelectionChain).toEqual([first, second]);
+    expect(resolved.settings.defaultModelSelection).toEqual(first);
+    expect(resolved.sources.defaultModelSelectionChain).toBe("project");
+    expect(
+      resolveProjectSettings(settings, otherProjectId).settings.defaultModelSelectionChain,
+    ).toEqual([]);
+  });
+
+  it("drops chain entries on instances the project cannot use", () => {
+    const disabled = ProviderInstanceId.make("claudeAgent");
+    const kept = createModelSelection(ProviderInstanceId.make("codex"), "gpt-5.5");
+    const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      providerInstances: {
+        [disabled]: { driver: ProviderDriverKind.make("claudeAgent"), enabled: false },
+      },
+      projectSettingsOverrides: {
+        [projectId]: {
+          defaultModelSelectionChain: [createModelSelection(disabled, "opus"), kept],
+        },
+      },
+    });
+    const resolved = resolveProjectSettings(settings, projectId);
+    expect(resolved.settings.defaultModelSelectionChain).toEqual([kept]);
+    expect(resolved.settings.defaultModelSelection).toEqual(kept);
+  });
+
   it("moves text generation off an instance the project turned off", () => {
     const codex = ProviderInstanceId.make("codex");
     const settings = {

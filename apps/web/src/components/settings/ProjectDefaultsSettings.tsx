@@ -4,9 +4,11 @@ import {
   type ProviderInstanceId,
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
-import { createModelSelection } from "@t3tools/shared/model";
+import { createModelSelection, modelSelectionsEqual } from "@t3tools/shared/model";
+import { effectiveDefaultModelSelectionChain } from "@t3tools/shared/modelSelectionChain";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
+import { ArrowDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
 
 import { mergeEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -24,6 +26,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
 import { TraitsPicker } from "../chat/TraitsPicker";
+import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
@@ -78,6 +81,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   );
   const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   const mixedModel = useScopedSettingsMixed(["defaultModelSelection"]);
+  const mixedChain = useScopedSettingsMixed(["defaultModelSelectionChain"]);
+  const chain = effectiveDefaultModelSelectionChain(settings);
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
@@ -123,20 +128,71 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     return null;
   }
 
+  const setChain = (next: readonly ModelSelection[]) => {
+    for (const entry of next) {
+      const reason = modelDisabledReason(entry.instanceId, entry.model);
+      if (reason) {
+        toastManager.add({ type: "error", title: "Default model not saved", description: reason });
+        return;
+      }
+    }
+    updateSettings({
+      defaultModelSelection: next[0] ?? null,
+      defaultModelSelectionChain: [...next],
+    });
+  };
+
   const setModel = (value: ModelSelection | null) => {
-    const reason = value ? modelDisabledReason(value.instanceId, value.model) : null;
-    if (reason) {
-      toastManager.add({ type: "error", title: "Default model not saved", description: reason });
+    if (value === null) {
+      setChain([]);
       return;
     }
-    updateSettings({ defaultModelSelection: value });
+    setChain([value, ...chain.slice(1).filter((entry) => !modelSelectionsEqual(entry, value))]);
+  };
+
+  const addFallback = (value: ModelSelection) => {
+    // With no saved chain the picker above shows the automatic pick; pin it
+    // as the head so the new entry lands behind it instead of replacing it.
+    const base = chain.length === 0 && selection ? [selection] : chain;
+    if (base.some((entry) => modelSelectionsEqual(entry, value))) {
+      toastManager.add({
+        type: "error",
+        title: "Fallback not added",
+        description: "That account and model are already in the list.",
+      });
+      return;
+    }
+    setChain([...base, value]);
+  };
+
+  const replaceChainEntry = (index: number, value: ModelSelection) => {
+    if (
+      chain.some((entry, entryIndex) => entryIndex !== index && modelSelectionsEqual(entry, value))
+    ) {
+      toastManager.add({
+        type: "error",
+        title: "Fallback not saved",
+        description: "That account and model are already in the list.",
+      });
+      return;
+    }
+    setChain(chain.map((entry, entryIndex) => (entryIndex === index ? value : entry)));
+  };
+
+  const moveChainEntry = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= chain.length) return;
+    const next = [...chain];
+    const [entry] = next.splice(index, 1);
+    if (entry) next.splice(target, 0, entry);
+    setChain(next);
   };
 
   const modelRow = (
     <SettingsRow
       serverScoped
-      settingKeys={["defaultModelSelection"]}
-      mixed={mixedModel}
+      settingKeys={["defaultModelSelection", "defaultModelSelectionChain"]}
+      mixed={mixedModel || mixedChain}
       id="default-model"
       title="Model"
       description={
@@ -145,14 +201,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           : "Default model for new threads. Projects can override it."
       }
       status={
-        unavailable || mixedModel || modelSource === "project"
+        unavailable || mixedModel || mixedChain || modelSource === "project"
           ? undefined
-          : settings.defaultModelSelection === null
+          : chain.length === 0
             ? "Automatic"
             : undefined
       }
       resetAction={
-        settings.defaultModelSelection !== null ? (
+        chain.length > 0 ? (
           <SettingResetButton label="default model" onClick={() => setModel(null)} />
         ) : null
       }
@@ -167,7 +223,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               instanceEntries={entries}
               modelOptionsByInstance={modelOptions}
               triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-              {...(mixedModel ? { triggerLabel: "Mixed" } : {})}
+              {...(mixedModel || mixedChain ? { triggerLabel: "Mixed" } : {})}
               getModelDisabledReason={modelDisabledReason}
               onOpenProviderSetup={(instanceId) => {
                 if (representative)
@@ -180,7 +236,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 setModel(createModelSelection(instanceId, model))
               }
             />
-            {!mixedModel ? (
+            {!mixedModel && !mixedChain ? (
               <TraitsPicker
                 provider={activeEntry.driverKind}
                 models={activeEntry.models}
@@ -203,6 +259,97 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       }
     />
   );
+  const openProviderSetup = (instanceId: ProviderInstanceId) => {
+    if (representative)
+      void navigate({
+        to: "/settings/providers",
+        search: { environmentId: representative.environmentId, instanceId },
+      });
+  };
+  const fallbackRow =
+    selection && !mixedModel && !mixedChain ? (
+      <SettingsRow
+        serverScoped
+        settingKeys={["defaultModelSelectionChain"]}
+        mixed={mixedChain}
+        id="default-model-fallbacks"
+        title="Fallback models"
+        description="For new threads, T3 tries these in order when an earlier account is out of usage. Accounts that do not report limits are always tried."
+        control={
+          <div className="flex min-w-0 flex-col items-end gap-1.5">
+            {chain.slice(1).map((entry, offset) => {
+              const index = offset + 1;
+              return (
+                <div
+                  key={`${entry.instanceId}:${entry.model}:${index}`}
+                  className="flex items-center gap-1"
+                >
+                  <ProviderModelPicker
+                    environmentId={representative?.environmentId ?? null}
+                    activeInstanceId={entry.instanceId}
+                    model={entry.model}
+                    lockedProvider={null}
+                    instanceEntries={entries}
+                    modelOptionsByInstance={getCustomModelOptionsByInstance(
+                      settings,
+                      providers,
+                      entry.instanceId,
+                      entry.model,
+                    )}
+                    triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+                    getModelDisabledReason={modelDisabledReason}
+                    onOpenProviderSetup={openProviderSetup}
+                    onInstanceModelChange={(instanceId, model) =>
+                      replaceChainEntry(index, createModelSelection(instanceId, model))
+                    }
+                  />
+                  <Button
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={`Move fallback ${index} up`}
+                    onClick={() => moveChainEntry(index, -1)}
+                  >
+                    <ArrowUpIcon className="size-3" />
+                  </Button>
+                  <Button
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={`Move fallback ${index} down`}
+                    disabled={index === chain.length - 1}
+                    onClick={() => moveChainEntry(index, 1)}
+                  >
+                    <ArrowDownIcon className="size-3" />
+                  </Button>
+                  <Button
+                    size="icon-micro"
+                    variant="ghost-muted"
+                    aria-label={`Remove fallback ${index}`}
+                    onClick={() => setChain(chain.filter((_, entryIndex) => entryIndex !== index))}
+                  >
+                    <XIcon className="size-3" />
+                  </Button>
+                </div>
+              );
+            })}
+            <ProviderModelPicker
+              environmentId={representative?.environmentId ?? null}
+              activeInstanceId={selection.instanceId}
+              model={selection.model}
+              lockedProvider={null}
+              instanceEntries={entries}
+              modelOptionsByInstance={modelOptions}
+              triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+              triggerLabel="Add fallback"
+              getModelDisabledReason={modelDisabledReason}
+              onOpenProviderSetup={openProviderSetup}
+              onInstanceModelChange={(instanceId, model) =>
+                addFallback(createModelSelection(instanceId, model))
+              }
+            />
+          </div>
+        }
+      />
+    ) : null;
   const workspaceRow = (
     <SettingsRow
       serverScoped
@@ -293,12 +440,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       {category === "project" ? (
         <>
           {modelRow}
+          {fallbackRow}
           {workspaceRow}
           {repositoriesRow}
         </>
       ) : category === "general" ? (
         <>
           {modelRow}
+          {fallbackRow}
           <SettingsRow
             serverScoped
             settingKeys={["defaultRuntimeMode"]}
