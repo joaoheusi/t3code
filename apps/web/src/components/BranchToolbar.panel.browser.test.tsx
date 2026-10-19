@@ -106,6 +106,57 @@ it("keeps machine choices usable when the combined row's workspace is locked", a
   expect(onEnvironmentChange).toHaveBeenCalledWith("remote");
 });
 
+it("advances from machine to workspace in one menu session", async () => {
+  state.worktreePath = null;
+  const onEnvironmentChange = vi.fn();
+  const onEnvModeChange = vi.fn();
+  await render({
+    onEnvironmentChange,
+    onEnvModeChange,
+    availableEnvironments: ["local", "remote"].map((id) => ({
+      environmentId: EnvironmentId.make(id),
+      projectId: ProjectId.make("project"),
+      label: id,
+      isPrimary: id === "local",
+      machine: "server" as const,
+    })),
+  });
+  const trigger = container.querySelector("button")!;
+  const radioLabels = () =>
+    Array.from(document.querySelectorAll('[role="menuitemradio"]')).map((el) => el.textContent);
+
+  await userEvent.click(trigger);
+  await expect.element(page.getByRole("menuitemradio", { name: "remote" })).toBeVisible();
+  expect(radioLabels()).not.toContain("New worktree");
+
+  await userEvent.click(page.getByRole("menuitemradio", { name: "remote" }));
+  expect(onEnvironmentChange).toHaveBeenCalledWith("remote");
+  await expect.element(page.getByRole("menuitemradio", { name: "New worktree" })).toBeVisible();
+  expect(radioLabels()).not.toContain("remote");
+  // The current workspace is focused, so Enter confirms it without arrowing.
+  expect(document.activeElement?.textContent).toContain("Current checkout");
+
+  await userEvent.click(page.getByRole("menuitemradio", { name: "New worktree" }));
+  expect(onEnvModeChange).toHaveBeenCalledWith("worktree");
+  await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+
+  // ArrowRight skips to Workspace without changing the machine; ArrowLeft goes back.
+  onEnvironmentChange.mockClear();
+  await userEvent.click(trigger);
+  await expect.element(page.getByRole("menuitemradio", { name: "remote" })).toBeVisible();
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(page.getByRole("menuitemradio", { name: "New worktree" })).toBeVisible();
+  expect(onEnvironmentChange).not.toHaveBeenCalled();
+  await userEvent.keyboard("{ArrowLeft}");
+  await expect.element(page.getByRole("menuitemradio", { name: "remote" })).toBeVisible();
+
+  // Enter on the already-checked machine still advances; Enter again closes.
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitemradio", { name: "New worktree" })).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+});
+
 it.each([
   ["local", null, "/tmp/project"],
   ["worktree", null, null],

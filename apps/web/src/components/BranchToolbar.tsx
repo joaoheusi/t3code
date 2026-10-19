@@ -15,6 +15,7 @@ import {
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
+  ChevronLeftIcon,
   FolderGit2Icon,
   FolderGitIcon,
   FolderIcon,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   type Ref,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   memo,
   useImperativeHandle,
@@ -63,6 +65,7 @@ import {
   Menu,
   MenuGroup,
   MenuGroupLabel,
+  MenuItem,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
@@ -187,6 +190,45 @@ const RunContextSelector = memo(function RunContextSelector({
   onUsePreviousWorktree,
 }: RunContextSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuStep, setMenuStep] = useState<"environment" | "workspace">("environment");
+  const menuPopupRef = useRef<HTMLDivElement | null>(null);
+  const hasEnvironmentPicker = Boolean(
+    showEnvironmentPicker && availableEnvironments && onEnvironmentChange,
+  );
+  // Two steps only when both picks are real choices. A locked or forced
+  // workspace keeps the single-page menu, where picking a machine closes.
+  const isTwoStepMenu = hasEnvironmentPicker && !envLocked && !envModeLocked && !forceNewWorktree;
+  useEffect(() => {
+    if (!menuOpen || !isTwoStepMenu) return;
+    // Land on the current choice so Enter confirms it and moves on. Without
+    // this, swapping steps unmounts the focused item and focus is lost.
+    const frame = requestAnimationFrame(() => {
+      const popup = menuPopupRef.current;
+      if (!popup) return;
+      const target =
+        popup.querySelector<HTMLElement>(
+          '[role="menuitemradio"][aria-checked="true"]:not([aria-disabled="true"])',
+        ) ?? popup.querySelector<HTMLElement>('[role="menuitemradio"]:not([aria-disabled="true"])');
+      target?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    menuOpen,
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- A step swap replaces the menu items, so the new step's current choice refocuses.
+    menuStep,
+    isTwoStepMenu,
+  ]);
+  const handleMenuKeyDown = (event: ReactKeyboardEvent) => {
+    if (!isTwoStepMenu) return;
+    if (menuStep === "environment" && event.key === "ArrowRight") {
+      event.preventDefault();
+      setMenuStep("workspace");
+    } else if (menuStep === "workspace" && event.key === "ArrowLeft") {
+      event.preventDefault();
+      setMenuStep("environment");
+    }
+  };
   const activeEnvironment =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
   const WorkspaceIcon =
@@ -286,7 +328,13 @@ const RunContextSelector = memo(function RunContextSelector({
   }
 
   return (
-    <Menu>
+    <Menu
+      open={menuOpen}
+      onOpenChange={(open) => {
+        setMenuOpen(open);
+        if (open) setMenuStep("environment");
+      }}
+    >
       <MenuTrigger
         render={isPanel ? <ThreadDetailsControl part="select" /> : <ComposerControl size="xs" />}
         className={isPanel ? undefined : "min-w-0 max-w-[48%] flex-initial justify-start"}
@@ -309,8 +357,10 @@ const RunContextSelector = memo(function RunContextSelector({
         {!isPanel ? <ChevronDownIcon className="size-3 shrink-0 opacity-50" /> : null}
       </MenuTrigger>
       <MenuPopup
+        ref={menuPopupRef}
         align="start"
         side={isPanel ? "bottom" : "top"}
+        onKeyDown={handleMenuKeyDown}
         className={
           isPanel
             ? "w-(--anchor-width)"
@@ -320,88 +370,115 @@ const RunContextSelector = memo(function RunContextSelector({
         }
         {...(!isPanel ? composerFloatingLayerProps : {})}
       >
-        {showEnvironmentPicker && availableEnvironments && onEnvironmentChange ? (
+        {hasEnvironmentPicker && availableEnvironments && onEnvironmentChange ? (
           <>
-            <MenuGroup>
-              <MenuGroupLabel>Run on</MenuGroupLabel>
-              <MenuRadioGroup
-                value={autoEnvironmentLabel ? "auto" : environmentId}
-                onValueChange={(value) =>
-                  value === "auto"
-                    ? onAutoEnvironment?.()
-                    : onEnvironmentChange(value as EnvironmentId)
-                }
-              >
-                {onAutoEnvironment && (
-                  <MenuRadioItem
-                    value="auto"
-                    disabled={envLocked}
-                    closeOnClick
-                    onClick={() => {
-                      if (autoEnvironmentLabel) onAutoEnvironment?.();
-                    }}
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <ScaleIcon className="size-3" aria-hidden="true" />
-                      <span className="min-w-0 truncate">
-                        {autoEnvironmentLabel ?? "Auto balance"}
+            {(!isTwoStepMenu || menuStep === "environment") && (
+              <MenuGroup>
+                <MenuGroupLabel>Run on</MenuGroupLabel>
+                <MenuRadioGroup
+                  value={autoEnvironmentLabel ? "auto" : environmentId}
+                  onValueChange={(value) =>
+                    value === "auto"
+                      ? onAutoEnvironment?.()
+                      : onEnvironmentChange(value as EnvironmentId)
+                  }
+                >
+                  {onAutoEnvironment && (
+                    <MenuRadioItem
+                      value="auto"
+                      disabled={envLocked}
+                      closeOnClick={!isTwoStepMenu}
+                      onClick={() => {
+                        if (autoEnvironmentLabel) onAutoEnvironment?.();
+                        if (isTwoStepMenu) setMenuStep("workspace");
+                      }}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <ScaleIcon className="size-3" aria-hidden="true" />
+                        <span className="min-w-0 truncate">
+                          {autoEnvironmentLabel ?? "Auto balance"}
+                        </span>
                       </span>
-                    </span>
-                  </MenuRadioItem>
-                )}
-                {availableEnvironments.map((env) => (
-                  <MenuRadioItem
-                    key={env.environmentId}
-                    disabled={envLocked}
-                    value={env.environmentId}
-                    closeOnClick
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <EnvironmentMachineIcon kind={env.machine} className="size-3" />
-                      <span className="min-w-0 truncate">{env.label}</span>
-                    </span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
-            <MenuSeparator />
+                    </MenuRadioItem>
+                  )}
+                  {availableEnvironments.map((env) => (
+                    <MenuRadioItem
+                      key={env.environmentId}
+                      disabled={envLocked}
+                      value={env.environmentId}
+                      closeOnClick={!isTwoStepMenu}
+                      onClick={() => {
+                        if (isTwoStepMenu) setMenuStep("workspace");
+                      }}
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <EnvironmentMachineIcon kind={env.machine} className="size-3" />
+                        <span className="min-w-0 truncate">{env.label}</span>
+                      </span>
+                    </MenuRadioItem>
+                  ))}
+                </MenuRadioGroup>
+              </MenuGroup>
+            )}
+            {isTwoStepMenu && menuStep === "workspace" && (
+              <>
+                <MenuItem
+                  closeOnClick={false}
+                  aria-label="Back to Run on"
+                  onClick={() => setMenuStep("environment")}
+                >
+                  <ChevronLeftIcon className="size-3" aria-hidden="true" />
+                  <span className="min-w-0 truncate">
+                    {autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}
+                  </span>
+                </MenuItem>
+                <MenuSeparator />
+              </>
+            )}
+            {!isTwoStepMenu && <MenuSeparator />}
           </>
         ) : null}
-        <MenuGroup>
-          <MenuGroupLabel>Workspace</MenuGroupLabel>
-          <MenuRadioGroup
-            value={effectiveEnvMode}
-            onValueChange={(value) => {
-              if (value === "previous-worktree") {
-                onUsePreviousWorktree();
-                return;
-              }
-              onEnvModeChange(value as EnvMode);
-            }}
-          >
-            <MenuRadioItem disabled={envModeLocked || forceNewWorktree} value="local" closeOnClick>
-              <span className="flex min-w-0 items-center gap-1.5">
-                {activeWorktreePath ? (
-                  <FolderGitIcon className="size-3" />
-                ) : (
-                  <FolderIcon className="size-3" />
-                )}
-                <MiddleTruncate value={resolveCurrentWorkspaceLabel(activeWorktreePath)} />
-              </span>
-            </MenuRadioItem>
-            <MenuRadioItem disabled={envModeLocked} value="worktree" closeOnClick>
-              <span className="flex min-w-0 items-center gap-1.5">
-                <FolderGit2Icon className="size-3" />
-                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
-              </span>
-            </MenuRadioItem>
-            {previousWorktreeLabel ? (
-              <MenuRadioItem disabled={envModeLocked} value="previous-worktree" closeOnClick>
-                <PreviousWorktreeItemContent branch={previousWorktreeBranch} />
+        {(!isTwoStepMenu || menuStep === "workspace") && (
+          <MenuGroup>
+            <MenuGroupLabel>Workspace</MenuGroupLabel>
+            <MenuRadioGroup
+              value={effectiveEnvMode}
+              onValueChange={(value) => {
+                if (value === "previous-worktree") {
+                  onUsePreviousWorktree();
+                  return;
+                }
+                onEnvModeChange(value as EnvMode);
+              }}
+            >
+              <MenuRadioItem
+                disabled={envModeLocked || forceNewWorktree}
+                value="local"
+                closeOnClick
+              >
+                <span className="flex min-w-0 items-center gap-1.5">
+                  {activeWorktreePath ? (
+                    <FolderGitIcon className="size-3" />
+                  ) : (
+                    <FolderIcon className="size-3" />
+                  )}
+                  <MiddleTruncate value={resolveCurrentWorkspaceLabel(activeWorktreePath)} />
+                </span>
               </MenuRadioItem>
-            ) : null}
-          </MenuRadioGroup>
-        </MenuGroup>
+              <MenuRadioItem disabled={envModeLocked} value="worktree" closeOnClick>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <FolderGit2Icon className="size-3" />
+                  <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
+                </span>
+              </MenuRadioItem>
+              {previousWorktreeLabel ? (
+                <MenuRadioItem disabled={envModeLocked} value="previous-worktree" closeOnClick>
+                  <PreviousWorktreeItemContent branch={previousWorktreeBranch} />
+                </MenuRadioItem>
+              ) : null}
+            </MenuRadioGroup>
+          </MenuGroup>
+        )}
       </MenuPopup>
     </Menu>
   );
