@@ -22,6 +22,10 @@ import {
 } from "../logicalProject";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
+  limitedInstanceIdsFromFailures,
+  resolveDefaultModelSelectionForNewThread,
+} from "@t3tools/shared/modelSelectionChain";
+import {
   readProject,
   readProjects,
   readThreadShell,
@@ -80,8 +84,8 @@ export function useNewThreadHandler() {
     // Read at call time: every provider status push replaces the config map, and
     // subscribing would hand every sidebar row a new handler.
     const environmentServerConfigs = appAtomRegistry.get(environmentServerConfigsAtom);
-    const targetServerSettings =
-      environmentServerConfigs.get(projectRef.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS;
+    const targetServerConfig = environmentServerConfigs.get(projectRef.environmentId);
+    const targetServerSettings = targetServerConfig?.settings ?? DEFAULT_SERVER_SETTINGS;
     const {
       getComposerDraft,
       getDraftSessionByLogicalProjectKey,
@@ -128,7 +132,23 @@ export function useNewThreadHandler() {
       project?.id ?? null,
       project,
     );
-    const projectDefaultModelSelection = projectSettings.settings.defaultModelSelection;
+    const projectDefaultModelSelection = resolveDefaultModelSelectionForNewThread({
+      settings: projectSettings.settings,
+      providers: targetServerConfig?.providers ?? [],
+      limitedInstanceIds: limitedInstanceIdsFromFailures(
+        readThreadShells().flatMap((shell) =>
+          shell.environmentId === projectRef.environmentId &&
+          shell.runtime?.lastErrorClass === "usage_limit"
+            ? [
+                {
+                  instanceId: shell.providerInstanceId,
+                  usageLimitResetAt: shell.runtime.usageLimitResetAt,
+                },
+              ]
+            : [],
+        ),
+      ),
+    });
     const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
     const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
       resolveNewThreadModelSelectionOverride({

@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import { deepMerge } from "./Struct.ts";
 import { fromLenientJson } from "./schemaJson.ts";
 import { createModelSelection, readCustomModelEntries } from "./model.ts";
+import { syncDefaultModelSelectionPair } from "./modelSelectionChain.ts";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -469,6 +470,11 @@ export function applyServerSettingsPatch(
       },
     };
   }
+  const modelSelectionPair = syncDefaultModelSelectionPair({
+    current,
+    chain: patch.defaultModelSelectionChain,
+    single: patch.defaultModelSelection,
+  });
   const next = deepMerge(current, patchForMerge);
   const nextWithReplacementsBase = {
     ...next,
@@ -555,6 +561,7 @@ export function applyServerSettingsPatch(
     ...(patch.defaultModelSelection !== undefined
       ? { defaultModelSelection: patch.defaultModelSelection }
       : {}),
+    ...(modelSelectionPair === null ? {} : modelSelectionPair),
     ...(patch.defaultProjectScripts !== undefined
       ? { defaultProjectScripts: patch.defaultProjectScripts }
       : {}),

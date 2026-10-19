@@ -31,6 +31,10 @@ import {
 } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
+import {
+  limitedInstanceIdsFromFailures,
+  resolveDefaultModelSelectionForNewThread,
+} from "@t3tools/shared/modelSelectionChain";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
@@ -576,7 +580,23 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
   const projectDefaultModelSelection = resolveDefaultableModelSelection(
     selectedEnvironmentServerConfig,
-    projectSettings.settings.defaultModelSelection,
+    resolveDefaultModelSelectionForNewThread({
+      settings: projectSettings.settings,
+      providers: selectedEnvironmentServerConfig?.providers ?? [],
+      limitedInstanceIds: limitedInstanceIdsFromFailures(
+        threads.flatMap((thread) =>
+          thread.environmentId === selectedProject?.environmentId &&
+          thread.runtime?.lastErrorClass === "usage_limit"
+            ? [
+                {
+                  instanceId: thread.providerInstanceId,
+                  usageLimitResetAt: thread.runtime.usageLimitResetAt,
+                },
+              ]
+            : [],
+        ),
+      ),
+    }),
     selectedProject?.id ?? null,
   );
   const storedStickyModelSelection = useStickyComposerModelSelection();
