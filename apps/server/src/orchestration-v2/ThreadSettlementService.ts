@@ -81,6 +81,34 @@ function pullRequestMatchesProject(
   );
 }
 
+type SettlementPullRequestLink = NonNullable<
+  ProjectionStore.ProjectionSettlementCandidate["pullRequests"]
+>[number];
+
+/** When the linked pull request merged or closed, or -Infinity if it has not. */
+function linkTerminalAtMs(link: SettlementPullRequestLink): number {
+  const snapshot = link.snapshot;
+  const value = snapshot?.state === "merged" ? snapshot.mergedAt : snapshot?.closedAt;
+  const timestamp = Date.parse(value ?? "");
+  return Number.isNaN(timestamp) ? Number.NEGATIVE_INFINITY : timestamp;
+}
+
+/**
+ * The links whose outcome the thread waits on. A link made after its pull
+ * request had already merged or closed records work the thread did, such as an
+ * agent merging pull requests it was asked to merge, so it cannot settle the
+ * thread.
+ */
+function settlementPullRequestLinks(
+  links: ReadonlyArray<SettlementPullRequestLink>,
+): ReadonlyArray<SettlementPullRequestLink> {
+  return visibleThreadPullRequests(links).filter((link) => {
+    if (link.snapshot === null || link.snapshot.state === "open") return true;
+    const linkedAtMs = Date.parse(link.linkedAt);
+    return Number.isNaN(linkedAtMs) || linkTerminalAtMs(link) >= linkedAtMs;
+  });
+}
+
 /**
  * Absolute age bounds client clock skew in both directions and stops stale
  * pre-adoption data from blocking the thread forever.
@@ -138,7 +166,6 @@ export function isAutoSettlementCandidate(
 ): boolean {
   if (thread.archivedAt !== null || thread.settledOverride !== null) return false;
   if (thread.pinnedAt != null || thread.autoSettleDisabledAt != null) return false;
-  // Blocked-on-you work must never park behind a settled override.
   if (thread.pendingRuntimeRequest !== null) return false;
   if (thread.activityRunStatus != null) return false;
   if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;
@@ -203,7 +230,7 @@ export function resolveAutoSettlementAt(input: {
 }): DateTime.Utc | null {
   const { thread } = input;
   let pullRequest = input.pullRequest;
-  const links = visibleThreadPullRequests(thread.pullRequests ?? []);
+  const links = settlementPullRequestLinks(thread.pullRequests ?? []);
   if (links.some((link) => link.snapshot === null || link.snapshot.state === "open")) return null;
   const multiRepository = isMultiRepositoryWorkspace(thread.workspace);
   if (

@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 import { useAtomValue } from "@effect/atom-react";
 import type { PullRequestDetail, PullRequestMergeMethod, PullRequestRef } from "@t3tools/contracts";
 import {
@@ -199,7 +200,7 @@ export function MobileMergeQuickAction(props: {
               ? targets.reason
               : "Choose pull requests to merge"
         }
-        symbol="arrow.triangle.merge"
+        symbol={PullRequestGlyph.merged}
         dimmed={!canMerge || targets.kind === "unavailable"}
         disabled={!canMerge || targets.kind === "unavailable"}
         isLast={props.isLast}
@@ -252,7 +253,7 @@ export function MobileMergeQuickAction(props: {
                     key={method}
                     title={PULL_REQUEST_MERGE_METHOD_LABELS[method]}
                     subtitle={quickActionMergePlanSummary(confirmation.defaults)}
-                    symbol="arrow.triangle.merge"
+                    symbol={PullRequestGlyph.merged}
                     isLast={index === confirmation.methods.length - 1}
                     disabled={busy || !canMerge}
                     onPress={() =>
@@ -269,7 +270,7 @@ export function MobileMergeQuickAction(props: {
                         `${plan.reference.repository} #${plan.reference.number} · ${quickActionMergePlanLabel(plan)}`,
                     )
                     .join(", ")}
-                  symbol="arrow.triangle.merge"
+                  symbol={PullRequestGlyph.merged}
                   isLast
                   disabled={busy || !canMerge}
                   onPress={() => void merge(confirmation.defaults)}

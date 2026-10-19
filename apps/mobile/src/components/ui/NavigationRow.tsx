@@ -12,7 +12,6 @@ export function NavigationRow({
   title,
   titleClassName,
   subtitle,
-  subtitleClassName,
   subtitleNumberOfLines,
   subtitleEllipsizeMode,
   leading,
@@ -23,7 +22,6 @@ export function NavigationRow({
   readonly title: string;
   readonly titleClassName?: string;
   readonly subtitle?: string | null;
-  readonly subtitleClassName?: string;
   readonly subtitleNumberOfLines?: ComponentProps<typeof AppText>["numberOfLines"];
   readonly subtitleEllipsizeMode?: ComponentProps<typeof AppText>["ellipsizeMode"];
   readonly leading?: ReactNode;
@@ -52,7 +50,7 @@ export function NavigationRow({
         </AppText>
         {subtitle ? (
           <AppText
-            className={cn("text-sm text-foreground-muted", subtitleClassName)}
+            className="text-sm text-foreground-muted"
             ellipsizeMode={subtitleEllipsizeMode}
             numberOfLines={subtitleNumberOfLines ?? 2}
           >

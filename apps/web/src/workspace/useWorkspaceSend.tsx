@@ -12,7 +12,7 @@ import {
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { FolderGit2Icon, TriangleAlertIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ComposerBannerStackItem } from "../components/chat/ComposerBannerStack";
 import { Button } from "../components/ui/button";
@@ -33,67 +33,64 @@ export function useStartWorkspaceThread() {
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
     reportFailure: false,
   });
-  return useCallback(
-    async (input: {
-      readonly environmentId: EnvironmentId;
-      readonly threadId: ThreadId;
-      readonly projectId: ProjectId;
-      /** Null when the thread already exists and only needs its repositories. */
-      readonly createThread: {
-        readonly title: string;
-        readonly modelSelection: ModelSelection;
-        readonly runtimeMode: RuntimeMode;
-        readonly interactionMode: ProviderInteractionMode;
-      } | null;
-      readonly configuration: WorkspaceConfiguration;
-      readonly prompt: string;
-      readonly draftKey: string;
-    }): Promise<boolean> => {
-      const threadKey = scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId));
-      const store = useWorkspaceUiStore.getState();
-      try {
-        if (input.createThread) {
-          const created = await dispatch({
-            environmentId: input.environmentId,
-            input: {
-              type: "thread.create",
-              commandId: CommandId.make(randomUUID()),
-              threadId: input.threadId,
-              projectId: input.projectId,
-              ...input.createThread,
-              branch: null,
-              worktreePath: null,
-              createdBy: "user",
-              creationSource: "web",
-            },
-          });
-          if (created._tag === "Failure") throw squashAtomCommandFailure(created);
-        }
-        const configured = await dispatch({
+  return async (input: {
+    readonly environmentId: EnvironmentId;
+    readonly threadId: ThreadId;
+    readonly projectId: ProjectId;
+    /** Null when the thread already exists and only needs its repositories. */
+    readonly createThread: {
+      readonly title: string;
+      readonly modelSelection: ModelSelection;
+      readonly runtimeMode: RuntimeMode;
+      readonly interactionMode: ProviderInteractionMode;
+    } | null;
+    readonly configuration: WorkspaceConfiguration;
+    readonly prompt: string;
+    readonly draftKey: string;
+  }): Promise<boolean> => {
+    const threadKey = scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId));
+    const store = useWorkspaceUiStore.getState();
+    try {
+      if (input.createThread) {
+        const created = await dispatch({
           environmentId: input.environmentId,
           input: {
-            type: "thread.metadata.update",
+            type: "thread.create",
             commandId: CommandId.make(randomUUID()),
             threadId: input.threadId,
-            workspaceConfiguration: input.configuration,
+            projectId: input.projectId,
+            ...input.createThread,
+            branch: null,
+            worktreePath: null,
+            createdBy: "user",
+            creationSource: "web",
           },
         });
-        if (configured._tag === "Failure") throw squashAtomCommandFailure(configured);
-        // On failure the selection stays, so the chip still shows it and Send can retry.
-        store.setDraftRepositories(input.draftKey, null);
-        store.setPendingSend(threadKey, input.prompt);
-        return true;
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Couldn't prepare the repositories",
-          description: error instanceof Error ? error.message : "Try sending again.",
-        });
-        return false;
+        if (created._tag === "Failure") throw squashAtomCommandFailure(created);
       }
-    },
-    [dispatch],
-  );
+      const configured = await dispatch({
+        environmentId: input.environmentId,
+        input: {
+          type: "thread.metadata.update",
+          commandId: CommandId.make(randomUUID()),
+          threadId: input.threadId,
+          workspaceConfiguration: input.configuration,
+        },
+      });
+      if (configured._tag === "Failure") throw squashAtomCommandFailure(configured);
+      // On failure the selection stays, so the chip still shows it and Send can retry.
+      store.setDraftRepositories(input.draftKey, null);
+      store.setPendingSend(threadKey, input.prompt);
+      return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Couldn't prepare the repositories",
+        description: error instanceof Error ? error.message : "Try sending again.",
+      });
+      return false;
+    }
+  };
 }
 
 /** Sends the queued first message once every repository is ready, unless the draft changed. */
@@ -143,7 +140,7 @@ export function useWorkspaceBannerItem(input: {
   });
   const [busy, setBusy] = useState(false);
   const { environmentId, threadId: inputThreadId } = input;
-  return useMemo((): ComposerBannerStackItem | null => {
+  return ((): ComposerBannerStackItem | null => {
     if (!workspace || !inputThreadId || workspace.state === "ready") return null;
     const threadId = inputThreadId;
     const control = async (type: "retry" | "cancel") => {
@@ -215,5 +212,5 @@ export function useWorkspaceBannerItem(input: {
         </Button>
       ),
     };
-  }, [busy, dispatch, environmentId, inputThreadId, sendQueued, workspace]);
+  })();
 }

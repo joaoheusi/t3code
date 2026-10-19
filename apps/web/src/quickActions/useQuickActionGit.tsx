@@ -9,7 +9,7 @@ import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtim
 import { Atom, AsyncResult } from "effect/reactivity";
 import * as Option from "effect/Option";
 import { CloudDownloadIcon, CloudUploadIcon, GitCommitIcon } from "lucide-react";
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { openCommandPalette } from "../commandPaletteBus";
 import {
   ITEM_ICON_CLASS,
@@ -260,30 +260,23 @@ export function useQuickActionGit(
     scope?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  const targets = useMemo(
-    () => quickActionGitTargets(scope?.thread?.workspace, cwd),
-    [scope?.thread?.workspace, cwd],
-  );
-  const stateAtom = useMemo(
-    () =>
-      Atom.make((get) =>
-        targets.map((target) => {
-          const environmentId = scope?.environmentId;
-          const status =
-            environmentId && !target.unavailable
-              ? Option.getOrNull(
-                  AsyncResult.value(
-                    get(vcsEnvironment.status({ environmentId, input: { cwd: target.cwd } })),
-                  ),
-                )
-              : null;
-          const busy = environmentId
-            ? get(vcsActionManager.stateAtom({ environmentId, cwd: target.cwd })).isRunning
-            : false;
-          return { ...target, status, busy, action: resolveQuickActionGit(status, busy) };
-        }),
-      ),
-    [scope?.environmentId, targets],
+  const targets = quickActionGitTargets(scope?.thread?.workspace, cwd);
+  const stateAtom = Atom.make((get) =>
+    targets.map((target) => {
+      const environmentId = scope?.environmentId;
+      const status =
+        environmentId && !target.unavailable
+          ? Option.getOrNull(
+              AsyncResult.value(
+                get(vcsEnvironment.status({ environmentId, input: { cwd: target.cwd } })),
+              ),
+            )
+          : null;
+      const busy = environmentId
+        ? get(vcsActionManager.stateAtom({ environmentId, cwd: target.cwd })).isRunning
+        : false;
+      return { ...target, status, busy, action: resolveQuickActionGit(status, busy) };
+    }),
   );
   const repositories = useAtomValue(stateAtom);
   const loadStatus = useAtomCommand(vcsEnvironment.refreshStatus, { reportFailure: false });

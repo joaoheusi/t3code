@@ -73,6 +73,7 @@ import Migration0066 from "./Migrations/066_PullRequestReviewGuides.ts";
 import Migration0067 from "./Migrations/067_BaseUpdateQuickActions.ts";
 import Migration0068 from "./Migrations/068_ThreadFailureLookupIndex.ts";
 import Migration0069 from "./Migrations/069_DropUnusedV1Projections.ts";
+import Migration0070 from "./Migrations/070_CanonicalizeThreadPullRequestLinks.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -148,6 +149,8 @@ export const migrationEntries = [
   [68, "ThreadFailureLookupIndex", Migration0068],
   // Upstream 63, appended after the fork's recorded ids.
   [69, "DropUnusedV1Projections", Migration0069],
+  // Upstream 64, appended after the fork's recorded ids.
+  [70, "CanonicalizeThreadPullRequestLinks", Migration0070],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -215,36 +218,6 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
-  }
-  // The migrator keys on migration_id: a database that recorded a different
-  // migration under a shared id (local or fork builds) keeps that id and
-  // silently skips this build's migration at it. Surface the divergence so the
-  // skipped schema change is diagnosable.
-  const sql = yield* SqlClient.SqlClient;
-  const ledger =
-    yield* sql`SELECT name FROM sqlite_master WHERE type='table' AND name='effect_sql_migrations'`;
-  const recorded =
-    ledger.length === 0
-      ? []
-      : yield* sql<{
-          readonly migration_id: number;
-          readonly name: string;
-        }>`SELECT migration_id, name FROM effect_sql_migrations`;
-  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
-  const divergent = recorded.flatMap((row) => {
-    const expected = manifestNames.get(row.migration_id);
-    if (expected === undefined) {
-      return [`${row.migration_id}:${row.name} (unknown to this build)`];
-    }
-    return expected === row.name
-      ? []
-      : [`${row.migration_id}:${row.name} (this build: ${expected})`];
-  });
-  if (divergent.length > 0) {
-    return yield* new Migrator.MigrationError({
-      kind: "BadState",
-      message: `This database belongs to an incompatible build: ${divergent.join(", ")}. Restore a compatible backup or use a separate profile. No migrations were applied.`,
-    });
   }
   const executedMigrations = [
     ...previewMigrations,

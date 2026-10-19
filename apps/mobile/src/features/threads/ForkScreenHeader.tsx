@@ -4,7 +4,8 @@ import { Platform } from "react-native";
 import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
 import type { AppSymbolName } from "../../components/ui/AppSymbol";
 import { Button as MaterialButton } from "../../components/ui/Button";
-import { NativeHeaderToolbar, NativeStackScreenOptions } from "../../native/StackHeader";
+import { NativeHeaderToolbar } from "../../native/NativeHeaderToolbar";
+import { NativeStackScreenOptions } from "../../native/StackHeader";
 
 type HeaderButton = {
   readonly accessibilityLabel: string;

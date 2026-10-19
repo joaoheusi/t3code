@@ -1,3 +1,4 @@
+import { PullRequestGlyph } from "../../pull-requests/pullRequestGlyphs";
 import * as Dialog from "../../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../../native/useOpenPullRequest";
 import {
@@ -364,7 +365,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
               {chain.layers.length > 1 ? (
                 <View className="flex-row items-center gap-2 px-1 pt-2 pb-1">
                   <SymbolView
-                    name="square.3.layers.3d"
+                    name={PullRequestGlyph.stack}
                     size={14}
                     tintColorClassName="accent-foreground-muted"
                   />
@@ -384,7 +385,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
                     <View className="ml-12 h-px bg-border" />
                   ) : null}
                   <SheetListRow
-                    icon="arrow.triangle.pull"
+                    icon={PullRequestGlyph.pullRequest}
                     title={`#${link.number} ${link.snapshot?.title ?? "Pull request"}`}
                     subtitle={`${link.repository} · ${link.snapshot === null ? "Status pending" : link.snapshot.isDraft && link.snapshot.state === "open" ? "Draft" : link.snapshot.state}${link.watch === undefined ? "" : " · Watching"}`}
                     onPress={() => {

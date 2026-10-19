@@ -21,7 +21,7 @@ export function resolveUserMessageIntentBadge(
       };
     case "steer":
       return {
-        label: "steer",
+        label: "Steer",
         accessibilityLabel: "Steered the active turn",
         explanation:
           "This message was intended to steer the agent while its turn was still running.",
@@ -29,12 +29,13 @@ export function resolveUserMessageIntentBadge(
       };
     case "promoted_queued_to_steer":
       return {
-        label: "queued → steer",
+        label: "Steer",
         accessibilityLabel: "Originally queued, then promoted to steer the active turn",
         explanation:
           "This message was originally queued, then promoted to steer the agent while its turn was still running.",
         tone: "steer",
       };
+    case "queued_turn":
     case "turn_start":
     case undefined:
       return null;

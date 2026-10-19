@@ -1,7 +1,6 @@
 import type { EnvironmentId, ProjectId, WorkspaceRepository } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { FolderGit2Icon, FolderSearchIcon } from "lucide-react";
-import { useCallback } from "react";
 
 import { openCommandPalette } from "../commandPaletteBus";
 import {
@@ -44,89 +43,81 @@ export function useAddRepository(input: {
       project.workspaceRoot !== scratchRoot,
   );
 
-  const addRepository = useCallback(
-    async (repository: WorkspaceRepository) => {
-      const primary = await inspect({ environmentId, input: { path: primaryRoot } });
-      if (primary._tag === "Success" && primary.value.commonDir === repository.commonDir) {
-        toastManager.add({
-          type: "info",
-          title: `${basename(repository.path)} is this thread's own repository`,
-          description: "Choose its checkout with the workspace and branch controls instead.",
-        });
-        return;
-      }
-      useWorkspaceUiStore
-        .getState()
-        .addDraftRepository(
-          draftKey,
-          { environmentId, projectId },
-          draftRepositoryFrom(repository, randomUUID(), envMode),
-        );
-    },
-    [draftKey, envMode, environmentId, inspect, primaryRoot, projectId],
-  );
-
-  const showDiscovered = useCallback(
-    (root: string, repositories: readonly WorkspaceRepository[], limited: boolean) =>
-      openCommandPalette({
-        view: {
-          addonIcon: <FolderSearchIcon className={ADDON_ICON_CLASS} />,
-          groups: [
-            {
-              value: "discovered-repositories",
-              label: `Repositories in ${basename(root)}${limited ? " (search stopped early)" : ""}`,
-              items: repositories.map((repository): CommandPaletteActionItem => ({
-                kind: "action",
-                value: `repository:${repository.path}`,
-                searchTerms: [repository.path, repository.branch ?? ""],
-                title: basename(repository.path),
-                description: `${repository.branch ?? "detached HEAD"}${repository.dirty ? " · uncommitted changes" : ""} · ${repository.path}`,
-                icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
-                run: () => addRepository(repository),
-              })),
-            },
-          ],
-        },
-      }),
-    [addRepository],
-  );
-
-  const addPath = useCallback(
-    async (path: string) => {
-      const inspected = await inspect({ environmentId, input: { path } });
-      if (inspected._tag === "Success") {
-        await addRepository(inspected.value);
-        return;
-      }
-      const found = await discover({ environmentId, input: { root: path, depth: 3 } });
-      if (found._tag === "Success" && found.value.repositories.length > 0) {
-        showDiscovered(path, found.value.repositories, found.value.limited);
-        return;
-      }
+  const addRepository = async (repository: WorkspaceRepository) => {
+    const primary = await inspect({ environmentId, input: { path: primaryRoot } });
+    if (primary._tag === "Success" && primary.value.commonDir === repository.commonDir) {
       toastManager.add({
-        type: "error",
-        title: "No Git repository there",
-        description:
-          found._tag === "Failure"
-            ? String(squashAtomCommandFailure(found))
-            : `${path} isn't a Git repository and has none inside it.`,
+        type: "info",
+        title: `${basename(repository.path)} is this thread's own repository`,
+        description: "Choose its checkout with the workspace and branch controls instead.",
       });
-    },
-    [addRepository, discover, environmentId, inspect, showDiscovered],
-  );
+      return;
+    }
+    useWorkspaceUiStore
+      .getState()
+      .addDraftRepository(
+        draftKey,
+        { environmentId, projectId },
+        draftRepositoryFrom(repository, randomUUID(), envMode),
+      );
+  };
 
-  const browse = useCallback(
-    () =>
-      openCommandPalette({
-        pickFolder: {
-          environmentId,
-          initialPath: parentFolder(primaryRoot),
-          submitLabel: "Use folder",
-          onPick: (path) => void addPath(path),
-        },
-      }),
-    [addPath, environmentId, primaryRoot],
-  );
+  const showDiscovered = (
+    root: string,
+    repositories: readonly WorkspaceRepository[],
+    limited: boolean,
+  ) =>
+    openCommandPalette({
+      view: {
+        addonIcon: <FolderSearchIcon className={ADDON_ICON_CLASS} />,
+        groups: [
+          {
+            value: "discovered-repositories",
+            label: `Repositories in ${basename(root)}${limited ? " (search stopped early)" : ""}`,
+            items: repositories.map((repository): CommandPaletteActionItem => ({
+              kind: "action",
+              value: `repository:${repository.path}`,
+              searchTerms: [repository.path, repository.branch ?? ""],
+              title: basename(repository.path),
+              description: `${repository.branch ?? "detached HEAD"}${repository.dirty ? " · uncommitted changes" : ""} · ${repository.path}`,
+              icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
+              run: () => addRepository(repository),
+            })),
+          },
+        ],
+      },
+    });
+
+  const addPath = async (path: string) => {
+    const inspected = await inspect({ environmentId, input: { path } });
+    if (inspected._tag === "Success") {
+      await addRepository(inspected.value);
+      return;
+    }
+    const found = await discover({ environmentId, input: { root: path, depth: 3 } });
+    if (found._tag === "Success" && found.value.repositories.length > 0) {
+      showDiscovered(path, found.value.repositories, found.value.limited);
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "No Git repository there",
+      description:
+        found._tag === "Failure"
+          ? String(squashAtomCommandFailure(found))
+          : `${path} isn't a Git repository and has none inside it.`,
+    });
+  };
+
+  const browse = () =>
+    openCommandPalette({
+      pickFolder: {
+        environmentId,
+        initialPath: parentFolder(primaryRoot),
+        submitLabel: "Use folder",
+        onPick: (path) => void addPath(path),
+      },
+    });
 
   return { projects, addPath, browse };
 }
