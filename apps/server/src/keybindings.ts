@@ -100,6 +100,7 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly id: string;
   readonly alongside: KeybindingRule;
   readonly rule: KeybindingRule;
+  readonly replaces?: KeybindingRule;
 }> = [
   {
     id: "composer.sendBackground:mod+enter",
@@ -113,6 +114,18 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
       command: "composer.sendBackground",
       when: "composerFocus && draftThreadRoute",
     },
+  },
+  {
+    id: "thread.previous:mod+alt+arrowup",
+    alongside: { key: "mod+shift+[", command: "thread.previous" },
+    rule: { key: "mod+alt+arrowup", command: "thread.previous" },
+    replaces: { key: "mod+shift+[", command: "thread.previous" },
+  },
+  {
+    id: "thread.next:mod+alt+arrowdown",
+    alongside: { key: "mod+shift+]", command: "thread.next" },
+    rule: { key: "mod+alt+arrowdown", command: "thread.next" },
+    replaces: { key: "mod+shift+]", command: "thread.next" },
   },
 ];
 
@@ -554,8 +567,25 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
-        yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
+      const replacedDefaults = pendingLateDefaults.flatMap((late) => {
+        const replaces = late.replaces;
+        if (!replaces) return [];
+        const replacementActive =
+          defaultsToAppend.includes(late.rule) ||
+          customConfig.some(
+            (entry) =>
+              entry.command === late.rule.command && hasSameShortcutContext(entry, late.rule),
+          );
+        return replacementActive &&
+          customConfig.some((entry) => isSameKeybindingRule(entry, replaces))
+          ? [replaces]
+          : [];
+      });
+      const nextCustomConfig = customConfig.filter(
+        (entry) => !replacedDefaults.some((replaced) => isSameKeybindingRule(entry, replaced)),
+      );
+      if (defaultsToAppend.length > 0 || nextCustomConfig.length !== customConfig.length) {
+        yield* writeConfigAtomically([...defaultsToAppend, ...nextCustomConfig]);
       }
       const settledLateDefaults = pendingLateDefaults.filter(
         (late) => !skippedDefaults.includes(late.rule),
