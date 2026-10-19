@@ -175,6 +175,7 @@ export interface ThreadComposerProps {
   readonly onNativePasteText: (paste: ComposerTextPaste) => Promise<void>;
   readonly onRemoveDraftImage: (imageId: string) => void;
   readonly onStopThread: () => void;
+  readonly onResumeQueue: (() => Promise<void>) | null;
   readonly onSendMessage: (followUp?: ActiveTurnComposerAction) => Promise<MessageId | null>;
   readonly onShowUsageLimits: (report: UsageLimitsReport | null) => void;
   readonly canSwitchProvider: boolean;
@@ -370,6 +371,16 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
     [props.draftAttachments],
   );
   const showStopAction = !hasContent && props.canStopThread && queuedEdit === null;
+  const onResumeQueue = props.onResumeQueue;
+  const [resumingQueue, setResumingQueue] = useState(false);
+  const showResumeAction =
+    !hasContent && !showStopAction && queuedEdit === null && onResumeQueue !== null;
+  const handleResumeQueue = async () => {
+    if (resumingQueue || onResumeQueue === null) return;
+    setResumingQueue(true);
+    await onResumeQueue();
+    setResumingQueue(false);
+  };
 
   const uploadStates = useAtomValue(composerAttachmentUploadsAtom);
   const attachmentsUploading =
@@ -1049,6 +1060,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                     disabled={!props.canOperateThread}
                     onPress={props.onStopThread}
                   />
+                ) : showResumeAction ? (
+                  <ComposerActionButton
+                    accessibilityLabel="Resume queue"
+                    icon="play"
+                    disabled={!props.canOperateThread || resumingQueue}
+                    onPress={() => void handleResumeQueue()}
+                  />
                 ) : (
                   <SendActionButton
                     accessibilityLabel={sendBlockedReason ?? sendLabel}
@@ -1158,6 +1176,13 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
                       variant="danger"
                       disabled={!props.canOperateThread}
                       onPress={props.onStopThread}
+                    />
+                  ) : showResumeAction && voicePresentation.showsSend ? (
+                    <ComposerActionButton
+                      accessibilityLabel="Resume queue"
+                      icon="play"
+                      disabled={!props.canOperateThread || resumingQueue}
+                      onPress={() => void handleResumeQueue()}
                     />
                   ) : voicePresentation.showsSend ? (
                     <SendActionButton

@@ -1,3 +1,4 @@
+import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";

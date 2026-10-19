@@ -1111,33 +1111,6 @@ export function useThreadOutboxDrain(): void {
         currentConfig.providers,
       );
       if (!hasAccess()) return true;
-      const { reportFailure } = makeDeliveryHelpers(queuedMessage);
-      let workspace = creation;
-      if (creation.pullRequestReference) {
-        const checkout = await preparePullRequest({
-          environmentId: queuedMessage.environmentId,
-          input: { cwd: projectCwd, reference: creation.pullRequestReference, mode: "worktree" },
-        });
-        if (!isQueuedMessagePayloadCurrent(persistedMessage, deliveryRevision) || !hasAccess())
-          return true;
-        const failure = reportFailure(checkout, "start-turn");
-        if (failure?.action === "retry") return false;
-        if (failure?.action === "restore")
-          return restoreQueuedMessage(persistedMessage, failure.message);
-        if (!AsyncResult.isSuccess(checkout)) return false;
-        if (!checkout.value.worktreePath || !checkout.value.isOnPullRequestHead)
-          return restoreQueuedMessage(
-            persistedMessage,
-            "The PR worktree has local changes and could not update to the PR head. Resolve them before trying again.",
-          );
-        workspace = {
-          ...creation,
-          workspaceMode: "local",
-          branch: checkout.value.branch,
-          worktreePath: checkout.value.worktreePath,
-          startFromOrigin: false,
-        };
-      }
       const deliveryResult = await startTurn({
         environmentId: queuedMessage.environmentId,
         input: buildProjectThreadStartTurnInput({

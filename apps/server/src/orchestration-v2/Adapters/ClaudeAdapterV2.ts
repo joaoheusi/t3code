@@ -3186,9 +3186,6 @@ function claudeSubagentModelSelection(
 
 const PENDING_CLAUDE_SUBAGENT_CAP = 64;
 const PENDING_CLAUDE_SUBAGENT_FRAME_CAP = 256;
-// Workflow progress frames arrive about every 12 seconds; a running member's
-// transcript is re-read at most this often to show its answer so far.
-const WORKFLOW_MEMBER_LIVE_TRANSCRIPT_READ_INTERVAL_MS = 10_000;
 
 function rememberPendingClaudeSubagentLaunch(
   pending: Map<string, PendingClaudeSubagentLaunch>,
@@ -3518,7 +3515,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               readonly status: OrchestrationV2Subagent["status"];
               readonly attempt: number;
               readonly transcriptReadAttempts: number;
-              readonly liveTranscriptReadAt: DateTime.Utc | null;
               readonly finalTranscriptRead: boolean;
               // Where the next read of the member's transcript starts; every
               // line before it is already projected into the member's thread.
@@ -4924,7 +4920,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 transcriptReadAttempts:
                   (restarted ? 0 : (previous?.transcriptReadAttempts ?? 0)) +
                   (readTranscript ? 1 : 0),
-                liveTranscriptReadAt: readLiveTranscript || restarted ? now : liveTranscriptReadAt,
                 finalTranscriptRead:
                   (!restarted && previous?.finalTranscriptRead === true) ||
                   (readTranscript &&

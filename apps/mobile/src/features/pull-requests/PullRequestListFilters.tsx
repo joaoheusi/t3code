@@ -1,6 +1,6 @@
 import { sortProjectsByGroupOrder } from "@t3tools/client-runtime/state/project-grouping";
 import { useMemo } from "react";
-import { ScrollView } from "react-native";
+import { Platform, ScrollView } from "react-native";
 import type { MenuProps } from "../../components/ui/Menu.types";
 import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { useProjects, useThreadShells } from "../../state/entities";

@@ -45,6 +45,8 @@ import { buildHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
+import { useOpenThreadPullRequests } from "./use-open-thread-pull-requests";
+import type { ThreadPrPresentation } from "../../state/thread-pr-presentation";
 import {
   getConnectionAwareBrandHeaderOptions,
   WorkspaceConnectionTitle,
@@ -550,6 +552,14 @@ function ThreadNavigationSidebarPane(
       openSwipeableRef.current = null;
     }
   }, []);
+  const openThreadPullRequests = useOpenThreadPullRequests();
+  const handleOpenThreadPullRequests = useCallback(
+    (thread: EnvironmentThreadShell, pr: ThreadPrPresentation) => {
+      openSwipeableRef.current?.close();
+      openThreadPullRequests(thread, pr);
+    },
+    [openThreadPullRequests],
+  );
   const handleSelectThread = useCallback(
     (thread: EnvironmentThreadShell) => {
       props.onSelectThread(thread);
@@ -652,6 +662,7 @@ function ThreadNavigationSidebarPane(
           const scopeKey = scopedProjectKey(thread.environmentId, thread.projectId);
           return (
             <ThreadListV2Row
+              onOpenThreadPullRequests={handleOpenThreadPullRequests}
               onNewThreadOnBranch={props.onNewThreadOnBranch}
               thread={thread}
               variant={item.item.variant}

@@ -5,7 +5,7 @@ import {
   type MobileThemeVariables,
 } from "../../lib/mobileTheme";
 
-export function androidWorkspaceNavigationColors(colors: MobileThemeVariables, rail: boolean) {
+export function androidWorkspaceNavigationColors(colors: MobileThemeVariables, rail = false) {
   const header = flattenThemeColor(colors["--color-header"], colors["--color-screen"]);
   const containerColor = flattenThemeColor(
     themeColorWithAlpha(colors["--color-header-foreground"], 0.05),
