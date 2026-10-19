@@ -113,65 +113,6 @@ export function htmlRenderFrameHeight(
   return clampHtmlRenderHeight(Math.min(cap, contentHeight ?? measuredHeight(heights, width)));
 }
 
-export interface HtmlRenderOutlineBox {
-  readonly kind: "text" | "media" | "table";
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  readonly lines: number;
-}
-
-const OUTLINE_KINDS = { t: "text", m: "media", g: "table" } as const;
-const OUTLINE_LETTERS = { text: "t", media: "m", table: "g" } as const;
-const OUTLINE_UNIT = 4;
-export const HTML_RENDER_OUTLINE_MAX_BOXES = 48;
-const OUTLINE_BOX = "[tmg]\\d{1,4},\\d{1,4},[1-9]\\d{0,3},[1-9]\\d{0,3},[1-9]\\d{0,2}";
-const OUTLINE_PATTERN = new RegExp(
-  `^${OUTLINE_BOX}(?:;${OUTLINE_BOX}){0,${HTML_RENDER_OUTLINE_MAX_BOXES - 1}}$`,
-);
-
-export function encodeHtmlRenderOutline(
-  boxes: ReadonlyArray<HtmlRenderOutlineBox>,
-): string | undefined {
-  const unit = (value: number) => Math.min(9_999, Math.max(0, Math.round(value / OUTLINE_UNIT)));
-  const encoded = boxes
-    .slice(0, HTML_RENDER_OUTLINE_MAX_BOXES)
-    .flatMap((box) =>
-      unit(box.width) > 0 && unit(box.height) > 0
-        ? [
-            `${OUTLINE_LETTERS[box.kind]}${unit(box.x)},${unit(box.y)},${unit(box.width)},${unit(box.height)},${Math.min(999, Math.max(1, Math.round(box.lines)))}`,
-          ]
-        : [],
-    )
-    .join(";");
-  return encoded === "" ? undefined : encoded;
-}
-
-export function htmlRenderOutlineBoxes(
-  reference: HtmlRenderReference,
-  width: number,
-): ReadonlyArray<HtmlRenderOutlineBox> {
-  const heights = reference.heights;
-  if (reference.outline === undefined || heights === undefined || heights.length === 0) return [];
-  const scaleX = width / HTML_RENDER_COLUMN_WIDTH;
-  const scaleY = measuredHeight(heights, width) / measuredHeight(heights, HTML_RENDER_COLUMN_WIDTH);
-  return reference.outline.split(";").map((entry) => {
-    const [x = 0, y = 0, boxWidth = 0, boxHeight = 0, lines = 1] = entry
-      .slice(1)
-      .split(",")
-      .map(Number);
-    return {
-      kind: OUTLINE_KINDS[entry[0] as keyof typeof OUTLINE_KINDS],
-      x: x * OUTLINE_UNIT * scaleX,
-      y: y * OUTLINE_UNIT * scaleY,
-      width: boxWidth * OUTLINE_UNIT * scaleX,
-      height: boxHeight * OUTLINE_UNIT * scaleY,
-      lines,
-    };
-  });
-}
-
 export function htmlRenderFileName(title: string) {
   const name = title
     .replace(/[\\/:*?"<>|\p{Cc}]+/gu, " ")

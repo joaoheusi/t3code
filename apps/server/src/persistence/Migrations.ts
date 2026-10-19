@@ -73,6 +73,7 @@ import Migration0066 from "./Migrations/066_PullRequestReviewGuides.ts";
 import Migration0067 from "./Migrations/067_BaseUpdateQuickActions.ts";
 import Migration0068 from "./Migrations/068_ThreadFailureLookupIndex.ts";
 import Migration0069 from "./Migrations/069_DropUnusedV1Projections.ts";
+import Migration0070 from "./Migrations/070_CanonicalizeThreadPullRequestLinks.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -148,6 +149,8 @@ export const migrationEntries = [
   [68, "ThreadFailureLookupIndex", Migration0068],
   // Upstream 63, appended after the fork's recorded ids.
   [69, "DropUnusedV1Projections", Migration0069],
+  // Upstream 64, appended after the fork's recorded ids.
+  [70, "CanonicalizeThreadPullRequestLinks", Migration0070],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -4,5 +4,3 @@ export function AndroidWorkspaceNavigation(_props: {
 }) {
   return null;
 }
-
-export const ANDROID_WORKSPACE_RAIL_WIDTH = 80;

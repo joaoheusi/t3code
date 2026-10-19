@@ -184,6 +184,10 @@ describe("DesktopPreReadyPlatform", () => {
           identity.desktopEntry ?? "",
           `MimeType=x-scheme-handler/${production.scheme};`,
         );
+        assert.include(
+          identity.desktopEntry ?? "",
+          `MimeType=x-scheme-handler/${production.scheme};`,
+        );
         assert.include(identity.desktopEntry ?? "", `Icon=${productionIconPath}`);
         assert.isTrue(identity.iconInstalled);
       }),
