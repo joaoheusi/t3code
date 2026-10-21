@@ -4367,6 +4367,79 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect("push leaves a resolvable upstream in a single-branch clone", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const remote = yield* makeTmpDir("git-remote-");
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["branch", "-M", "main"]);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(cwd, ["remote", "add", "origin", remote]);
+        // Single-branch clones fetch only one branch, so pushes of any other
+        // branch never materialize a remote-tracking ref for it.
+        yield* git(cwd, [
+          "config",
+          "remote.origin.fetch",
+          "+refs/heads/main:refs/remotes/origin/main",
+        ]);
+        yield* git(cwd, ["push", "-u", "origin", "main"]);
+        yield* git(cwd, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+        yield* git(cwd, ["checkout", "-b", "feature/single-branch"]);
+        yield* writeTextFile(cwd, "feature.txt", "feature\n");
+        yield* git(cwd, ["add", "-A"]);
+        yield* driver.commit(cwd, "Add feature", "");
+
+        const before = yield* driver.statusDetails(cwd);
+        assert.equal(before.hasUpstream, false);
+        assert.equal(before.aheadCount, 1);
+
+        const pushed = yield* driver.pushCurrentBranch(cwd, null);
+        assert.deepInclude(pushed, {
+          status: "pushed",
+          branch: "feature/single-branch",
+          upstreamBranch: "origin/feature/single-branch",
+          setUpstream: true,
+        });
+        assert.equal(
+          yield* git(remote, ["--git-dir=.", "log", "-1", "--pretty=%s", "feature/single-branch"]),
+          "Add feature",
+        );
+        assert.equal(
+          yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]),
+          "origin/feature/single-branch",
+        );
+
+        const after = yield* driver.statusDetails(cwd);
+        assert.equal(after.hasUpstream, true);
+        assert.equal(after.aheadCount, 0);
+
+        // A branch an older push left dangling: upstream config recorded, the
+        // commit on the remote, but no refspec entry and no tracking ref.
+        yield* git(cwd, ["update-ref", "-d", "refs/remotes/origin/feature/single-branch"]);
+        yield* git(cwd, [
+          "config",
+          "--replace-all",
+          "remote.origin.fetch",
+          "+refs/heads/main:refs/remotes/origin/main",
+        ]);
+        const dangling = yield* driver.statusDetails(cwd);
+        assert.equal(dangling.hasUpstream, false);
+
+        const repushed = yield* driver.pushCurrentBranch(cwd, null);
+        assert.deepInclude(repushed, { status: "pushed", branch: "feature/single-branch" });
+        const healed = yield* driver.statusDetails(cwd);
+        assert.equal(healed.hasUpstream, true);
+        assert.equal(healed.aheadCount, 0);
+
+        const skipped = yield* driver.pushCurrentBranch(cwd, null);
+        assert.deepInclude(skipped, {
+          status: "skipped_up_to_date",
+          branch: "feature/single-branch",
+        });
+      }),
+    );
+
     it.effect.each(["feature/push", "origin/feature/push"])(
       "publishes %s when the configured diff base already contains HEAD",
       (branch) =>
