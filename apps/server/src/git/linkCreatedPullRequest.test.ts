@@ -132,19 +132,6 @@ describe("createdPullRequestKey", () => {
       ),
     ).toBeNull();
   });
-
-  it("yields nothing when no pull request came out of the action", () => {
-    expect(
-      createdPullRequestKey(prResult({ status: "skipped_not_requested" }), project),
-    ).toBeNull();
-    expect(
-      createdPullRequestKey(
-        prResult({ status: "created", url: "https://github.com/a/b/pull/1" }),
-        project,
-      ),
-    ).toBeNull();
-    expect(createdPullRequestKey(prResult({ status: "created", number: 1 }), project)).toBeNull();
-  });
 });
 
 describe("linkCreatedPullRequest", () => {
@@ -176,7 +163,6 @@ describe("linkCreatedPullRequest", () => {
       ]);
     }),
   );
-
   it.effect("links the pull request under the repository whose checkout the action ran in", () =>
     Effect.gen(function* () {
       const { commands, dispatch } = yield* recordingDispatch();

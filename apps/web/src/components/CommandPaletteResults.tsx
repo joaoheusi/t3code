@@ -1,7 +1,7 @@
 import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon, SquareCheckIcon, SquareIcon } from "lucide-react";
-import { type RefObject, useState } from "react";
+import { type ReactNode, type RefObject, useState } from "react";
 import { cn } from "~/lib/utils";
 import { shortcutLabelForCommand } from "../keybindings";
 import {
@@ -163,6 +163,10 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
  * The title and icon fade well below enabled rows, while the description stays legible because
  * it usually says why the row is unavailable.
  */
+export function CommandPaletteTitleIcon(props: { children: ReactNode }) {
+  return <span className="flex h-5 shrink-0 items-center self-start pt-0.5">{props.children}</span>;
+}
+
 function DisabledCommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
 }) {
@@ -178,7 +182,9 @@ function DisabledCommandPaletteResultRow(props: {
           <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
         )
       ) : null}
-      <span className="flex shrink-0 opacity-40">{props.item.icon}</span>
+      <CommandPaletteTitleIcon>
+        <span className="opacity-40">{props.item.icon}</span>
+      </CommandPaletteTitleIcon>
       {props.item.description || props.item.threadContentMatch ? (
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground/60">
@@ -236,7 +242,7 @@ function CommandPaletteResultRow(props: {
           <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
         )
       ) : null}
-      {props.item.icon}
+      <CommandPaletteTitleIcon>{props.item.icon}</CommandPaletteTitleIcon>
       {props.item.description || props.item.threadContentMatch ? (
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">

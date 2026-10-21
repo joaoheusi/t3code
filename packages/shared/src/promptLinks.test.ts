@@ -118,7 +118,6 @@ describe("link round trips", () => {
     expect(promptLinkAppPath("https://evil.test/new?prompt=hi")).toBeNull();
     expect(promptLinkAppPath("t3code://app/index.html")).toBeNull();
   });
-
   it("hands an in-app path to the installed fork and accepts an explicit mobile scheme", () => {
     expect(promptLinkDeepLink("/new?prompt=hi", "t3code")).toBe("t3code://new?prompt=hi");
     expect(promptLinkDeepLink("/new?prompt=hi")).toBe("j4code://new?prompt=hi");

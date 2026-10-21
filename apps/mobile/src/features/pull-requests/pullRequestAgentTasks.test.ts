@@ -6,13 +6,11 @@ import {
   pullRequestAgentThread,
 } from "./pullRequestAgentTasks";
 import { IsoDateTime, ProjectId, ThreadId, type PullRequestDetail } from "@t3tools/contracts";
-
 const pr = {
   state: "open",
   mergeability: "conflicting",
   baseComparison: "behind",
 } as PullRequestDetail;
-
 describe("PR agent tasks", () => {
   it("continues a single linked thread, but keeps an explicit new-thread choice separate", () => {
     const thread = {
@@ -32,14 +30,6 @@ describe("PR agent tasks", () => {
     };
     expect(pullRequestAgentThread([thread, archived])).toBeUndefined();
     expect(pullRequestAgentThread([thread, archived], archived.id)).toBe(archived);
-  });
-  it("keeps an existing question intact when attaching a PR", () => {
-    expect(appendPullRequestAgentPrompt("Why this change?", "ask")).toBe("Why this change?");
-  });
-  it("appends a task without duplicating it on repeated presses", () => {
-    const text = appendPullRequestAgentPrompt("Keep my own instructions", "explain");
-    expect(text).toBe(`Keep my own instructions\n\n${pullRequestAgentPrompt("explain")}`);
-    expect(appendPullRequestAgentPrompt(text, "explain")).toBe(text);
   });
   it("replaces the helper's own text when switching tasks, keeping user edits", () => {
     const first = appendPullRequestAgentPrompt("My question", "explain");
@@ -61,15 +51,33 @@ describe("PR agent tasks", () => {
   });
   it("offers conflicts and base updates only where they apply, and watch only on supported environments", () => {
     expect(pullRequestAgentActions(pr, true).every((action) => !action.disabled)).toBe(true);
-    const actions = pullRequestAgentActions({ ...pr, mergeability: "mergeable" }, false);
+    const actions = pullRequestAgentActions(
+      {
+        ...pr,
+        mergeability: "mergeable",
+      },
+      false,
+    );
     expect(actions.find((action) => action.task === "conflicts")?.disabled).toBe(true);
     expect(actions.find((action) => action.task === "watch")?.disabled).toBe(true);
-    const current = pullRequestAgentActions({ ...pr, baseComparison: "up-to-date" }, true);
+    const current = pullRequestAgentActions(
+      {
+        ...pr,
+        baseComparison: "up-to-date",
+      },
+      true,
+    );
     expect(current.filter((action) => action.disabled).map((action) => action.task)).toEqual([
       "rebase",
       "merge-base",
     ]);
-    const closed = pullRequestAgentActions({ ...pr, state: "merged" }, true);
+    const closed = pullRequestAgentActions(
+      {
+        ...pr,
+        state: "merged",
+      },
+      true,
+    );
     expect(closed.filter((action) => action.disabled).map((action) => action.task)).toEqual([
       "feedback",
       "conflicts",

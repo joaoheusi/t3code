@@ -37,7 +37,6 @@ it.layer(NodeServices.layer)("DesktopPreReadyFileSystem", (it) => {
       assert.isFalse(yield* fileSystem.exists(userData));
     }),
   );
-
   it.effect.skipIf(HostProcess.Platform.defaultValue() === "win32" || process.getuid?.() === 0)(
     "fails instead of treating an unreadable profile as missing",
     () =>

@@ -101,6 +101,8 @@ export type ThreadPullRequestWatch = typeof ThreadPullRequestWatch.Type;
 export const ThreadPullRequestLink = Schema.Struct({
   ...ThreadPullRequestKey.fields,
   url: TrimmedNonEmptyString,
+  /** An actual browser or clone URL; older agent display URLs may be synthesized. */
+  repositoryWebUrl: Schema.optional(TrimmedNonEmptyString),
   source: ThreadPullRequestLinkSource,
   bindingId: Schema.optional(TrimmedNonEmptyString),
   linkedAt: IsoDateTime,
