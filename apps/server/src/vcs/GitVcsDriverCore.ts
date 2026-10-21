@@ -1146,6 +1146,24 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       },
     });
 
+  const executeFetchWithRefLockRetry = (
+    operation: string,
+    cwd: string,
+    args: readonly string[],
+    options: ExecuteGitOptions = {},
+  ) => {
+    const run = executeGitWithStableDiagnostics(operation, cwd, args, {
+      ...options,
+      allowNonZeroExit: true,
+    });
+    // A concurrent fetch can win a tracking-ref update. Retry once after it releases the ref.
+    return run.pipe(
+      Effect.flatMap((result) =>
+        result.exitCode !== 0 && isRefLockFailure(result.stderr) ? run : Effect.succeed(result),
+      ),
+    );
+  };
+
   const runGit = (
     operation: string,
     cwd: string,
@@ -2368,6 +2386,74 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     return { commitSha };
   });
 
+  // A clone whose fetch refspec names only some branches (single-branch
+  // clones) never materializes a remote-tracking ref for other branches, and
+  // git only resolves @{upstream} through that refspec, so `push -u` leaves
+  // upstream config git cannot resolve and status keeps reporting the branch
+  // as unpushed. Record the branch in the refspec and fetch the one ref so
+  // the upstream the push just set becomes real.
+  const ensurePublishedTrackingRef = Effect.fn("ensurePublishedTrackingRef")(function* (
+    cwd: string,
+    remoteName: string,
+    publishBranch: string,
+  ) {
+    const upstream = yield* resolveCurrentUpstream(cwd).pipe(Effect.orElseSucceed(() => null));
+    if (upstream?.upstreamRef === `${remoteName}/${publishBranch}`) {
+      return;
+    }
+    const trackingRefspec = `+refs/heads/${publishBranch}:refs/remotes/${remoteName}/${publishBranch}`;
+    const fetchRefspecs = yield* runGitStdout(
+      "GitVcsDriver.pushCurrentBranch.readFetchRefspecs",
+      cwd,
+      ["config", "--get-all", `remote.${remoteName}.fetch`],
+      true,
+    ).pipe(
+      Effect.map((stdout) =>
+        stdout
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0),
+      ),
+      Effect.orElseSucceed((): string[] => []),
+    );
+    if (
+      !fetchRefspecs.includes(trackingRefspec) &&
+      !fetchRefspecs.includes(trackingRefspec.slice(1))
+    ) {
+      yield* runGit("GitVcsDriver.pushCurrentBranch.recordPublishedBranch", cwd, [
+        "remote",
+        "set-branches",
+        "--add",
+        "--",
+        remoteName,
+        publishBranch,
+      ]);
+    }
+    const operation = "GitVcsDriver.pushCurrentBranch.fetchPublishedTrackingRef";
+    const args = [
+      "fetch",
+      "--quiet",
+      "--no-tags",
+      "--no-auto-gc",
+      "--",
+      remoteName,
+      trackingRefspec,
+    ];
+    const result = yield* executeFetchWithRefLockRetry(operation, cwd, args, {
+      timeoutMs: DEFAULT_TIMEOUT_MS,
+      env: STATUS_UPSTREAM_REFRESH_ENV,
+    });
+    if (result.exitCode !== 0) {
+      return yield* new GitCommandError({
+        ...gitCommandContext({ operation, cwd, args }),
+        detail: fetchFailureDetail(result.stderr) ?? "Git could not fetch the published branch.",
+        ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
+        stdoutLength: result.stdout.length,
+        stderrLength: result.stderr.length,
+      });
+    }
+  });
+
   const pushCurrentBranch: GitVcsDriver.GitVcsDriver["Service"]["pushCurrentBranch"] = Effect.fn(
     "pushCurrentBranch",
   )(function* (cwd, fallbackBranch, options) {
@@ -2393,6 +2479,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ["push", "-u", "--", requestedRemoteName, `HEAD:refs/heads/${publishBranch}`],
         { timeoutMs: null },
       );
+      yield* ensurePublishedTrackingRef(cwd, requestedRemoteName, publishBranch);
       return {
         status: "pushed" as const,
         branch,
@@ -2469,6 +2556,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ["push", "-u", "--", publishRemoteName, `HEAD:refs/heads/${publishBranch}`],
         { timeoutMs: null },
       );
+      yield* ensurePublishedTrackingRef(cwd, publishRemoteName, publishBranch);
       return {
         status: "pushed" as const,
         branch,
@@ -2518,6 +2606,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           ["push", "-u", "--", remoteName, `HEAD:refs/heads/${publishBranch}`],
           { timeoutMs: null },
         );
+        yield* ensurePublishedTrackingRef(cwd, remoteName, publishBranch);
         return {
           status: "pushed" as const,
           branch,
@@ -3747,25 +3836,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         env: STATUS_UPSTREAM_REFRESH_ENV,
         fallbackErrorDetail: `git fetch ${input.remoteName} failed`,
       };
-      // Another fetch in the same repository, such as the background status
-      // poll, can win the race for a remote-tracking ref. The loser fails, but
-      // the ref is free again by the time a rerun needs it, so retry once.
-      const runFetch = (fetchArgs: readonly string[]) => {
-        const run = executeGitWithStableDiagnostics(
-          "GitVcsDriver.fetchRemote",
-          input.cwd,
-          fetchArgs,
-          {
-            ...options,
-            allowNonZeroExit: true,
-          },
-        );
-        return run.pipe(
-          Effect.flatMap((result) =>
-            result.exitCode !== 0 && isRefLockFailure(result.stderr) ? run : Effect.succeed(result),
-          ),
-        );
-      };
+      const runFetch = (fetchArgs: readonly string[]) =>
+        executeFetchWithRefLockRetry("GitVcsDriver.fetchRemote", input.cwd, fetchArgs, options);
       const fetchAll = runFetch(args).pipe(
         Effect.flatMap((result) =>
           result.exitCode === 0
