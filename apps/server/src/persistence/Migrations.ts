@@ -74,6 +74,9 @@ import Migration0067 from "./Migrations/067_BaseUpdateQuickActions.ts";
 import Migration0068 from "./Migrations/068_ThreadFailureLookupIndex.ts";
 import Migration0069 from "./Migrations/069_DropUnusedV1Projections.ts";
 import Migration0070 from "./Migrations/070_CanonicalizeThreadPullRequestLinks.ts";
+import Migration0071 from "./Migrations/071_CodexUsageNativeTurnIndex.ts";
+import Migration0072 from "./Migrations/072_RepairClientSettlementTimestamps.ts";
+import Migration0073 from "./Migrations/073_WebhookDedupe.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -151,6 +154,10 @@ export const migrationEntries = [
   [69, "DropUnusedV1Projections", Migration0069],
   // Upstream 64, appended after the fork's recorded ids.
   [70, "CanonicalizeThreadPullRequestLinks", Migration0070],
+  // Upstream 65–67, appended after the fork's recorded ids.
+  [71, "CodexUsageNativeTurnIndex", Migration0071],
+  [72, "RepairClientSettlementTimestamps", Migration0072],
+  [73, "WebhookDedupe", Migration0073],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -228,5 +235,25 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     ? Effect.logDebug("Database schema is current")
     : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
 
+  const sql = yield* SqlClient.SqlClient;
+  const recorded = yield* sql<{
+    readonly migration_id: number;
+    readonly name: string;
+  }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const manifestNames = new Map<number, string>(migrationEntries.map(([id, name]) => [id, name]));
+  const divergent = recorded.flatMap((row) => {
+    const expected = manifestNames.get(row.migration_id);
+    if (expected === undefined) {
+      return [`${row.migration_id}:${row.name} (unknown to this build)`];
+    }
+    return expected === row.name
+      ? []
+      : [`${row.migration_id}:${row.name} (this build: ${expected})`];
+  });
+  if (divergent.length > 0) {
+    yield* Effect.logWarning(
+      "Database migration history diverges from this build; recorded migration ids are skipped, not reconciled by name.",
+    ).pipe(Effect.annotateLogs({ divergent }));
+  }
   return executedMigrations;
 });

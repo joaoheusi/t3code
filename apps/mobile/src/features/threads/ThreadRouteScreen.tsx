@@ -72,7 +72,6 @@ import { useSelectedThreadGitState } from "../../state/use-selected-thread-git-s
 import { useSelectedThreadRequests } from "../../state/use-selected-thread-requests";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
 import { useThreadComposerState } from "../../state/use-thread-composer-state";
-import { useComposerDraft } from "../../state/use-composer-drafts";
 import { resolveMergeBackTargetThreadId } from "@t3tools/client-runtime/state/thread-relationships";
 import { resolveLatestMergeBackRun } from "@t3tools/client-runtime/state/thread-workflows";
 import { threadEnvironment } from "../../state/threads";
@@ -93,7 +92,7 @@ import { useThreadPromptLink } from "../prompt-links/useThreadPromptLink";
 import { ThreadHeader } from "./ThreadHeader";
 import {
   useAndroidWorkspaceBack,
-  useWorkspaceListNavigation,
+  useWorkspaceBackNavigation,
 } from "../workspace/useAndroidWorkspaceNavigation";
 
 interface ThreadInspectorSelection {
@@ -120,7 +119,7 @@ function ThreadPane(props: { readonly children: ReactNode }) {
 }
 
 function ThreadRouteFallbackLayout(props: { readonly children: ReactNode }) {
-  const returnToList = useWorkspaceListNavigation("threads");
+  const goBack = useWorkspaceBackNavigation("threads");
   const { layout } = useAdaptiveWorkspaceLayout();
   const { themeVariables } = useAppearancePreferences();
   if (Platform.OS !== "android") return props.children;
@@ -130,7 +129,7 @@ function ThreadRouteFallbackLayout(props: { readonly children: ReactNode }) {
       <AppBar
         title="Thread"
         options={{ contentStyle: { backgroundColor: themeVariables["--color-header"] } }}
-        onBack={layout.usesSplitView ? undefined : returnToList}
+        onBack={layout.usesSplitView ? undefined : goBack}
         hideBottomBorder
       />
       <ThreadPane>{props.children}</ThreadPane>
@@ -288,7 +287,6 @@ function ThreadRouteContent(
   const selectedThreadDetail = Option.getOrNull(selectedThreadDetailState.data);
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const composer = useThreadComposerState();
-  const selectedDraft = useComposerDraft(composer.composerDraftKey);
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
   const requests = useSelectedThreadRequests();
@@ -818,6 +816,7 @@ function ThreadRouteContent(
         projectId: selectedThread.projectId,
         projectCwd: selectedThreadProject.workspaceRoot,
         text: setupMessage.text,
+        titleText: selectedThread.title,
         ...(setupMessage.context ? { context: setupMessage.context } : {}),
         uploadedAttachments: setupMessage.attachments,
         modelSelection: selectedThread.modelSelection,
@@ -896,8 +895,6 @@ function ThreadRouteContent(
           screenTone={connectionTone(routeConnectionState)}
           connectionError={routeConnectionError}
           environmentLabel={selectedEnvironmentConnection?.environmentLabel ?? null}
-          draftMessage={selectedDraft.text}
-          draftAttachments={selectedDraft.attachments}
           feedbackSubmissions={composer.feedbackSubmissions}
           onDismissFeedback={composer.dismissFeedback}
           selectedThreadFeed={composer.selectedThreadFeed}
@@ -935,6 +932,7 @@ function ThreadRouteContent(
               : null
           }
           activePendingApproval={requests.activePendingApproval}
+          activePendingApprovals={requests.activePendingApprovals}
           respondingApprovalId={requests.respondingApprovalId}
           activePendingUserInput={requests.activePendingUserInput}
           activePendingUserInputDrafts={requests.activePendingUserInputDrafts}

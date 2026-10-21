@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 70 }, (_, index) => index + 1),
+        Array.from({ length: 73 }, (_, index) => index + 1),
       );
     }),
   );
@@ -42,6 +42,9 @@ layer("055_OrchestrationV2", (it) => {
         [68, "ThreadFailureLookupIndex"],
         [69, "DropUnusedV1Projections"],
         [70, "CanonicalizeThreadPullRequestLinks"],
+        [71, "CodexUsageNativeTurnIndex"],
+        [72, "RepairClientSettlementTimestamps"],
+        [73, "WebhookDedupe"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -78,6 +81,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 68, name: "ThreadFailureLookupIndex" },
         { migration_id: 69, name: "DropUnusedV1Projections" },
         { migration_id: 70, name: "CanonicalizeThreadPullRequestLinks" },
+        { migration_id: 71, name: "CodexUsageNativeTurnIndex" },
+        { migration_id: 72, name: "RepairClientSettlementTimestamps" },
+        { migration_id: 73, name: "WebhookDedupe" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -164,6 +170,9 @@ layer("055_OrchestrationV2", (it) => {
         [68, "ThreadFailureLookupIndex"],
         [69, "DropUnusedV1Projections"],
         [70, "CanonicalizeThreadPullRequestLinks"],
+        [71, "CodexUsageNativeTurnIndex"],
+        [72, "RepairClientSettlementTimestamps"],
+        [73, "WebhookDedupe"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

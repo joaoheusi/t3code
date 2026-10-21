@@ -7,13 +7,13 @@ import {
   type ScopedThreadRef,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { act, type ComponentProps } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import type { ComponentProps } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
 
 import "~/index.css";
+import { act, render } from "../../../test/render";
 
 const { newThread, paletteEvents, prepareThread, refresh } = vi.hoisted(() => ({
   newThread: vi.fn(),
@@ -244,25 +244,21 @@ const shortcutContext = () => ({
   isDesktop: false,
 });
 
-const roots: Root[] = [];
-
-function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {}) {
+function renderPullRequestPanel(
+  props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {},
+) {
   const container = document.createElement("div");
   container.className = "flex h-[700px] w-[900px]";
-  document.body.append(container);
-  const root = createRoot(container);
-  roots.push(root);
-  return act(async () =>
-    root.render(
-      <PullRequestDetailPanel
-        environmentId={threadRef.environmentId}
-        reference={detail}
-        context="page"
-        shortcutsEnabled={false}
-        getShortcutContext={shortcutContext}
-        {...props}
-      />,
-    ),
+  return render(
+    <PullRequestDetailPanel
+      environmentId={threadRef.environmentId}
+      reference={detail}
+      context="page"
+      shortcutsEnabled={false}
+      getShortcutContext={shortcutContext}
+      {...props}
+    />,
+    { container },
   );
 }
 
@@ -270,8 +266,7 @@ window.addEventListener("t3code:open-command-palette", (event) => {
   paletteEvents.push((event as CustomEvent).detail ?? {});
 });
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+function setup() {
   paletteEvents.length = 0;
   useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
   newThread
@@ -287,36 +282,28 @@ beforeEach(() => {
     );
   prepareThread.mockReset().mockResolvedValue({
     _tag: "Success",
-    value: { branch: "feature", worktreePath: "/workspace/pr" },
+    value: { branch: "feature", worktreePath: "/workspace/pr", isOnPullRequestHead: true },
   });
-});
+}
 
 /** Stands in for the mounted composer: insertions splice into the draft's prompt. */
-function registerComposer(target: ComposerThreadTarget) {
-  let unregister: (() => void) | undefined;
-  act(() => {
-    unregister = registerActionEditor(target, {
-      available: () => true,
-      read: () => {
-        const text = useComposerDraftStore.getState().getComposerDraft(target)?.prompt ?? "";
-        return { text, selection: { start: text.length, end: text.length } };
-      },
-      replace: (start, end, text) => {
-        const store = useComposerDraftStore.getState();
-        const current = store.getComposerDraft(target)?.prompt ?? "";
-        store.setPrompt(target, current.slice(0, start) + text + current.slice(end));
-        return true;
-      },
-      submit: () => false,
-    });
+function registerComposer(target: ComposerThreadTarget): Disposable {
+  const unregister = registerActionEditor(target, {
+    available: () => true,
+    read: () => {
+      const text = useComposerDraftStore.getState().getComposerDraft(target)?.prompt ?? "";
+      return { text, selection: { start: text.length, end: text.length } };
+    },
+    replace: (start, end, text) => {
+      const store = useComposerDraftStore.getState();
+      const current = store.getComposerDraft(target)?.prompt ?? "";
+      store.setPrompt(target, current.slice(0, start) + text + current.slice(end));
+      return true;
+    },
+    submit: () => false,
   });
-  return () => act(() => unregister?.());
+  return { [Symbol.dispose]: unregister };
 }
-afterEach(async () => {
-  for (const root of roots.splice(0)) await act(async () => root.unmount());
-  document.body.replaceChildren();
-  vi.unstubAllGlobals();
-});
 
 const surface = { projectId: detail.projectId, repository: detail.repository, number: 1 };
 const link = (number: number, source: ThreadPullRequestLink["source"]): ThreadPullRequestLink => ({
@@ -363,10 +350,14 @@ describe.each([
 ] as const)("%s", (_name, thread, target) => {
   const context = thread ? pullRequestPanelContext(thread, surface) : "page";
   const renderPanel = () =>
-    render({ context, ...(target ? { composerDraftTarget: target, threadRef } : {}) });
+    renderPullRequestPanel({
+      context,
+      ...(target ? { composerDraftTarget: target, threadRef } : {}),
+    });
 
   it(`${thread === stackThread ? "hides" : "offers"} the checkout`, async () => {
-    await renderPanel();
+    setup();
+    await using _screen = await renderPanel();
     await expect.element(page.getByText("Test pull request").first()).toBeVisible();
     expect(page.getByRole("button", { name: "Check out" }).elements()).toHaveLength(
       thread === stackThread ? 0 : 1,
@@ -381,6 +372,7 @@ describe.each([
     "Fix check",
     "Add to agent",
   ])("%s writes to the correct composer", async (action) => {
+    setup();
     if (typeof target === "string") {
       useComposerDraftStore
         .getState()
@@ -391,21 +383,17 @@ describe.each([
         );
     }
     if (target) useComposerDraftStore.getState().setPrompt(target, "Keep my draft");
-    const unregister = registerComposer(target ?? newDraftId);
-    try {
-      await renderPanel();
-      await runAction(target ? action : action.replace("in this thread", "in a thread"));
-      if (!target) {
-        // With no thread to write into, the task waits in the palette until the reader picks one.
-        const item = paletteEvents
-          .at(-1)
-          ?.view?.groups.flatMap((group) => group.items)
-          .find((entry) => entry.value === "new-thread");
-        if (!item?.run) throw new Error("Expected a palette destination picker");
-        await act(async () => item.run?.());
-      }
-    } finally {
-      unregister();
+    using _composer = registerComposer(target ?? newDraftId);
+    await using _screen = await renderPanel();
+    await runAction(target ? action : action.replace("in this thread", "in a thread"));
+    if (!target) {
+      // With no thread to write into, the task waits in the palette until the reader picks one.
+      const item = paletteEvents
+        .at(-1)
+        ?.view?.groups.flatMap((group) => group.items)
+        .find((entry) => entry.value === "new-thread");
+      if (!item?.run) throw new Error("Expected a palette destination picker");
+      await act(async () => item.run?.());
     }
     const draft = () => useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
     await vi.waitFor(() => {
@@ -437,7 +425,8 @@ describe.each([
 });
 
 it("folds the title only for the active tab's own scroller", async () => {
-  await render();
+  setup();
+  await using _screen = await renderPullRequestPanel();
   const title = page.getByRole("heading", { level: 1, name: "Test pull request" });
   await expect.element(title).toBeVisible();
   const titleFold = () => title.element().closest("[inert]") !== null;

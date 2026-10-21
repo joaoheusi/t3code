@@ -23,6 +23,9 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [68, "ThreadFailureLookupIndex"],
       [69, "DropUnusedV1Projections"],
       [70, "CanonicalizeThreadPullRequestLinks"],
+      [71, "CodexUsageNativeTurnIndex"],
+      [72, "RepairClientSettlementTimestamps"],
+      [73, "WebhookDedupe"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(
