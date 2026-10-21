@@ -4367,6 +4367,89 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
       }),
     );
 
+    it.effect.each(["transient-lock", "persistent-lock", "auth", "timeout"] as const)(
+      "bounds post-push tracking repair and retries only ref-lock failures (%s)",
+      (failure) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const remote = yield* makeTmpDir("git-remote-");
+          yield* initRepoWithCommit(cwd);
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "origin", remote]);
+          yield* git(cwd, [
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/main:refs/remotes/origin/main",
+          ]);
+          yield* git(cwd, ["checkout", "-b", "feature/tracking-repair"]);
+          const head = yield* git(cwd, ["rev-parse", "HEAD"]);
+          const delegate = yield* ChildProcessSpawner.ChildProcessSpawner;
+          const started = yield* Deferred.make<void>();
+          let attempts = 0;
+          const spawner = ChildProcessSpawner.make((command) =>
+            Effect.gen(function* () {
+              if (!ChildProcess.isStandardCommand(command) || command.args[0] !== "fetch") {
+                return yield* delegate.spawn(command);
+              }
+              attempts++;
+              yield* Deferred.succeed(started, undefined);
+              if (failure === "transient-lock" && attempts > 1) {
+                return yield* delegate.spawn(command);
+              }
+              return ChildProcessSpawner.makeHandle({
+                ...makeNonRepositoryHandle(),
+                exitCode:
+                  failure === "timeout"
+                    ? Effect.never
+                    : Effect.succeed(ChildProcessSpawner.ExitCode(128)),
+                stderr: Stream.encodeText(
+                  Stream.make(
+                    failure === "auth"
+                      ? "fatal: Authentication failed"
+                      : "error: cannot lock ref 'refs/remotes/origin/feature/tracking-repair'",
+                  ),
+                ),
+              });
+            }),
+          );
+          const driver = yield* makeGitVcsDriverCore().pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.provide(layerServerConfig),
+          );
+          const pushing = yield* driver
+            .pushCurrentBranch(cwd, null, { remoteName: "origin" })
+            .pipe(Effect.result, Effect.forkChild({ startImmediately: true }));
+          yield* Deferred.await(started);
+          if (failure === "timeout") {
+            yield* TestClock.adjust("31 seconds");
+          }
+          const result = yield* Fiber.join(pushing);
+          assert.equal(
+            yield* git(remote, ["--git-dir=.", "rev-parse", "refs/heads/feature/tracking-repair"]),
+            head,
+          );
+          assert.equal(attempts, failure.endsWith("lock") ? 2 : 1);
+          if (failure === "transient-lock") {
+            assert.isTrue(Result.isSuccess(result));
+            assert.equal(
+              yield* git(cwd, ["rev-parse", "--abbrev-ref", "@{upstream}"]),
+              "origin/feature/tracking-repair",
+            );
+          } else {
+            assert.isTrue(Result.isFailure(result));
+            if (Result.isFailure(result)) {
+              assert.equal(
+                result.failure.operation,
+                "GitVcsDriver.pushCurrentBranch.fetchPublishedTrackingRef",
+              );
+              if (failure === "timeout") {
+                assert.equal(result.failure.detail, "Git command timed out.");
+              }
+            }
+          }
+        }),
+    );
+
     it.effect("push leaves a resolvable upstream in a single-branch clone", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
