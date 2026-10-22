@@ -140,10 +140,20 @@ export type AtomCommandConcurrency<W> =
   | {
       readonly mode: "serial" | "singleFlight" | "latest";
       readonly key: (input: W) => string;
+      /**
+       * Serial only: a call joins this same concurrency's call when that call
+       * is still waiting at the back of the lane, so an idempotent read never
+       * queues behind copies of itself.
+       */
+      readonly joinQueued?: boolean;
     };
 
 interface AtomCommandSchedulerState {
   readonly serial: Map<string, Promise<unknown>>;
+  readonly serialQueuedTail: Map<
+    string,
+    { readonly concurrency: object; readonly result: Promise<unknown> }
+  >;
   readonly singleFlight: Map<string, Promise<unknown>>;
   readonly latest: Map<string, AtomCommandLatestLane>;
 }
@@ -187,6 +197,7 @@ export function createAtomCommandScheduler(): AtomCommandScheduler {
     }
     const state: AtomCommandSchedulerState = {
       serial: new Map(),
+      serialQueuedTail: new Map(),
       singleFlight: new Map(),
       latest: new Map(),
     };
@@ -232,8 +243,22 @@ export function createAtomCommandScheduler(): AtomCommandScheduler {
       }
 
       if (concurrency.mode === "serial") {
+        const queuedTail = state.serialQueuedTail.get(key);
+        if (concurrency.joinQueued && queuedTail?.concurrency === concurrency) {
+          return queuedTail.result as Promise<AtomCommandResult<A, E>>;
+        }
+        state.serialQueuedTail.delete(key);
         const previous = state.serial.get(key);
-        const current = previous === undefined ? execute() : previous.then(execute, execute);
+        const start = () => {
+          if (state.serialQueuedTail.get(key)?.result === current) {
+            state.serialQueuedTail.delete(key);
+          }
+          return execute();
+        };
+        const current = previous === undefined ? execute() : previous.then(start, start);
+        if (concurrency.joinQueued && previous !== undefined) {
+          state.serialQueuedTail.set(key, { concurrency, result: current });
+        }
         state.serial.set(key, current);
         void current.then(
           () => {
