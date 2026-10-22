@@ -17,6 +17,8 @@ PATH="$PWD/node_modules/.bin:$PATH" node scripts/build-desktop-artifact.ts \
   --platform mac --arch arm64 --target dmg --output-dir /absolute/output-folder
 ```
 
+An ad-hoc signed build asks for the "j4code Safe Storage" keychain password again after every rebuild, because macOS ties "Always Allow" to that exact binary. To keep the approval across builds, set `T3CODE_DESKTOP_MAC_LOCAL_IDENTITY` to the SHA-1 hash or name of a code-signing certificate from `security find-identity -v -p codesigning`. This signs the app without notarization. Choose "Always Allow" on the first launch after you switch.
+
 Then run the isolated integration fixture:
 
 ```sh

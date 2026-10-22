@@ -270,7 +270,32 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         info.NSMicrophoneUsageDescription,
         "J4 Code lets commands run by terminals and coding agents use the microphone.",
       );
+      assert.equal(mac.identity, "-");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
+  );
+
+  it.effect("signs unsigned macOS builds with a configured local identity", () =>
+    Effect.gen(function* () {
+      const config = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.45-j4.3",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+      const mac = config.mac as Record<string, unknown>;
+
+      assert.equal(mac.identity, "ABC123");
+      assert.equal(mac.hardenedRuntime, false);
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromEnv({ env: { T3CODE_DESKTOP_MAC_LOCAL_IDENTITY: "ABC123" } }),
+        ),
+      ),
+    ),
   );
 
   it.effect("rejects overlapping builds from another process until restoration finishes", () =>
