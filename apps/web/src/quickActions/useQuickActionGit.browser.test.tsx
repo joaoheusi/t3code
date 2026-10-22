@@ -162,6 +162,20 @@ describe("Git palette actions", () => {
     expect(mocks.stacked).toHaveBeenCalledTimes(1);
   });
 
+  it("still runs the action when the palette closes during a slow status check", async () => {
+    let finishRefresh!: (status: AsyncResult.Success<VcsStatusResult>) => void;
+    mocks.load.mockReturnValueOnce(
+      new Promise<AsyncResult.Success<VcsStatusResult>>((resolve) => {
+        finishRefresh = resolve;
+      }),
+    );
+    const running = item("web").run();
+    act(() => root.unmount());
+    finishRefresh(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
+    await running;
+    expect(mocks.stacked).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps progress visible through generation and hooks, then reports completion", async () => {
     const state = Atom.make({ isRunning: false, currentLabel: "Generating commit message..." });
     mocks.busy.mockReturnValue(state);

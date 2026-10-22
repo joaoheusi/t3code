@@ -4,10 +4,22 @@ import { createAtomCommandScheduler, type AtomCommandConcurrency } from "./runti
 
 export const vcsCommandScheduler = createAtomCommandScheduler();
 
-export const vcsCommandConcurrency: AtomCommandConcurrency<{
+type VcsCommandInput = {
   readonly environmentId: EnvironmentId;
   readonly input: { readonly cwd: string };
-}> = {
+};
+
+const vcsCommandKey = ({ environmentId, input }: VcsCommandInput) =>
+  JSON.stringify([environmentId, input.cwd]);
+
+export const vcsCommandConcurrency: AtomCommandConcurrency<VcsCommandInput> = {
   mode: "serial",
-  key: ({ environmentId, input }) => JSON.stringify([environmentId, input.cwd]),
+  key: vcsCommandKey,
+};
+
+/** A status refresh waiting behind another lane command reads the same state, so later requests join it. */
+export const vcsRefreshStatusConcurrency: AtomCommandConcurrency<VcsCommandInput> = {
+  mode: "serial",
+  key: vcsCommandKey,
+  joinQueued: true,
 };

@@ -1088,6 +1088,43 @@ describe("runtime command runner", () => {
     registry.dispose();
   });
 
+  it("joins a serial read only while it waits at the back of its lane", async () => {
+    const writeLatch = Latch.makeUnsafe();
+    const events: string[] = [];
+    const runtime = Atom.runtime(Layer.empty);
+    const scheduler = createAtomCommandScheduler();
+    const key = () => "shared";
+    const write = createRuntimeCommand(runtime, {
+      label: "test.write",
+      scheduler,
+      concurrency: { mode: "serial", key },
+      execute: (name: string) =>
+        Effect.sync(() => events.push(`${name}:start`)).pipe(
+          Effect.andThen(name === "write1" ? writeLatch.await : Effect.void),
+        ),
+    });
+    let reads = 0;
+    const read = createRuntimeCommand(runtime, {
+      label: "test.read",
+      scheduler,
+      concurrency: { mode: "serial", key, joinQueued: true },
+      execute: () => Effect.sync(() => events.push(`read${++reads}`)),
+    });
+    const registry = AtomRegistry.make();
+
+    const first = write.run(registry, "write1");
+    const readA = read.run(registry, undefined);
+    const readB = read.run(registry, undefined);
+    // A write queued after the read means a later read must observe it.
+    const second = write.run(registry, "write2");
+    const readC = read.run(registry, undefined);
+    writeLatch.openUnsafe();
+    await Promise.all([first, readA, readB, second, readC]);
+
+    expect(events).toEqual(["write1:start", "read1", "write2:start", "read2"]);
+    registry.dispose();
+  });
+
   it("coalesces pending latest-value commands without interrupting the active call", async () => {
     const firstLatch = Latch.makeUnsafe();
     const executed: number[] = [];

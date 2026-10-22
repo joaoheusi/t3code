@@ -44,6 +44,8 @@ import {
   type GitQuickAction,
 } from "@t3tools/client-runtime/quickActionGit";
 
+const PUBLISH_AFTER_CLOSE_MESSAGE = "This repository needs publishing. Run the action again.";
+
 /** A repository's fresh status and the action it will run, checked against what was shown. */
 interface PreparedGitAction {
   readonly status: VcsStatusResult;
@@ -115,10 +117,10 @@ function useGitBatchRunner(input: {
       } finally {
         toastManager.close(checking);
       }
-      if (!mounted.current) return;
       const plan = planQuickActionGitBatch(entries);
       if (plan.kind === "blocked") throw new Error(plan.reason);
       if (plan.kind === "publish") {
+        if (!mounted.current) throw new Error(PUBLISH_AFTER_CLOSE_MESSAGE);
         input.onPublish(plan.repository.cwd);
         return;
       }
@@ -472,8 +474,10 @@ export function useQuickActionGit(
           preparing.current.add(value);
           try {
             const prepared = await checkStatusWithToast();
-            if (!mounted.current) return;
+            // A slow status check can outlive the palette. The write and any
+            // confirmation view do not need it; only the publish dialog does.
             if (prepared.action.kind === "open_publish") {
+              if (!mounted.current) throw new Error(PUBLISH_AFTER_CLOSE_MESSAGE);
               setPublishCwd(target.cwd);
               return;
             }
