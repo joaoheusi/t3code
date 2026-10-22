@@ -2,7 +2,7 @@
 
 Baseline: `pingdotgg/t3code` at `f4f148eb670622a049ae6561d7795011e383fc43` (upstream v0.0.45). Fork: `joaoheusi/t3code`, branch `main`, version `0.1.0-j4.11`. Wire protocol: 1002. Fork migrations: 059 (quick actions), 060 (Git operation receipts), 061 (starter action text), 062 (drops unused workspace operation receipts). Multi-repository capability: 2 (folder projects).
 
-The initial target is macOS arm64 desktop plus its bundled responsive web client. Packaging is unsigned and updates are manual. Windows, Linux, native mobile, remote bootstrap archives, signing, notarization, and owned cloud services need their own release verification.
+The initial target is macOS arm64 desktop plus its bundled responsive web client. Packaging is not notarized and updates are manual. Windows, Linux, native mobile, remote bootstrap archives, signing, notarization, and owned cloud services need their own release verification.
 
 Use the repository's Node and package-manager requirements. Install with `pnpm install --frozen-lockfile`. Run focused checks with:
 
@@ -17,7 +17,7 @@ PATH="$PWD/node_modules/.bin:$PATH" node scripts/build-desktop-artifact.ts \
   --platform mac --arch arm64 --target dmg --output-dir /absolute/output-folder
 ```
 
-An ad-hoc signed build loses its keychain "Always Allow" and its Screen Recording and Accessibility grants after every rebuild, because macOS ties them to that exact binary. Settings can still show the old grant as on. To keep the approval across builds, set `T3CODE_DESKTOP_MAC_LOCAL_IDENTITY` to the SHA-1 hash or name of a code-signing certificate from `security find-identity -v -p codesigning`. This signs the app without notarization. Choose "Always Allow" on the first launch after you switch. Remove the stale J4 Code entries from Screen Recording and Accessibility with the minus button, then grant them again.
+An ad-hoc signed build loses its keychain "Always Allow" and its Screen Recording and Accessibility grants after every rebuild, because macOS ties them to that exact binary. Settings can still show the old grant as on. To keep the approval across builds, set `T3CODE_DESKTOP_MAC_LOCAL_IDENTITY` to the SHA-1 hash of a code-signing certificate from `security find-identity -v -p codesigning`. A certificate name works only when it matches exactly one certificate. This signs the app without notarization. Choose "Always Allow" on the first launch after you switch. Remove the stale J4 Code entries from Screen Recording and Accessibility with the minus button, then grant them again.
 
 Then run the isolated integration fixture:
 
@@ -37,7 +37,7 @@ The [verification record](../fork/acceptance-status.json) distinguishes focused 
 
 ## Install the test archive
 
-Open `J4-Code-0.1.0-j4.11-arm64.dmg`, or unzip `J4-Code-0.1.0-j4.11-arm64.zip`. Copy `J4 Code (Unofficial).app` to a separate folder or to Applications beside the official app. Do not overwrite T3 Code. This archive is unsigned and not notarized. macOS may require an explicit approval in Privacy & Security before it opens. No production profile migration happens automatically.
+Open `J4-Code-0.1.0-j4.11-arm64.dmg`, or unzip `J4-Code-0.1.0-j4.11-arm64.zip`. Copy `J4 Code (Unofficial).app` to a separate folder or to Applications beside the official app. Do not overwrite T3 Code. This archive is not notarized. It is ad-hoc signed unless it was built with `T3CODE_DESKTOP_MAC_LOCAL_IDENTITY`, in which case it is signed with that certificate. macOS may require an explicit approval in Privacy & Security before it opens. No production profile migration happens automatically.
 
 Start with a fresh fork profile. Check that the title identifies J4 Code and that the chosen execution environment points at the intended host. Configure provider and Git accounts on that host. Complete the open device and provider gates before using it for daily work.
 
