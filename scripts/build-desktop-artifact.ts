@@ -2887,12 +2887,22 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   if (platform === "mac") {
     const path = yield* Path.Path;
     const repoRoot = yield* RepoRoot;
+    // Keychain approvals of an ad-hoc build pin its cdhash, so every rebuild
+    // prompts for safeStorage again. A real certificate keeps them across builds.
+    const localIdentity = yield* Config.String("T3CODE_DESKTOP_MAC_LOCAL_IDENTITY").pipe(
+      Config.option,
+    );
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
       // Local builds need their own resource seal after Electron's bundle is repackaged.
-      ...(!signed ? { identity: "-", hardenedRuntime: false } : {}),
+      ...(!signed
+        ? {
+            identity: Option.getOrElse(localIdentity, () => "-").trim() || "-",
+            hardenedRuntime: false,
+          }
+        : {}),
       extendInfo: {
         // macOS 26 offers Messages/Mail codes in every text field unless opted out.
         NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac: true,

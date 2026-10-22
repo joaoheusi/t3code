@@ -4,6 +4,8 @@
 
 This repository is the personal fork `joaoheusi/t3code`. Its `main` branch holds the integrated fork. Start new feature branches from the fork's current `main`. When asked to open a PR, target `joaoheusi/t3code:main` unless the developer explicitly requests an upstream contribution.
 
+When asked to build the macOS desktop app, follow [Build and verify the personal fork](docs/operations/personal-fork.md) and set `T3CODE_DESKTOP_MAC_LOCAL_IDENTITY=EC925C91F270121DD2F51F02AF34A320505539DD` (the developer's Developer ID certificate; its name alone matches two certificates). Without it the build is ad-hoc signed, so every rebuild loses the keychain approval and the Screen Recording and Accessibility grants.
+
 `origin` is the fork. `upstream` is `pingdotgg/t3code`. Bring upstream updates into a separate branch, verify them with the fork's changes, then merge through a PR into the fork's `main`. Preserve published history; do not rebase or force-push `main`.
 
 T3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web, desktop, and mobile clients.
