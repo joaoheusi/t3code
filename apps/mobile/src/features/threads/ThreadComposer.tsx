@@ -58,7 +58,9 @@ import {
   composerDraftsAtom,
   setComposerDraftText,
   composerContextImportsAtom,
+  composerSendRequestsAtom,
   countComposerDraftAttachmentsAfterSelection,
+  setComposerSendRequested,
   useComposerDraft,
 } from "../../state/use-composer-drafts";
 import { appAtomRegistry } from "../../state/atom-registry";
@@ -646,6 +648,15 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       projectTitle: props.environmentLabel ?? "T3 Code",
     });
   };
+  // A quick action that sends asks here, after its text is already in this draft.
+  // Sending while editing a queued message would only save the edit, so the text stays for review.
+  const sendRequested = useAtomValue(composerSendRequestsAtom)[composerDraftKey] === true;
+  const editingQueuedMessage = queuedEdit !== null;
+  useEffect(() => {
+    if (!sendRequested) return;
+    setComposerSendRequested(composerDraftKey, false);
+    if (!editingQueuedMessage) void handleSend();
+  }, [composerDraftKey, editingQueuedMessage, handleSend, sendRequested]);
 
   const lockedProviderInstanceId = props.canSwitchProvider
     ? undefined
