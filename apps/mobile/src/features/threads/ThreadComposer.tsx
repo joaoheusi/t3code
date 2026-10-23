@@ -226,8 +226,6 @@ const composerHeightTransition: LayoutAnimationFunction = (values) => {
 };
 export const COMPOSER_LAYOUT_TRANSITION =
   Platform.OS === "android" ? undefined : composerHeightTransition;
-// The one-row editor's horizontal padding plus room for the caret.
-const INLINE_EDITOR_TEXT_SLACK = 10;
 const INLINE_EDITOR_HEIGHT = 36;
 
 const COMPOSER_ATTACHMENT_ENTERING =
@@ -507,35 +505,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
   const isVoiceInputPresented = voicePresentation.statusLabel !== null;
   const isExpanded = isFocused || settingsSheetPresentation.keepsComposerExpanded;
   const { setComposerEditing } = useAdaptiveWorkspaceLayout();
-  // The composer stays one row, with the model picker in it, until the draft would
-  // wrap. Then the draft stacks above the controls and returns to the row once it
-  // fits again. The native editor reports its laid-out text size: more than one
-  // line means the draft wrapped where it is, and the widest line is a one-line
-  // draft's natural width, which is compared with the row's text area so a draft
-  // laid out in the wider card still returns to the row when it fits, including
-  // when the pane widens. The measurements live in refs and only the verdict is
-  // state, so a keystroke that keeps the verdict costs no extra render.
-  const draftSizeRef = useRef({ width: 0, height: 0 });
-  const rowGeometryRef = useRef({ surfaceWidth: 0, leadingWidth: 0, trailingWidth: 0 });
-  const [draftOverflowsRow, setDraftOverflowsRow] = useState(false);
+  // Idle, the composer is one row. Focused, it is a card: the draft gets the full width
+  // above the toolbar, and the layout does not jump while the draft grows or shrinks.
   const lineHeight = bodyText.lineHeight;
-  const updateDraftOverflow = () => {
-    const { width, height } = draftSizeRef.current;
-    const row = rowGeometryRef.current;
-    const rowTextWidth =
-      row.surfaceWidth - row.leadingWidth - row.trailingWidth - INLINE_EDITOR_TEXT_SLACK;
-    setDraftOverflowsRow(
-      height > lineHeight * 1.5 || (row.surfaceWidth > 0 && width > rowTextWidth),
-    );
-  };
-  const measureRow = (key: keyof typeof rowGeometryRef.current, value: number) => {
-    if (rowGeometryRef.current[key] === value) return;
-    rowGeometryRef.current = { ...rowGeometryRef.current, [key]: value };
-    updateDraftOverflow();
-  };
-  const usesCard = isExpanded && draftMessage.length > 0 && draftOverflowsRow;
-  const showsCompactDictation = isVoiceInputPresented && !usesCard;
-  const isToolbarVisible = usesCard || isVoiceInputPresented;
+  const showsCompactDictation = isVoiceInputPresented && !isExpanded;
+  const isToolbarVisible = isExpanded || isVoiceInputPresented;
   const hasEditingAttachments =
     (queuedEdit !== null && queuedEdit.existingAttachments.length > 0) ||
     stripAttachments.length > 0;
@@ -561,8 +535,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     !modelUnavailable;
 
   useEffect(() => {
-    onExpandedChange?.(usesCard);
-  }, [usesCard, onExpandedChange]);
+    onExpandedChange?.(isExpanded);
+  }, [isExpanded, onExpandedChange]);
   useEffect(() => () => setComposerEditing(false), [setComposerEditing]);
 
   const onPressPreview = (source: FilePreviewSource) => {
@@ -792,9 +766,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     </>
   ) : null;
 
-  // The row and the card's toolbar share this picker. The row always shows only the
-  // provider icon: a label there crowds the editor, and a width change on the first
-  // keystroke moves the target under the finger.
+  // Only the card shows the model picker. In the row it crowded the editor and caught
+  // taps meant for the text.
   const modelControl = (
     <View className="min-w-0 shrink">
       <ComposerModelControl
@@ -804,8 +777,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         reportedSelection={props.reportedModelSelection}
         prompt={draftMessage}
         surfaceColor={composerPanel}
-        iconOnly={!usesCard}
-        showSummary={usesCard}
         onPress={openSettings}
       />
     </View>
@@ -830,8 +801,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     <Animated.View
       className="px-[12px]"
       style={{
-        paddingTop: usesCard ? 8 : 6,
-        paddingBottom: (props.bottomInset ?? 0) + (usesCard ? 8 : 6),
+        paddingTop: isExpanded ? 8 : 6,
+        paddingBottom: (props.bottomInset ?? 0) + (isExpanded ? 8 : 6),
         backgroundColor:
           Platform.OS === "android" ? themeColorWithAlpha(composerPanel, 1) : undefined,
       }}
@@ -850,7 +821,6 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
       <Animated.View
         className="relative w-full self-center"
         style={{ maxWidth: props.contentMaxWidth }}
-        onLayout={(event) => measureRow("surfaceWidth", event.nativeEvent.layout.width)}
       >
         {!isSubmissionLocked &&
         composerMenu.trigger &&
@@ -897,7 +867,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
 
         <ComposerSurface
           style={
-            usesCard
+            isExpanded
               ? {
                   borderRadius: 26,
                   overflow: "hidden" as const,
@@ -911,13 +881,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 }
           }
         >
-          {isExpanded && !usesCard ? editingAttachments : null}
           <ComposerDictationDraftContent
-            className={usesCard ? undefined : "flex-row items-center"}
-            compact={!usesCard}
+            className={isExpanded ? undefined : "flex-row items-center"}
+            compact={!isExpanded}
             hidden={showsCompactDictation}
           >
-            {!usesCard ? (
+            {!isExpanded ? (
               <ComposerAttachmentButton
                 disabled={isSubmissionLocked}
                 supportsFiles={Boolean(
@@ -927,16 +896,11 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 onPickFiles={props.onPickDraftFiles}
               />
             ) : null}
-            {!usesCard ? quickActionsControl : null}
-            {usesCard ? editingAttachments : null}
+            {!isExpanded ? quickActionsControl : null}
+            {isExpanded ? editingAttachments : null}
             <Animated.View
-              className={usesCard ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
+              className={isExpanded ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
               layout={COMPOSER_LAYOUT_TRANSITION}
-              onLayout={
-                usesCard
-                  ? undefined
-                  : (event) => measureRow("leadingWidth", event.nativeEvent.layout.x)
-              }
             >
               {isExpanded && props.selectedThread.workspace ? (
                 <View className="flex-row flex-wrap">
@@ -1073,16 +1037,12 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     : FOLLOW_UP_ACTION_LABEL[sendPresentation.alternate]
                 }
                 scrollEnabled={isExpanded}
-                singleLineCentered={!usesCard}
+                singleLineCentered={!isExpanded}
                 contentInsetVertical={
-                  usesCard || Platform.OS === "android" ? 0 : collapsedEditorInset(bodyText)
+                  isExpanded || Platform.OS === "android" ? 0 : collapsedEditorInset(bodyText)
                 }
-                onContentSizeChange={(size) => {
-                  draftSizeRef.current = size;
-                  updateDraftOverflow();
-                }}
                 style={
-                  usesCard
+                  isExpanded
                     ? {
                         // A stacked draft shows two to four lines, then scrolls.
                         minHeight: lineHeight * 2 + 8,
@@ -1127,12 +1087,8 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 ) : null}
               </View>
             ) : null}
-            {!usesCard ? (
-              <View
-                className="min-w-0 shrink flex-row items-center"
-                onLayout={(event) => measureRow("trailingWidth", event.nativeEvent.layout.width)}
-              >
-                {modelControl}
+            {!isExpanded ? (
+              <View className="shrink-0 flex-row items-center">
                 <ComposerDictationStartAction
                   state={voiceInput.state}
                   isAvailable={voiceInput.isAvailable}
@@ -1165,7 +1121,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 )}
               </View>
             ) : null}
-            {usesCard ? <View className="h-1" /> : null}
+            {isExpanded ? <View className="h-1" /> : null}
           </ComposerDictationDraftContent>
           <Animated.View
             accessibilityElementsHidden={!isToolbarVisible}
@@ -1174,7 +1130,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
             layout={COMPOSER_LAYOUT_TRANSITION}
             pointerEvents={isToolbarVisible ? "auto" : "none"}
             style={
-              usesCard
+              isExpanded
                 ? undefined
                 : {
                     position: "absolute",
