@@ -48,7 +48,11 @@ import {
   type ComposerEditorHandle,
   type ComposerTextPaste,
 } from "../../components/ComposerEditor";
-import { composerContextImportsAtom } from "../../state/use-composer-drafts";
+import {
+  composerContextImportsAtom,
+  composerSendRequestsAtom,
+  setComposerSendRequested,
+} from "../../state/use-composer-drafts";
 import {
   composerContextSendBlockReason,
   type ComposerDocumentAttachment,
@@ -1356,26 +1360,6 @@ export function NewTaskDraftScreen(props: {
     scheduleUnusedComposerAttachmentCleanup(draftSnapshot.attachments);
   }
 
-  if (!selectedProject) {
-    return (
-      <View className="flex-1 bg-sheet" collapsable={false}>
-        {Platform.OS === "android" ? (
-          <>
-            <NativeStackScreenOptions options={{ headerShown: false }} />
-            <AndroidScreenHeader
-              title="New thread"
-              hideBottomBorder
-              onBack={() => navigation.goBack()}
-            />
-          </>
-        ) : (
-          <NativeStackScreenOptions options={{ title: "Loading task" }} />
-        )}
-      </View>
-    );
-  }
-
-  const isAndroid = Platform.OS === "android";
   const canStart =
     !isImportingContext &&
     !cloneBlocksStart &&
@@ -1397,6 +1381,36 @@ export function NewTaskDraftScreen(props: {
       !flow.repositoryFolder &&
       (!flow.selectedBranchName || !flow.isGitRepoKnown)
     );
+  // A quick action that sends asks here, after its text is already in this draft. A draft
+  // that cannot start yet keeps the text for review instead of sending later by surprise.
+  const sendRequests = useAtomValue(composerSendRequestsAtom);
+  const sendRequested = flow.draftKey !== null && sendRequests[flow.draftKey] === true;
+  useEffect(() => {
+    if (!sendRequested || !flow.draftKey) return;
+    setComposerSendRequested(flow.draftKey, false);
+    if (canStart) void handleStart();
+  }, [canStart, flow.draftKey, handleStart, sendRequested]);
+
+  if (!selectedProject) {
+    return (
+      <View className="flex-1 bg-sheet" collapsable={false}>
+        {Platform.OS === "android" ? (
+          <>
+            <NativeStackScreenOptions options={{ headerShown: false }} />
+            <AndroidScreenHeader
+              title="New thread"
+              hideBottomBorder
+              onBack={() => navigation.goBack()}
+            />
+          </>
+        ) : (
+          <NativeStackScreenOptions options={{ title: "Loading task" }} />
+        )}
+      </View>
+    );
+  }
+
+  const isAndroid = Platform.OS === "android";
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     // A draft attachment lives only in the draft. Without its key the screen would fall through
     // to a remote lookup for bytes the server has never seen.
