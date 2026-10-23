@@ -224,8 +224,6 @@ const composerHeightTransition: LayoutAnimationFunction = (values) => {
 };
 export const COMPOSER_LAYOUT_TRANSITION =
   Platform.OS === "android" ? undefined : composerHeightTransition;
-// Share of the one-row composer the draft keeps; a long model name truncates first.
-const INLINE_EDITOR_MIN_WIDTH = "40%";
 // The one-row editor's horizontal padding plus room for the caret.
 const INLINE_EDITOR_TEXT_SLACK = 10;
 const INLINE_EDITOR_HEIGHT = 36;
@@ -783,8 +781,9 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     </>
   ) : null;
 
-  // The row and the card's toolbar share this picker. It shrinks to the provider
-  // icon in the row once the draft has text, so the draft keeps the width.
+  // The row and the card's toolbar share this picker. The row always shows only the
+  // provider icon: a label there crowds the editor, and a width change on the first
+  // keystroke moves the target under the finger.
   const modelControl = (
     <View className="min-w-0 shrink">
       <ComposerModelControl
@@ -794,11 +793,26 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
         reportedSelection={props.reportedModelSelection}
         prompt={draftMessage}
         surfaceColor={composerPanel}
-        iconOnly={!usesCard && draftMessage.length > 0}
+        iconOnly={!usesCard}
         showSummary={usesCard}
         onPress={openSettings}
       />
     </View>
+  );
+  const quickActionsControl = (
+    <QuickActionsControl
+      environmentId={props.environmentId}
+      disabled={isSubmissionLocked}
+      onOpen={() => {
+        Keyboard.dismiss();
+        navigation.navigate("ThreadQuickActions", {
+          environmentId: props.environmentId,
+          projectId: props.selectedThread.projectId,
+          draftKey: composerDraftKey,
+          threadId: props.selectedThread.id,
+        });
+      }}
+    />
   );
 
   return (
@@ -902,10 +916,10 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                 onPickFiles={props.onPickDraftFiles}
               />
             ) : null}
+            {!usesCard ? quickActionsControl : null}
             {usesCard ? editingAttachments : null}
             <Animated.View
               className={usesCard ? "px-[14px]" : "min-w-0 flex-1 px-[4px]"}
-              style={usesCard ? undefined : { minWidth: INLINE_EDITOR_MIN_WIDTH }}
               layout={COMPOSER_LAYOUT_TRANSITION}
               onLayout={
                 usesCard
@@ -1192,19 +1206,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                         onPickMedia={props.onPickDraftMedia}
                         onPickFiles={props.onPickDraftFiles}
                       />
-                      <QuickActionsControl
-                        environmentId={props.environmentId}
-                        disabled={isSubmissionLocked}
-                        onOpen={() => {
-                          Keyboard.dismiss();
-                          navigation.navigate("ThreadQuickActions", {
-                            environmentId: props.environmentId,
-                            projectId: props.selectedThread.projectId,
-                            draftKey: composerDraftKey,
-                            threadId: props.selectedThread.id,
-                          });
-                        }}
-                      />
+                      {quickActionsControl}
                     </View>
                     {modelControl}
                   </View>
