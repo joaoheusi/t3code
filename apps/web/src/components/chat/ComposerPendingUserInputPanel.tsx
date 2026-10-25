@@ -114,7 +114,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   const canRespond = prompt.responseCapability !== "not_resumable";
   const responseDisabled = disabled || isResponding || !canRespond;
   const autoAdvanceTimerRef = useRef<number | null>(null);
-  // The auto-advance timer fires after the render that armed it.
   const advance = useStableCallback(onAdvance);
   const optionsRef = useRef<HTMLDivElement | null>(null);
   const isMobileViewport = useMediaQuery("max-sm");
@@ -123,18 +122,17 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     optionValue: string;
   } | null>(null);
   const [collapsedQuestionId, setCollapsedQuestionId] = useState<string | null>(null);
-  // The active question keys the shortcut listener, so it must keep its identity across renders.
+  // Keep question identity stable for its shortcut listener.
   const progress = derivePendingUserInputProgress(prompt.questions, answers, questionIndex);
   const activeQuestion = progress.activeQuestion;
   const customAnswerActive = progress.customAnswer.trim().length > 0;
-  // Read here, before the hooks below, so the compiler can keep `activeQuestion` cached.
+  // Read before later hooks to preserve the question's compiler cache.
   const draftSelectedOptions = activeQuestion?.options.map(
     (option) =>
       !customAnswerActive && progress.selectedOptionValues.includes(option.value ?? option.label),
   );
   const isCollapsed = collapsedQuestionId !== null && collapsedQuestionId === activeQuestion?.id;
 
-  // The optimistic pick is dropped once the draft confirms it or the question moves on.
   if (
     optimisticSingleSelect &&
     activeQuestion &&
@@ -146,7 +144,6 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     setOptimisticSingleSelect(null);
   }
 
-  // A delayed answer only advances its own question, while permission remains granted.
   useEffect(() => {
     const clearAutoAdvance = () => {
       if (autoAdvanceTimerRef.current !== null) {
@@ -177,13 +174,9 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
 
   const selectOptionFromShortcut = useEffectEvent(handleOptionSelection);
 
-  // Move focus onto the first option when a question appears or advances. The
-  // digit shortcuts below ignore keys typed into editable fields, and the
-  // composer editor usually still holds focus from sending the prompt, so
-  // without this the digits land in the custom-answer draft instead. Focus is
-  // only taken from the composer itself or from nothing at all: a terminal, a
-  // dialog, or the sidebar search keeps the keyboard. Phones have no digit
-  // shortcuts and blurring their editor collapses the composer, so skip them.
+  // Digit shortcuts ignore editable fields and the composer usually still has focus, so focus
+  // the first option when a question appears. Take focus only from the composer or nothing, so a
+  // terminal, dialog, or search keeps it. Skip phones: no digit keys, and blurring collapses it.
   const activeQuestionId = activeQuestion?.id ?? null;
   useEffect(() => {
     if (activeQuestionId === null || responseDisabled || isCollapsed || isMobileViewport) return;

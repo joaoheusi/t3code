@@ -34,7 +34,9 @@ const makeEnvironment = (path: Path.Path, overrides: Record<string, unknown> = {
     isDevelopment: false,
     displayName: `${FORK_IDENTITY.name} (Alpha)`,
     linuxDesktopEntryName: production.linuxDesktopEntryName,
+    linuxWmClass: "j4code",
     linuxApplicationsDir: applicationsDir,
+    desktopLauncherPath: Option.none(),
     appImagePath: Option.some("/home/alice/Applications/T3-Code.AppImage"),
     path,
     ...overrides,
@@ -236,6 +238,18 @@ describe("DesktopLinuxUrlHandler", () => {
           iconPath: "/home/alice/.local/share/icons/com.t3tools.T3Code.desktop.png",
         }),
       );
+    });
+  });
+
+  it.effect("launches a distribution package through its configured launcher", () => {
+    const recorded = emptyRecording();
+
+    return Effect.gen(function* () {
+      yield* runRegister(recorded, {
+        environment: { desktopLauncherPath: Option.some("/opt/T3 Code/t3code") },
+      });
+
+      assert.include(recorded.files[0]?.content, 'Exec="/opt/T3 Code/t3code" %U');
     });
   });
 
@@ -472,9 +486,7 @@ const themeIconFixture = (source: Uint8Array) =>
     const hicolorDir = path.join(root, "icons", "hicolor");
     const appsDir = path.join(hicolorDir, "256x256", "apps");
     const cachePath = path.join(hicolorDir, "icon-theme.cache");
-    // A fixed time in the past, in whole seconds as fs.utimes expects.
     const pastSeconds = 1_600_000_000;
-    // An existing cache that predates any installed icon.
     const seedCache = Effect.gen(function* () {
       yield* fileSystem.makeDirectory(appsDir, { recursive: true });
       yield* fileSystem.writeFile(cachePath, new Uint8Array([0]));
@@ -562,7 +574,6 @@ it.layer(NodeServices.layer)("DesktopLinuxUrlHandler theme icons", (it) => {
         commands: [],
         onIconCacheRefresh: fixture.rewriteCache,
       };
-      // A cache stamped later than the new icons, as after a clock correction.
       const future = fixture.pastSeconds + 10 * 365 * 24 * 60 * 60;
       yield* fileSystem.utimes(fixture.cachePath, future, future);
 

@@ -30,11 +30,9 @@ import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 type MergePlan = QuickActionMergePlan<PullRequestRef>;
 
 /**
- * Checks every selected PR, then stacks a method choice on the toggle view in the same palette
- * so Back returns to the selection. Choosing a method merges the whole selection in one pass,
- * arming auto-merge for PRs whose required checks still run. When the repositories share no
- * method, the choice falls back to each PR's default method instead of making the reader repeat
- * the flow per repository.
+ * Stacks a method choice on the selection view so Back returns to it, then merges the whole
+ * selection, arming auto-merge where required checks still run. With no shared method, each PR
+ * uses its default instead of repeating the flow per repository.
  */
 export function useQuickActionMerge() {
   const loadDetail = useAtomQueryRunner(pullRequestEnvironment.detail, {

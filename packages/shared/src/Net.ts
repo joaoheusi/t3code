@@ -42,7 +42,7 @@ export class NetService extends Context.Service<NetService, NetServiceShape>()(
   "@t3tools/shared/Net/NetService",
 ) {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = () => {
   /**
    * `EADDRNOTAVAIL` is treated as available so IPv6-absent hosts don't fail

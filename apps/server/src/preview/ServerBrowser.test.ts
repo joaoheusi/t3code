@@ -1,4 +1,5 @@
 import * as NodeEvents from "node:events";
+import * as NodeVM from "node:vm";
 // @effect-diagnostics-next-line nodeBuiltinImport:off - Playwright download mocks perform real file operations outside the Effect runtime.
 import * as NodeFSP from "node:fs/promises";
 
@@ -6,6 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { it } from "@effect/vitest";
 import {
+  type BrowserRecordingFrameRate,
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
@@ -49,11 +51,12 @@ vi.mock("./ServerBrowserContexts.ts", () => ({
       return context as unknown as BrowserContext;
     }
     async scratchPage() {
-      return makeContext().page as unknown as Page;
+      return makeEncoderPage() as unknown as Page;
     }
     async connectDesktopPage(endpoint: string) {
       const context = makeContext();
       desktopConnections.push({ endpoint, context });
+      fixtureChanges.emit("change");
       return { browser: { close: async () => {} }, page: context.page as unknown as Page };
     }
     async close() {
@@ -94,7 +97,6 @@ function makeSession(frame?: ReturnType<typeof makeFrame>) {
         return { data: (input as { format: string }).format === "png" ? PNG_HEADER : "ZnJhbWU=" };
       }
       if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
-      // Snapshots read password fields from their own isolated world in each frame.
       if (method === "Page.createIsolatedWorld") {
         return {
           executionContextId: (input as { worldName?: string }).worldName === "t3-preview" ? 1 : 7,
@@ -212,7 +214,50 @@ function makeContext(onClose?: (context: BrowserContext) => void) {
   return context;
 }
 
+// Runs the real encoder script against fake canvas and MediaRecorder globals.
+function makeEncoderPage() {
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext: () => ({ drawImage() {}, fillRect() {} }),
+    captureStream: (frameRate?: number) => ({ frameRate, getTracks: () => [] }),
+  };
+  class FakeMediaRecorder {
+    static isTypeSupported = (type: string) => type === "video/webm";
+    onstart: (() => void) | null = null;
+    constructor(stream: { frameRate?: number }, options: { videoBitsPerSecond: number }) {
+      encoderStreams.push({
+        frameRate: stream.frameRate,
+        bitsPerSecond: options.videoBitsPerSecond,
+      });
+    }
+    start() {
+      this.onstart?.();
+    }
+  }
+  const sandbox: Record<string, unknown> = {
+    document: { createElement: () => canvas },
+    Path2D: function Path2D() {},
+    MediaRecorder: FakeMediaRecorder,
+    createImageBitmap: async () => ({ width: 1280, height: 800, close() {} }),
+    atob,
+    Blob,
+    performance,
+  };
+  sandbox.window = sandbox;
+  const context = NodeVM.createContext(sandbox);
+  return {
+    ...makeContext().page,
+    evaluate: vi.fn(async (script: string | ((arg: unknown) => unknown), arg?: unknown) =>
+      typeof script === "string"
+        ? NodeVM.runInContext(script, context)
+        : NodeVM.runInContext(`(${script.toString()})`, context)(arg),
+    ),
+  };
+}
+
 const contexts: ReturnType<typeof makeContext>[] = [];
+const encoderStreams: Array<{ frameRate: number | undefined; bitsPerSecond: number }> = [];
 const contextRequests: Array<{ profileId: string; isolated: boolean }> = [];
 let contextGate: PromiseWithResolvers<void> | null = null;
 let pageCopy = "";
@@ -223,6 +268,12 @@ let initialNavigation: (() => Promise<void>) | null = null;
 let desktopRendersNext = false;
 let desktopAttachmentChecked = Promise.withResolvers<void>();
 const desktopDetaches = new NodeEvents.EventEmitter();
+// Fixture state changes emit "change", so a test awaits the state it needs instead of spinning.
+const fixtureChanges = new NodeEvents.EventEmitter();
+const fixtureReady = (ready: () => boolean) =>
+  Effect.promise(async () => {
+    while (!ready()) await new Promise((resolve) => fixtureChanges.once("change", resolve));
+  });
 const desktopTabs = new Set<string>();
 const desktopRenders = (tabId: string) => {
   if (desktopRendersNext) {
@@ -270,6 +321,7 @@ const dependencies = Layer.mergeAll(
           const onDetach = (key: { threadId: string; tabId: string }) =>
             Queue.offerUnsafe(queue, key);
           desktopDetaches.on("detach", onDetach);
+          fixtureChanges.emit("change");
           return onDetach;
         }),
         (onDetach) => Effect.sync(() => desktopDetaches.off("detach", onDetach)),
@@ -281,6 +333,7 @@ const dependencies = Layer.mergeAll(
           const onAttach = (key: { threadId: string; tabId: string }) =>
             Queue.offerUnsafe(queue, key);
           desktopDetaches.on("attach", onAttach);
+          fixtureChanges.emit("change");
           return onAttach;
         }),
         (onAttach) => Effect.sync(() => desktopDetaches.off("attach", onAttach)),
@@ -294,7 +347,10 @@ const dependencies = Layer.mergeAll(
       }),
     endpoint: (key) =>
       Effect.acquireRelease(Effect.succeed(`ws://desktop/${key.tabId}`), () =>
-        Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
+        Effect.sync(() => {
+          releasedDesktopTabs.push(key.tabId);
+          fixtureChanges.emit("change");
+        }),
       ),
     pointer: () => Effect.void,
   }),
@@ -333,6 +389,7 @@ const viewerInput = (tabId: string, canOperate: boolean) => ({
 
 beforeEach(() => {
   contexts.length = 0;
+  encoderStreams.length = 0;
   contextRequests.length = 0;
   contextGate = null;
   contextFailure = null;
@@ -346,6 +403,37 @@ beforeEach(() => {
   releasedDesktopTabs.length = 0;
   desktopConnections.length = 0;
 });
+
+it.live("preview_open reports its navigation timeout instead of the request budget", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { broker } = yield* ready;
+      initialNavigation = async () => {
+        throw Object.assign(new Error("page.goto: Timeout 15000ms exceeded."), {
+          name: "TimeoutError",
+        });
+      };
+
+      const error = yield* broker
+        .invoke<PreviewAutomationStatus>({
+          scope,
+          operation: "open",
+          input: {
+            url: "http://localhost:1337/",
+            reuseExistingTab: false,
+            show: false,
+          },
+        })
+        .pipe(Effect.flip);
+
+      expect(error).toMatchObject({
+        _tag: "PreviewAutomationTimeoutError",
+        timeoutMs: 15_000,
+      });
+      expect(error.message).toBe("Preview automation open timed out after 15000ms.");
+    }),
+  ).pipe(Effect.provide(layer)),
+);
 
 it.live.each(["desktop" as const, undefined])(
   "explicit desktop targets ($0 runtime) fail without creating a server tab",
@@ -373,7 +461,6 @@ it.live.each(["desktop" as const, undefined])(
         expect(error.message).toContain("cannot control");
         expect(yield* manager.list({ threadId: scope.thread.threadId })).toEqual(before);
         expect(contexts).toHaveLength(1);
-        // A rejected explicit target must not replace this session's working tab.
         const reused = yield* broker.invoke<PreviewAutomationStatus>({
           scope,
           operation: "open",
@@ -430,6 +517,36 @@ it.live.each([
       yield* Fiber.join(correction);
     }),
   ).pipe(Effect.provide(layer)),
+);
+
+// The fake encoder decodes every frame at 1280x800, so 30 fps hits the bitrate floor.
+it.live.each([
+  { reports: [], frameRate: 30, bitsPerSecond: 2.5e6 },
+  { reports: [30], frameRate: 30, bitsPerSecond: 2.5e6 },
+  { reports: [60], frameRate: 60, bitsPerSecond: 1280 * 800 * 60 * 0.05 },
+  { reports: [60, undefined], frameRate: 60, bitsPerSecond: 1280 * 800 * 60 * 0.05 },
+  { reports: [60, 30], frameRate: 30, bitsPerSecond: 2.5e6 },
+] satisfies ReadonlyArray<{
+  reports: ReadonlyArray<BrowserRecordingFrameRate | undefined>;
+  frameRate: number;
+  bitsPerSecond: number;
+}>)(
+  "agent recordings encode at the last reported frame rate ($reports)",
+  ({ reports, frameRate, bitsPerSecond }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { browser, broker, tabId } = yield* ready;
+        for (const recordingFrameRate of reports) {
+          yield* browser.reportProfiles({
+            profiles: [],
+            defaultProfileId: "default",
+            ...(recordingFrameRate === undefined ? {} : { recordingFrameRate }),
+          });
+        }
+        yield* broker.invoke({ scope, tabId, operation: "recordingStart", input: {} });
+        expect(encoderStreams).toEqual([{ frameRate, bitsPerSecond }]);
+      }),
+    ).pipe(Effect.provide(layer)),
 );
 
 it.live("enforces provider ownership and explicit targets when a session has multiple tabs", () =>
@@ -699,7 +816,6 @@ it.live("a tab opened to a file the browser cannot show reports the file to down
       const page = contexts[0]!.page;
       const pdf = "https://example.com/paper.pdf";
       const request = { url: () => pdf, method: () => "GET", isNavigationRequest: () => true };
-      // What Chromium reports when a navigation turns into a download.
       page.emit("requestfailed", {
         ...request,
         frame: () => page,
@@ -1179,12 +1295,12 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
       yield* Effect.yieldNow;
       desktopRendersNext = true;
       const opened = yield* manager.open({ threadId: scope.thread.threadId, runtime: "server" });
-      while (desktopConnections.length === 0) yield* Effect.yieldNow;
-      while (desktopDetaches.listenerCount("detach") === 0) yield* Effect.yieldNow;
+      yield* fixtureReady(() => desktopConnections.length > 0);
+      yield* fixtureReady(() => desktopDetaches.listenerCount("detach") > 0);
       desktopDetaches.emit("detach", { threadId: scope.thread.threadId, tabId: opened.tabId });
-      while (releasedDesktopTabs.length === 0) yield* Effect.yieldNow;
+      yield* fixtureReady(() => releasedDesktopTabs.length > 0);
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId: opened.tabId });
-      while (desktopConnections.length < 2) yield* Effect.yieldNow;
+      yield* fixtureReady(() => desktopConnections.length >= 2);
       expect(desktopConnections).toHaveLength(2);
     }),
   ).pipe(Effect.provide(layer)),
@@ -1199,7 +1315,7 @@ it.live("an agent tab that started headless moves to the desktop page once it mo
       const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
       // A stalled viewer must still learn the tab moved.
       stallViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
-      while (desktopDetaches.listenerCount("attach") === 0) yield* Effect.yieldNow;
+      yield* fixtureReady(() => desktopDetaches.listenerCount("attach") > 0);
       // An attach the desktop already took back leaves the headless page alone.
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
       yield* Effect.promise(() => desktopAttachmentChecked.promise);
@@ -1207,7 +1323,7 @@ it.live("an agent tab that started headless moves to the desktop page once it mo
       // The user opens the thread; the desktop draws its own page for the tab.
       desktopTabs.add(tabId);
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
-      while (desktopConnections.length === 0) yield* Effect.yieldNow;
+      yield* fixtureReady(() => desktopConnections.length > 0);
       expect(contexts[0]!.close).toHaveBeenCalled();
       // No second headless page replaced the first.
       expect(contexts).toHaveLength(1);

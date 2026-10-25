@@ -202,12 +202,8 @@ function useGitBatchRunner(input: {
               action: onlyAction,
               branchName: first.status.refName!,
               includesCommit: first.status.hasWorkingTreeChanges,
-              ...(first.status.sourceControlProvider
-                ? {
-                    terminology: getSourceControlPresentation(first.status.sourceControlProvider)
-                      .terminology,
-                  }
-                : {}),
+              terminology: getSourceControlPresentation(first.status.sourceControlProvider)
+                .terminology,
             })
           : null;
       openCommandPalette({
@@ -496,12 +492,7 @@ export function useQuickActionGit(
                 action: kind,
                 branchName: status.refName!,
                 includesCommit: status.hasWorkingTreeChanges,
-                ...(status.sourceControlProvider
-                  ? {
-                      terminology: getSourceControlPresentation(status.sourceControlProvider)
-                        .terminology,
-                    }
-                  : {}),
+                terminology: getSourceControlPresentation(status.sourceControlProvider).terminology,
               });
               openCommandPalette({
                 view: {
