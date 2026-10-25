@@ -183,8 +183,11 @@ describe("pending context handoff", () => {
         },
         { ...run("next", 2, to, "target"), startedAt: null, status: "preparing" },
       ],
+      visibleTurnItems: projection.visibleTurnItems,
     } as unknown as OrchestrationV2ThreadProjection;
-    expect(resolvePendingHandoff(inFlight, { instanceId: to, model: "target" }, [])).toBeNull();
+    const selection = { instanceId: to, model: "target" };
+    expect(resolvePendingHandoff(projection, selection, [])).not.toBeNull();
+    expect(resolvePendingHandoff(inFlight, selection, [])).toBeNull();
   });
   it("resumes compatible account overlays without showing a handoff", () => {
     const providers = [from, to].map((instanceId) => ({
