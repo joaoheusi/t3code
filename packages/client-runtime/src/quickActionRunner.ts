@@ -304,12 +304,9 @@ const knownState = (variant: QuickActionVariant): PullRequestKnownState => ({
 });
 
 /**
- * Whether a PR target has the problem the action reports: failing CI for `{{ci.failures}}`,
- * conflicts for `{{pr.conflicts}}`, a stale branch for the base update starters, unresolved
- * threads for review thread actions. Null when the action reads none of them or the relevant
- * state is unknown, so incomplete snapshots do not prevent inspecting a PR. A synced snapshot
- * cannot tell "no checks" from "not known", so only fresh state rules out a PR without checks,
- * and only fresh state knows the base comparison and review threads.
+ * Whether a PR has the problem the action reads (CI failures, conflicts, a stale branch, review
+ * threads). Null when it reads none or the state is unknown, so incomplete snapshots never block
+ * a PR; only fresh state can rule out checks, the base comparison, or review threads.
  */
 export function quickActionTargetNeedsAction(
   action: QuickActionShape,

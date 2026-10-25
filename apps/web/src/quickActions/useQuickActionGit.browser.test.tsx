@@ -363,8 +363,8 @@ describe("Git palette actions", () => {
   );
 
   it("runs each repository's displayed action against its own remote environment checkout", async () => {
-    expect(item("web").title).toBe("web — Commit, push & PR");
-    expect(item("api").title).toBe("api — Pull");
+    expect(item("web").title).toBe("web: Commit, push & PR");
+    expect(item("api").title).toBe("api: Pull");
     await act(async () => {
       await item("web").run();
       await item("api").run();
@@ -385,7 +385,7 @@ describe("Git palette actions", () => {
         AsyncResult.success(status({ hasWorkingTreeChanges: true })),
       ),
     );
-    expect(item("api").title).toBe("api — Commit, push & PR");
+    expect(item("api").title).toBe("api: Commit, push & PR");
   });
 
   it("does not silently change a selected operation after refreshing", async () => {

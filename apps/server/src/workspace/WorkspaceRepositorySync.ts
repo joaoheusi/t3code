@@ -5,13 +5,7 @@ import {
   type ThreadId,
   type WorkspaceBinding,
 } from "@t3tools/contracts";
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
-import {
-  normalizeThreadPullRequestKey,
-  threadPullRequestKeysEqual,
-  threadPullRequestsOf,
-} from "@t3tools/shared/threadPullRequests";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -22,14 +16,18 @@ import * as Stream from "effect/Stream";
 import * as GitManager from "../git/GitManager.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import { forkParked } from "../serverActivation.ts";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
+import {
+  normalizeThreadPullRequestKey,
+  threadPullRequestKeysEqual,
+  threadPullRequestsOf,
+} from "../sourceControl/threadPullRequests.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 
 /**
- * Keeps every repository of a multi-repository thread as current as a single-repository
- * thread's checkout. Turn finalization refreshes only the thread's own checkout, which for a
- * folder thread is not a repository at all. After each run this re-reads each repository's
- * status, so clients see its Changes totals and pull request, and links the pull request on
- * each repository's branch to the thread under that repository's binding.
+ * Turn finalization refreshes only the thread's own checkout, which for a folder thread is not a
+ * repository. After each run this refreshes every repository's status and links the pull request
+ * on its branch under that repository's binding.
  */
 export class WorkspaceRepositorySync extends Context.Service<
   WorkspaceRepositorySync,
@@ -61,7 +59,10 @@ export const make = Effect.gen(function* () {
     );
     // Clients watching this checkout read its pull request from its status.
     yield* vcsStatus.refreshPullRequestStatus(cwd);
-    const parsed = detected === null ? null : parseChangeRequestUrl(detected.url);
+    const parsed =
+      detected === null
+        ? null
+        : (sourceControlDefinitions.parseChangeRequestUrl(detected.url)?.link ?? null);
     if (detected === null || parsed === null) return;
     // Re-read the links: another repository of this thread may have linked one meanwhile.
     const thread = yield* orchestrator.getThreadShell(threadId);

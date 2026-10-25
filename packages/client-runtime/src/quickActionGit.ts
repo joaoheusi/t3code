@@ -326,7 +326,7 @@ export function summarizeQuickActionGit(repositories: readonly QuickActionGitRep
 
 /** A repository's row among several; one with no work to do doesn't name an action. */
 export const quickActionGitRowTitle = (repository: QuickActionGitRepository) =>
-  repository.action.idle ? repository.label : `${repository.label} — ${repository.action.label}`;
+  repository.action.idle ? repository.label : `${repository.label}: ${repository.action.label}`;
 
 /** One selected repository after a fresh status check, carrying the action it will run. */
 export interface QuickActionGitSelection {

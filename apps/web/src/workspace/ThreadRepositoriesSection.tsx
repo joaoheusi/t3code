@@ -8,7 +8,8 @@ import {
   type WorkspaceBinding,
 } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { resolveThreadCurrentPullRequestLink } from "@t3tools/client-runtime/thread-pull-requests";
 import {
   CopyIcon,
   FileDiffIcon,
@@ -34,11 +35,7 @@ import {
   linkedPullRequestSnapshotStatus,
   prStatusIndicator,
 } from "../components/ThreadStatusIndicators";
-import {
-  findProjectOnChangeRequestHost,
-  parseChangeRequestUrl,
-  useOpenPrLink,
-} from "../lib/openPullRequestLink";
+import { findProjectOnChangeRequestHost, useOpenPrLink } from "../lib/openPullRequestLink";
 import { cn } from "../lib/utils";
 import { useProjects, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
@@ -304,7 +301,7 @@ export function RepositoryPullRequestRows(props: {
   const projects = useProjects();
   const openPrLink = useOpenPrLink(props.threadRef);
   if (number === undefined || url === undefined) return null;
-  const parsed = parseChangeRequestUrl(url);
+  const parsed = sourceControlClients.parseChangeRequestUrl(url)?.link ?? null;
   // Read through any project on the pull request's host: a folder thread's own project has none.
   const project =
     parsed === null

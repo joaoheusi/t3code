@@ -12,12 +12,9 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as DesktopCliShim from "./DesktopCliShim.ts";
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 
-// Settings → Install `j4code` command, like VS Code's "Install 'code' command".
-// The app's launcher (see DesktopCliShim) lives in the T3 home and is off PATH
-// by default. Installing links it into a folder on the user's PATH, or on
-// Windows adds the launcher's folder to the user's PATH. Removing undoes only
-// what installing did: a link that points at one of the app's launchers, or a
-// PATH entry the app recorded adding.
+// Like VS Code's "Install 'code' command": links the off-PATH launcher (DesktopCliShim) onto
+// PATH, or on Windows adds its folder to the user's PATH. Removing undoes only what installing
+// did: a link to one of the app's launchers, or a PATH entry the app recorded adding.
 
 export class DesktopCliCommandError extends Schema.TaggedError<DesktopCliCommandError>()(
   "DesktopCliCommandError",
@@ -35,14 +32,8 @@ const pathEntries = (value: string | undefined, separator: string) =>
 const sameWindowsPath = (left: string, right: string) =>
   left.replace(/[\\/]+$/, "").toLowerCase() === right.replace(/[\\/]+$/, "").toLowerCase();
 
-/**
- * Reads, or with `T3_SET` set writes, the user's PATH in the registry, keeping
- * `%VAR%` entries unexpanded. Writes keep REG_EXPAND_SZ (Windows' default for
- * PATH; `SetEnvironmentVariable` would store REG_SZ and break every `%VAR%`
- * entry), then broadcast WM_SETTINGCHANGE so Explorer and the terminals it
- * opens see the change. A failed read exits nonzero rather than reading as
- * empty, so a write never replaces the user's PATH wholesale.
- */
+// Preserve REG_EXPAND_SZ and %VAR% expansion; notify Explorer with WM_SETTINGCHANGE.
+// Failed reads must exit nonzero to prevent replacing PATH wholesale.
 const WINDOWS_USER_PATH_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 if ($env:T3_SET -eq '1') {
@@ -71,7 +62,7 @@ export class DesktopCliCommand extends Context.Service<
   }
 >()("@t3tools/desktop/app/DesktopCliCommand") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fs = yield* FileSystem.FileSystem;

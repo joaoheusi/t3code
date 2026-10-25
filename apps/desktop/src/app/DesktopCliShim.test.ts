@@ -81,7 +81,6 @@ describe("renderCliShim", () => {
       executable: NodePath.join(root, "app"),
       entry: "/bin.mjs",
     });
-    // sudo clears the environment, so the launcher supplies its own.
     expect(run(shim, []).stdout).toContain(`home=${root}/home`);
     expect(run(shim, [], { T3CODE_HOME: "/upstream" }).stdout).toContain(`home=${root}/home`);
     expect(run(shim, [], { J4CODE_HOME: "/elsewhere" }).stdout).toContain("home=/elsewhere");

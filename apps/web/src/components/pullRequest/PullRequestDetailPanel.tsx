@@ -1,5 +1,6 @@
 import { useTaskDestination } from "../../quickActions/useTaskDestination";
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { projectChangeRequestUrl } from "@t3tools/client-runtime/change-request-links";
+import { changeRequestReferenceAutolinker } from "@t3tools/client-runtime/pull-request-markdown";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -70,8 +71,7 @@ import {
   usePullRequestDefaultMergeMethodResolver,
   type PullRequestTaskKind,
 } from "./usePullRequestActions";
-import { OFF_HEAD_PULL_REQUEST_CHECKOUT_TOAST } from "./pullRequestCheckoutToast";
-import { changeRequestRepositoryUrl, gitHubPullRequestBrowserUrl } from "~/lib/openPullRequestLink";
+import { offHeadPullRequestCheckoutToast } from "./pullRequestCheckoutToast";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
@@ -85,7 +85,10 @@ import { pullRequestEnvironment, usePullRequestTurnRefresh } from "~/state/pullR
 import { useAtomCommand } from "~/state/use-atom-command";
 import { PullRequestStackMenu } from "./PullRequestStackMenu";
 import { PullRequestChangeBreakdownStat } from "./PullRequestChangeBreakdownStat";
-import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import {
+  capitalizeTerm,
+  sourceControlClients,
+} from "@t3tools/client-runtime/source-control-clients";
 import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
 import { vcsEnvironment } from "~/state/vcs";
 import { RelativeTime } from "~/components/RelativeTime";
@@ -183,21 +186,21 @@ import { guideRunKey, useGuideRunStore } from "./guide/guideRunStore";
 import { useReviewGuideWriter } from "./guide/useReviewGuideWriter";
 import { useInlineActionConfirm } from "./useInlineActionConfirm";
 
-const ACTION_FAILURE_LABELS: Record<PullRequestAction, string> = {
-  merge: "Could not merge this pull request",
+const actionFailureLabels = (term: string): Record<PullRequestAction, string> => ({
+  merge: `Could not merge this ${term}`,
   ready: "Could not mark this ready for review",
   draft: "Could not convert this to a draft",
-  close: "Could not close this pull request",
-  reopen: "Could not reopen this pull request",
+  close: `Could not close this ${term}`,
+  reopen: `Could not reopen this ${term}`,
   "update-branch": "Could not update this branch",
   "enable-auto-merge": "Could not turn on auto-merge",
   "disable-auto-merge": "Could not turn off auto-merge",
-  revert: "Could not open a revert pull request",
+  revert: `Could not open a revert ${term}`,
   "delete-branch": "Could not delete this branch",
   "approve-workflows": "Could not approve workflows",
-};
+});
 
-const ACTION_FAILURE_HINTS: Record<PullRequestAction, string> = {
+const actionFailureHints = (term: string): Record<PullRequestAction, string> => ({
   merge:
     "The host refused the merge. Check that you have write access, that the checks it requires have passed, and that the branch is not conflicting.",
   ready: "The host refused it. Check that you have write access to this repository.",
@@ -206,18 +209,17 @@ const ACTION_FAILURE_HINTS: Record<PullRequestAction, string> = {
   reopen:
     "The host refused it. Check that you have write access, and that the branch still exists.",
   "update-branch":
-    "The host refused it. Check that you have write access to the branch — one from a fork also needs its author to allow edits from maintainers — and that it does not conflict with the base.",
+    "The host refused it. Check that you have write access to the branch (a fork branch also needs its author to allow edits from maintainers), and that it does not conflict with the base.",
   "enable-auto-merge":
     "The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.",
   "disable-auto-merge":
     "The host refused it. Check that you have write access, and that the merge has not already happened.",
-  revert:
-    "The host refused it. Check that you have write access and that this pull request was merged on the host.",
+  revert: `The host refused it. Check that you have write access and that this ${term} was merged on the host.`,
   "delete-branch":
     "The host refused it. Check that you have write access to the source repository and that the branch has not moved since this page loaded.",
   "approve-workflows":
     "The host refused it. Check that you have Actions write access and that these workflow runs are still awaiting approval.",
-};
+});
 
 const UPDATE_BRANCH_REBASE_FAILURE_HINT =
   "The host refused it. A rebase stops at the first commit that does not apply cleanly; updating with a merge commit may still work.";
@@ -229,7 +231,7 @@ const TABS: ReadonlyArray<{ value: PullRequestDetailTab; label: string }> = [
   { value: "code", label: "Code" },
 ];
 
-// The diff viewer pulls in its worker pool, so load it only when the reader approaches Code.
+// Defer the diff viewer's worker pool until Code is approached.
 const loadCodeTab = () => import("./PullRequestCodeTab");
 const PullRequestCodeTab = lazy(loadCodeTab);
 
@@ -286,14 +288,8 @@ const HANDOFF_TASK_KINDS: Partial<Record<string, PullRequestTaskKind>> = {
 };
 
 /**
- * The stale-branch warning, said beside the branch it is about rather than as a bar of its own.
- * The banner this replaces held a row of chrome open across the top of every pull request that
- * had fallen behind, pushing the reading down to say something that is true of the base branch
- * and nothing else; as a mark on the base branch it is where a reader would look for it, and the
- * sentence and the way out of it arrive together the moment the mark is pointed at.
- *
- * A popover rather than a tooltip because what it holds can be pressed: a tooltip's layer takes
- * no pointer, and a control nobody can reach is worse than no control.
+ * The stale-branch warning sits on the base branch it is about instead of a banner row. A popover,
+ * not a tooltip, because it holds a control and a tooltip's layer takes no pointer.
  */
 function PullRequestBaseFreshnessWarning({
   baseBranch,
@@ -409,15 +405,10 @@ function resolvePullRequestReference(
 }
 
 function pullRequestMarkdownContext(
-  hostClient: ReturnType<typeof sourceControlClients.get>,
-  repositoryUrl: string | null,
+  detail: Pick<PullRequestDetail, "provider" | "url"> | null,
   threadRef: ScopedThreadRef | null,
 ) {
-  return {
-    repositoryUrl:
-      repositoryUrl === null ? null : hostClient.referenceAutolinkRepositoryUrl(repositoryUrl),
-    threadRef,
-  };
+  return { autolinks: changeRequestReferenceAutolinker(detail), threadRef };
 }
 
 function pullRequestStackReference(
@@ -427,7 +418,10 @@ function pullRequestStackReference(
 ) {
   return detail === null || detail.capabilities.stacks !== true || !supportsThreadPullRequests
     ? null
-    : { ...reference, host: reference.host ?? parseChangeRequestUrl(detail.url)?.host };
+    : {
+        ...reference,
+        host: reference.host ?? sourceControlClients.parseChangeRequestUrl(detail.url)?.link.host,
+      };
 }
 
 export function PullRequestDetailPanel({
@@ -480,7 +474,7 @@ export function PullRequestDetailPanel({
     supportsThreadPullRequests,
   );
   const loadingCheckoutCommand = loadingPullRequestCheckoutCommand(reference, repositoryIdentity);
-  const unavailableGitHubUrl = gitHubPullRequestBrowserUrl(
+  const unavailableHostUrl = projectChangeRequestUrl(
     repositoryIdentity,
     reference.repository,
     reference.number,
@@ -539,7 +533,7 @@ export function PullRequestDetailPanel({
     key: tabScopeKey,
     tabs: new Set<PullRequestDetailTab>([tab]),
   }));
-  // A previously visited Code tab must not fetch diffs for every later PR while hidden.
+  // Hidden Code tabs must not fetch later pull requests' diffs.
   const mountedTabs =
     tabMountState.key === tabScopeKey ? tabMountState.tabs : new Set<PullRequestDetailTab>([tab]);
   if (tabMountState.key !== tabScopeKey) {
@@ -613,9 +607,12 @@ export function PullRequestDetailPanel({
     detail,
   } = usePullRequestDetail(environmentId, reference, matchingListEntry);
   const handoffSummary = detail ?? sharedSummary;
+  const terminology = sourceControlClients.get(
+    handoffSummary?.provider ?? listEntry?.provider ?? repositoryIdentity?.provider,
+  ).changeRequest;
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { copyToClipboard: copyReference } = useCopyToClipboard<string>({
-    target: "pull request reference",
+    target: `${terminology.singular} reference`,
     onCopy: (label) => toastManager.add({ type: "success", title: `${label} copied` }),
     onError: (error, label) =>
       toastManager.add({
@@ -632,7 +629,7 @@ export function PullRequestDetailPanel({
     if (command !== "pullRequest.copyNumber") return;
     event.preventDefault();
     event.stopPropagation();
-    if (!event.repeat) copyReference(`#${reference.number}`, "PR number");
+    if (!event.repeat) copyReference(`#${reference.number}`, `${terminology.shortLabel} number`);
   });
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => copyFromShortcut(event);
@@ -645,10 +642,13 @@ export function PullRequestDetailPanel({
     setSeenAutoMergeKey(autoMergeKey);
     if (detail?.autoMergeMethod !== undefined) setMergeMethod(detail.autoMergeMethod);
   }
-  const repositoryUrl = detail === null ? null : changeRequestRepositoryUrl(detail.url);
+  const repositoryUrl =
+    detail === null
+      ? null
+      : (sourceControlClients.parseChangeRequestUrl(detail.url)?.link.repositoryUrl ?? null);
   const hostClient = sourceControlClients.get(detail?.provider);
   const openOnHostText = openOnHostLabel(hostClient);
-  const markdownContext = pullRequestMarkdownContext(hostClient, repositoryUrl, threadRef);
+  const markdownContext = pullRequestMarkdownContext(detail, threadRef);
   const authorProfileUrl =
     detail?.author && repositoryUrl !== null
       ? hostClient.authorProfileUrl(detail.author.login, repositoryUrl)
@@ -659,7 +659,7 @@ export function PullRequestDetailPanel({
         handoffSummary.number,
         handoffSummary.headBranch,
         detail?.headRepositoryNameWithOwner,
-        changeRequestRepositoryUrl(handoffSummary.url),
+        sourceControlClients.parseChangeRequestUrl(handoffSummary.url)?.link.repositoryUrl ?? null,
       )
     : loadingCheckoutCommand;
   const branchRefsQuery = useEnvironmentQuery(
@@ -714,8 +714,7 @@ export function PullRequestDetailPanel({
     if (!shouldRefreshPullRequestActivity(activityRevision, next)) {
       setActivityRevision(next);
     } else if (!activityQuery.isPending) {
-      // Let an existing read settle before revalidating the new revision. Interrupting a
-      // mutation's activity refresh can leave SWR displaying its previous value.
+      // Interrupting a mutation's activity refresh can leave SWR displaying stale data.
       setActivityRevision(next);
       setActivityRevalidations((count) => count + 1);
       setRefreshToken((token) => token + 1);
@@ -736,7 +735,7 @@ export function PullRequestDetailPanel({
   const refreshing = isInvalidating || detailQuery.isPending;
   const refreshFromHost = async () => {
     setIsInvalidating(true);
-    // Atom commands settle instead of throwing, so the reset below always runs.
+    // Atom commands settle without throwing, so reset always runs.
     await invalidate({ environmentId, input: { reference } });
     refreshDetail();
     setRefreshToken((token) => token + 1);
@@ -805,24 +804,22 @@ export function PullRequestDetailPanel({
     });
     setPendingAction(null);
     if (result._tag === "Failure") {
-      // A merge strategy a branch policy forbids is refused at completion and nowhere earlier —
-      // Azure DevOps publishes no per-strategy availability to hide the control with — so
-      // "action failed" would leave the reader pressing the same button again.
+      // Azure DevOps provides no strategy availability; explain policy failures after the attempt.
       const failure = squashAtomCommandFailure(result);
       const hint =
         updateMethod === "rebase"
           ? UPDATE_BRANCH_REBASE_FAILURE_HINT
-          : ACTION_FAILURE_HINTS[action];
+          : actionFailureHints(terminology.singular)[action];
       toastManager.add({
         type: "error",
-        title: ACTION_FAILURE_LABELS[action],
+        title: actionFailureLabels(terminology.singular)[action],
         description: readableFailure(failure, hint),
       });
       onActed?.(action, "failed");
       return false;
     }
     if (action === "revert") {
-      toastManager.add({ type: "success", title: "Revert pull request opened" });
+      toastManager.add({ type: "success", title: `Revert ${terminology.singular} opened` });
     }
     if (action === "delete-branch") {
       toastManager.add({ type: "success", title: "Branch deleted" });
@@ -859,8 +856,7 @@ export function PullRequestDetailPanel({
       return { commentPosted: false };
     }
     const actionSucceeded = await finishAction(action);
-    // The comment is durable even if the state change was refused, so make it visible while the
-    // shared action failure explains why the pull request stayed where it was.
+    // Refresh the posted comment even if the subsequent state change fails.
     if (!actionSucceeded) refreshDetail();
     return { commentPosted: true };
   };
@@ -955,15 +951,13 @@ export function PullRequestDetailPanel({
     setHandoff(kind);
     const toastId = toastManager.add({
       type: "loading",
-      title: "Preparing the pull request checkout...",
+      title: `Preparing the ${terminology.singular} checkout...`,
     });
     const projectRef = scopeProjectRef(
       actingEnvironmentId,
       acting?.projectId ?? handoffSummary.projectId,
     );
-    // The thread is opened before the checkout rather than after it, because the project's setup
-    // script only runs for a checkout that knows which thread it is for — and a worktree with no
-    // dependencies installed is not something anyone can test.
+    // Checkout setup requires the thread to exist first.
     const opened = await newThread(projectRef).then(
       (session) => session,
       () => null,
@@ -986,7 +980,7 @@ export function PullRequestDetailPanel({
       setHandoff(null);
       toastManager.update(toastId, {
         type: "error",
-        title: "Could not prepare the pull request checkout",
+        title: `Could not prepare the ${terminology.singular} checkout`,
         description: checkoutFailureDescription(
           isAtomCommandInterrupted(prepared) ? undefined : squashAtomCommandFailure(prepared),
         ),
@@ -1003,9 +997,7 @@ export function PullRequestDetailPanel({
     );
     if (!pointed) {
       setHandoff(null);
-      // The checkout is on disk; only the thread failed to move onto it. Writing the task now
-      // would send the agent at whatever the thread was already open on — which is the one
-      // outcome worth stopping for, since it reads as success and is not.
+      // Sending after failed rebinding would use the previous checkout.
       toastManager.update(toastId, {
         type: "error",
         title: "Checked out, but the thread stayed where it was",
@@ -1022,10 +1014,10 @@ export function PullRequestDetailPanel({
             title: mode === "local" ? "Checked out here" : "Checked out",
             description:
               mode === "local"
-                ? "This repository is on the pull request's branch, with a thread open on it."
-                : "The pull request is in its own worktree, with a thread open on it.",
+                ? `This repository is on the ${terminology.singular}'s branch, with a thread open on it.`
+                : `The ${terminology.singular} is in its own worktree, with a thread open on it.`,
           }
-        : OFF_HEAD_PULL_REQUEST_CHECKOUT_TOAST,
+        : offHeadPullRequestCheckoutToast(terminology),
     );
     return;
   };
@@ -1298,6 +1290,7 @@ export function PullRequestDetailPanel({
   const checkoutControl =
     context === "page" ? (
       <PullRequestCheckoutMenu
+        term={terminology.singular}
         handoff={handoff}
         checkoutRoot={checkoutRoot}
         canPrepareWorktree={canPrepareWorktree}
@@ -1382,6 +1375,7 @@ export function PullRequestDetailPanel({
               {nativeStack ? (
                 <PullRequestStackMenu
                   hostLabel={hostClient.label}
+                  terminology={terminology}
                   stack={nativeStack}
                   notice={nativeStackQuery.notice}
                   onRetry={nativeStackQuery.error ? nativeStackQuery.refresh : undefined}
@@ -1437,7 +1431,9 @@ export function PullRequestDetailPanel({
                         render={
                           <Button
                             aria-label={
-                              refreshing ? "Refreshing pull request" : "More pull request actions"
+                              refreshing
+                                ? `Refreshing ${terminology.singular}`
+                                : `More ${terminology.singular} actions`
                             }
                             size="icon-xs"
                             variant="ghost-muted"
@@ -1453,7 +1449,9 @@ export function PullRequestDetailPanel({
                     }
                   />
                   <TooltipPopup>
-                    {refreshing ? "Refreshing pull request" : "More pull request actions"}
+                    {refreshing
+                      ? `Refreshing ${terminology.singular}`
+                      : `More ${terminology.singular} actions`}
                   </TooltipPopup>
                 </Tooltip>
                 <MenuPopup align="end" side="bottom">
@@ -1478,7 +1476,7 @@ export function PullRequestDetailPanel({
                       <span>{handoff === "ask" ? "Opening..." : "Ask a question"}</span>
                       <span className="text-xs text-muted-foreground">
                         {attachTarget !== null
-                          ? "Adds the pull request to this thread's composer."
+                          ? `Adds the ${terminology.singular} to this thread's composer.`
                           : "Choose an existing thread or open a new one."}
                       </span>
                     </span>
@@ -1486,7 +1484,11 @@ export function PullRequestDetailPanel({
                   <MenuItem disabled={handoff !== null} onClick={explainPullRequest}>
                     <BookOpenIcon className="mt-1 size-3.5 shrink-0 self-start" />
                     <span className="flex min-w-0 flex-col">
-                      <span>{handoff === "explain" ? "Opening..." : "Explain this PR"}</span>
+                      <span>
+                        {handoff === "explain"
+                          ? "Opening..."
+                          : `Explain this ${terminology.shortLabel}`}
+                      </span>
                       <span className="text-xs text-muted-foreground">
                         A walk through the diff and what to read closely.
                       </span>
@@ -1627,16 +1629,22 @@ export function PullRequestDetailPanel({
                     <ArrowUpRightIcon className="size-3.5" />
                     {openOnHostText}
                   </MenuItem>
-                  <MenuItem onClick={() => copyReference(detail.url, "PR link")}>
+                  <MenuItem
+                    onClick={() => copyReference(detail.url, `${terminology.shortLabel} link`)}
+                  >
                     <LinkIcon className="size-3.5" />
                     Copy link
                     <MenuShortcut>
                       {shortcutLabelForCommand(keybindings, "thread.copyReference")}
                     </MenuShortcut>
                   </MenuItem>
-                  <MenuItem onClick={() => copyReference(`#${reference.number}`, "PR number")}>
+                  <MenuItem
+                    onClick={() =>
+                      copyReference(`#${reference.number}`, `${terminology.shortLabel} number`)
+                    }
+                  >
                     <CopyIcon className="size-3.5" />
-                    Copy PR number
+                    Copy {terminology.shortLabel} number
                     <MenuShortcut>
                       {shortcutLabelForCommand(keybindings, "pullRequest.copyNumber")}
                     </MenuShortcut>
@@ -1647,14 +1655,18 @@ export function PullRequestDetailPanel({
                       <MenuItem
                         closeOnClick={inlineConfirm.isArmed("close")}
                         aria-label={
-                          inlineConfirm.isArmed("close") ? "Confirm close?" : "Close pull request"
+                          inlineConfirm.isArmed("close")
+                            ? "Confirm close?"
+                            : `Close ${terminology.singular}`
                         }
                         variant="destructive"
                         disabled={actionPending}
                         {...inlineConfirm.props("close", () => void perform("close"))}
                       >
                         <PullRequestGlyph.closed className="size-3.5" />
-                        {inlineConfirm.isArmed("close") ? "Confirm close?" : "Close pull request"}
+                        {inlineConfirm.isArmed("close")
+                          ? "Confirm close?"
+                          : `Close ${terminology.singular}`}
                       </MenuItem>
                     </>
                   ) : detail.state === "closed" && can("reopen") ? (
@@ -1662,7 +1674,7 @@ export function PullRequestDetailPanel({
                       <MenuSeparator />
                       <MenuItem disabled={actionPending} onClick={() => void perform("reopen")}>
                         <PullRequestGlyph.reopen className="size-3.5" />
-                        Reopen pull request
+                        Reopen {terminology.singular}
                       </MenuItem>
                     </>
                   ) : detail.state === "merged" && can("revert") ? (
@@ -1714,7 +1726,7 @@ export function PullRequestDetailPanel({
             <Button
               size="icon-xs"
               variant="ghost"
-              aria-label="Collapse pull request panel"
+              aria-label={`Collapse ${terminology.singular} panel`}
               onClick={onClose}
             >
               <PanelRightIcon className="size-3.5" />
@@ -1818,14 +1830,14 @@ export function PullRequestDetailPanel({
                       <TooltipPopup side="top">{detail.headBranch}</TooltipPopup>
                     </Tooltip>
                   </span>
-                  <span className="ml-auto inline-flex shrink-0 items-center justify-end gap-2 text-2xs">
+                  <span className="ml-auto inline-flex shrink-0 items-baseline justify-end gap-2 text-2xs">
                     <span
-                      className="inline-flex items-center gap-1 tabular-nums"
+                      className="inline-flex items-baseline gap-1 tabular-nums"
                       aria-label={`${detail.changedFiles.toLocaleString()} changed ${
                         detail.changedFiles === 1 ? "file" : "files"
                       }`}
                     >
-                      <FileDiffIcon aria-hidden className="size-3" />
+                      <FileDiffIcon aria-hidden className="size-3 self-center" />
                       {detail.changedFiles.toLocaleString()}
                     </span>
                     <PullRequestChangeBreakdownStat
@@ -1886,7 +1898,7 @@ export function PullRequestDetailPanel({
                     <PullRequestCopyableCode
                       key={checkoutCommand}
                       value={checkoutCommand}
-                      target="pull request checkout command"
+                      target={`${terminology.singular} checkout command`}
                       copyLabel="Copy checkout command"
                       copiedLabel="Checkout command copied"
                       className="ml-auto font-mono"
@@ -1948,7 +1960,7 @@ export function PullRequestDetailPanel({
                     key={detail.headBranch}
                     value={detail.headBranch}
                     target="branch name"
-                    copyLabel="Copy pull request branch"
+                    copyLabel={`Copy ${terminology.singular} branch`}
                     copiedLabel="Branch name copied"
                   />
                 }
@@ -2023,7 +2035,7 @@ export function PullRequestDetailPanel({
                   >
                     <MessageSquareIcon aria-hidden className="size-3" />
                     {activityError
-                      ? "—"
+                      ? "-"
                       : activityPending
                         ? "…"
                         : detail.commentCount.toLocaleString()}
@@ -2040,7 +2052,7 @@ export function PullRequestDetailPanel({
                   >
                     <GitCommitHorizontalIcon aria-hidden className="size-3" />
                     {activityError
-                      ? "—"
+                      ? "-"
                       : activityPending
                         ? "…"
                         : detail.commits.length.toLocaleString()}
@@ -2087,7 +2099,6 @@ export function PullRequestDetailPanel({
           const scroller = scrollerByTab.current[tab];
           if (event.target !== scroller || scroller === null || scroller === undefined) return;
           const top = scroller.scrollTop;
-          // Decided here, not in a state updater, which React may run during render.
           const previous = condensedByTab[tab] ?? false;
           const foldHeight = foldRef.current?.scrollHeight ?? 0;
           let next = previous;
@@ -2105,14 +2116,22 @@ export function PullRequestDetailPanel({
           <PullRequestsUnavailableState
             {...(isPullRequestNotFound(detailQuery.failure)
               ? {
-                  title: `Pull request #${reference.number} not found`,
-                  error:
-                    "It may be an issue rather than a pull request, or this account can't see it.",
+                  title: `${capitalizeTerm(terminology.singular)} #${reference.number} not found`,
+                  error: `It may be an issue rather than a ${terminology.singular}, or this account can't see it.`,
                 }
               : { error: detailQuery.error })}
             refreshing={detailQuery.isPending}
             onRetry={refreshDetail}
-            {...(unavailableGitHubUrl ? { gitHubUrl: unavailableGitHubUrl } : {})}
+            {...(unavailableHostUrl
+              ? {
+                  host: {
+                    url: unavailableHostUrl,
+                    openLabel: openOnHostLabel(
+                      sourceControlClients.get(repositoryIdentity?.provider),
+                    ),
+                  },
+                }
+              : {})}
           />
         ) : detail ? (
           <PullRequestMarkdownContext value={markdownContext}>
@@ -2147,6 +2166,7 @@ export function PullRequestDetailPanel({
                   canComment={
                     detail.capabilities.review.inlineComment && detail.viewerPermissions.comment
                   }
+                  rangeComments={detail.capabilities.review.rangeComment === true}
                   onAskAboutLines={(comment, request) =>
                     addSelectionToAgent({ comment, request }, { keepGuide: true })
                   }
@@ -2170,6 +2190,7 @@ export function PullRequestDetailPanel({
                 ) : activityError ? (
                   <PullRequestActivityUnavailableState
                     error={activityError}
+                    term={terminology.singular}
                     onRetry={activityQuery.refresh}
                   />
                 ) : (
@@ -2188,7 +2209,11 @@ export function PullRequestDetailPanel({
             ) : null}
             {mountedTabs.has("code") ? (
               <div className={cn("absolute inset-0", tab !== "code" && "invisible")}>
-                <Suspense fallback={<DiffPanelLoadingState label="Loading pull request diff..." />}>
+                <Suspense
+                  fallback={
+                    <DiffPanelLoadingState label={`Loading ${terminology.singular} diff...`} />
+                  }
+                >
                   <PullRequestCodeTab
                     scrollerRef={scrollerRefs.code}
                     onAddToAgentSelection={addSelectionToAgent}
