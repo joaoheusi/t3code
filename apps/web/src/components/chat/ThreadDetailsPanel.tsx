@@ -26,6 +26,7 @@ import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environ
 import {
   RepositoryBranchRow,
   RepositoryPullRequestRows,
+  RepositoryWithActivity,
   ThreadRepositoriesSection,
   useActiveRepository,
   useRepositoryBindings,
@@ -190,42 +191,50 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               separated={density === "full"}
             >
               <div className="flex flex-col">
-                {/* Every repository shows its own branch, pull requests, and Git actions, so
-                    all of a multi-repository thread's pull requests are visible at once. The
-                    server refuses branch moves on a repository set, so none of them offers
-                    the branch picker. */}
+                {/* Every repository with work shows its own branch, pull requests, and Git
+                    actions, so all of a multi-repository thread's pull requests are visible at
+                    once. The server refuses branch moves on a repository set, so none of them
+                    offers the branch picker. */}
                 {repositoryBindings.length > 0 ? (
-                  repositoryBindings.map((binding, index) => (
-                    <div
+                  repositoryBindings.map((binding) => (
+                    <RepositoryWithActivity
                       key={binding.id}
-                      className={index > 0 ? "mt-1 border-t border-border/65 pt-1" : undefined}
+                      environmentId={props.environmentId}
+                      threadRef={threadRef}
+                      binding={binding}
+                      active={binding.id === activeRepository?.id}
                     >
-                      <RepositoryBranchRow environmentId={props.environmentId} binding={binding} />
-                      <RepositoryPullRequestRows
-                        environmentId={props.environmentId}
-                        threadRef={threadRef}
-                        binding={binding}
-                      />
-                      {props.activeProjectName && binding.state === "ready" ? (
-                        <GitActionsControl
-                          key={binding.checkoutPath}
-                          displayMode="panel"
-                          compact={density !== "full"}
-                          gitCwd={binding.checkoutPath}
-                          activeThreadRef={activeThreadRef}
-                          {...(props.onOpenChanges
-                            ? {
-                                onOpenChanges: () => {
-                                  useWorkspaceUiStore
-                                    .getState()
-                                    .setActiveRepository(scopedThreadKey(threadRef), binding.id);
-                                  props.onOpenChanges?.();
-                                },
-                              }
-                            : {})}
+                      <div className="not-first:mt-1 not-first:border-t not-first:border-border/65 not-first:pt-1">
+                        <RepositoryBranchRow
+                          environmentId={props.environmentId}
+                          binding={binding}
                         />
-                      ) : null}
-                    </div>
+                        <RepositoryPullRequestRows
+                          environmentId={props.environmentId}
+                          threadRef={threadRef}
+                          binding={binding}
+                        />
+                        {props.activeProjectName && binding.state === "ready" ? (
+                          <GitActionsControl
+                            key={binding.checkoutPath}
+                            displayMode="panel"
+                            compact={density !== "full"}
+                            gitCwd={binding.checkoutPath}
+                            activeThreadRef={activeThreadRef}
+                            {...(props.onOpenChanges
+                              ? {
+                                  onOpenChanges: () => {
+                                    useWorkspaceUiStore
+                                      .getState()
+                                      .setActiveRepository(scopedThreadKey(threadRef), binding.id);
+                                    props.onOpenChanges?.();
+                                  },
+                                }
+                              : {})}
+                          />
+                        ) : null}
+                      </div>
+                    </RepositoryWithActivity>
                   ))
                 ) : (
                   <>

@@ -18,6 +18,7 @@ import {
   MoreHorizontalIcon,
   SquareTerminalIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { DiffStatLabel, hasNonZeroStat } from "../components/chat/DiffStatLabel";
 import { ThreadDetailsControl } from "../components/chat/ThreadDetailsControl";
@@ -59,6 +60,7 @@ export function useRepositoryStatus(environmentId: EnvironmentId, binding: Works
   return {
     branch: status.data?.refName ?? binding.branch,
     dirty: status.data?.hasWorkingTreeChanges ?? false,
+    aheadCount: status.data?.aheadCount ?? 0,
     changes: changes ? { additions: changes.insertions, deletions: changes.deletions } : null,
     pr: status.data?.pr ?? null,
     sourceControlProvider: status.data?.sourceControlProvider,
@@ -262,6 +264,27 @@ function RepositorySectionRow(props: {
       </Menu>
     </div>
   );
+}
+
+/**
+ * Renders a repository's block only while it holds work: changes, unpushed commits, or a pull
+ * request. The picked repository always shows, so picking one in Repositories reveals it.
+ */
+export function RepositoryWithActivity(props: {
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
+  binding: WorkspaceBinding;
+  active: boolean;
+  children: ReactNode;
+}) {
+  const status = useRepositoryStatus(props.environmentId, props.binding);
+  const pullRequest = useRepositoryPullRequest(props.threadRef, props.binding, status);
+  const hasActivity =
+    status.dirty ||
+    status.aheadCount > 0 ||
+    (status.changes !== null && hasNonZeroStat(status.changes)) ||
+    pullRequest.number !== undefined;
+  return props.active || hasActivity ? props.children : null;
 }
 
 /** A repository's branch. Its checkout was fixed when the thread's repositories were prepared. */
