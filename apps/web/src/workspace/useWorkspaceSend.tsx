@@ -118,7 +118,7 @@ export function useSendWhenWorkspaceReady(input: {
       useWorkspaceUiStore.getState().setPendingSend(input.threadKey, null);
       return;
     }
-    if (state !== "ready") return;
+    if (state !== "ready" || !pending.setupComplete) return;
     useWorkspaceUiStore.getState().setPendingSend(input.threadKey, null);
     // Edited text is the user's to send; only the message they sent waits here.
     if (readPromptRef.current() === pending.prompt) sendRef.current();

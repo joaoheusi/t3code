@@ -143,6 +143,7 @@ import type { useUsageLimitsPanel } from "./useUsageLimitsPanel";
 import type { useWorktreeSetup } from "./useWorktreeSetup";
 import type { useComposerRepositories } from "../../workspace/useComposerRepositories";
 import { useStartWorkspaceThread } from "../../workspace/useWorkspaceSend";
+import { useWorkspaceUiStore } from "../../workspace/workspaceStores";
 import {
   primaryBindingRequest,
   repositoriesSummary,
@@ -884,6 +885,12 @@ export function useComposerSend(input: ComposerSendInput) {
         draftKey: composerKey,
       }).finally(() => {
         sendInFlightRef.current = false;
+        // Only now can the queued message send; the in-flight guard would drop it earlier.
+        useWorkspaceUiStore
+          .getState()
+          .markPendingSendSetupComplete(
+            scopedThreadKey(scopeThreadRef(environmentId, threadIdForSend)),
+          );
       });
       return;
     }

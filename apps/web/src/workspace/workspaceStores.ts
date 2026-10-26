@@ -16,8 +16,14 @@ interface WorkspaceUiState {
    * is a real choice of none.
    */
   readonly draftRepositories: Record<string, DraftRepositorySelection>;
-  /** The message to send once a thread's repositories are ready, keyed by thread. */
-  readonly pendingSends: Record<string, { readonly prompt: string }>;
+  /**
+   * The message to send once a thread's repositories are ready, keyed by thread. It is queued
+   * before setup commits so the banner shows, and sends only once `setupComplete` is set.
+   */
+  readonly pendingSends: Record<
+    string,
+    { readonly prompt: string; readonly setupComplete: boolean }
+  >;
   /** Which repository the diff, files, and Git panels show, keyed by thread. */
   readonly activeRepository: Record<string, string>;
   addDraftRepository: (
@@ -34,6 +40,7 @@ interface WorkspaceUiState {
   ) => void;
   setDraftRepositories: (key: string, selection: DraftRepositorySelection | null) => void;
   setPendingSend: (threadKey: string, prompt: string | null) => void;
+  markPendingSendSetupComplete: (threadKey: string) => void;
   setActiveRepository: (threadKey: string, bindingId: string) => void;
 }
 
@@ -99,8 +106,20 @@ export const useWorkspaceUiStore = create<WorkspaceUiState>()((set) => ({
       pendingSends:
         prompt === null
           ? without(state.pendingSends, threadKey)
-          : { ...state.pendingSends, [threadKey]: { prompt } },
+          : { ...state.pendingSends, [threadKey]: { prompt, setupComplete: false } },
     })),
+  markPendingSendSetupComplete: (threadKey) =>
+    set((state) => {
+      const pending = state.pendingSends[threadKey];
+      return pending
+        ? {
+            pendingSends: {
+              ...state.pendingSends,
+              [threadKey]: { ...pending, setupComplete: true },
+            },
+          }
+        : state;
+    }),
   setActiveRepository: (threadKey, bindingId) =>
     set((state) => ({ activeRepository: { ...state.activeRepository, [threadKey]: bindingId } })),
 }));
