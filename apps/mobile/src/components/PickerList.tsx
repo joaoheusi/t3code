@@ -39,7 +39,7 @@ export function PickerCaption(props: { readonly children: ReactNode; readonly to
     <Text
       className={cn(
         "px-4 text-xs leading-normal",
-        props.tone === "danger" ? "text-danger" : "text-foreground-muted",
+        props.tone === "danger" ? "text-danger-foreground" : "text-foreground-muted",
       )}
     >
       {props.children}
@@ -72,7 +72,7 @@ export function PickerRow(props: {
 }) {
   const titleClassName =
     props.tone === "danger"
-      ? "text-danger"
+      ? "text-danger-foreground"
       : props.tone === "accent"
         ? "text-primary-text"
         : props.tone === "muted"
@@ -113,7 +113,7 @@ export function PickerRow(props: {
         title={props.title}
         titleClassName={titleClassName}
         subtitle={props.subtitle}
-        subtitleClassName={props.subtitleTone === "danger" ? "text-danger" : undefined}
+        subtitleClassName={props.subtitleTone === "danger" ? "text-danger-foreground" : undefined}
         subtitleNumberOfLines={props.multiline ? 0 : 2}
         leading={leading}
         trailing={trailing}
@@ -157,7 +157,7 @@ export function PickerRow(props: {
           <Text
             className={cn(
               "text-xs",
-              props.subtitleTone === "danger" ? "text-danger" : "text-foreground-muted",
+              props.subtitleTone === "danger" ? "text-danger-foreground" : "text-foreground-muted",
             )}
             numberOfLines={props.multiline ? 0 : 1}
             ellipsizeMode="middle"

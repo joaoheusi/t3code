@@ -329,7 +329,9 @@ function RepositoriesContent(props: {
         ) : null}
         {choice.discovery.error ? (
           <View className="flex-row items-center justify-between gap-3 px-4">
-            <Text className="min-w-0 flex-1 text-xs text-danger">{choice.discovery.error}</Text>
+            <Text className="min-w-0 flex-1 text-xs text-danger-foreground">
+              {choice.discovery.error}
+            </Text>
             <Pressable
               accessibilityRole="button"
               className="rounded-full bg-card px-3 py-1.5 active:opacity-70"
@@ -604,7 +606,9 @@ export function MobileThreadWorkspaceNotice(props: ThreadWorkspaceProps) {
             {failed}
           </Text>
         ) : null}
-        {control.error ? <Text className="text-xs text-danger">{control.error}</Text> : null}
+        {control.error ? (
+          <Text className="text-xs text-danger-foreground">{control.error}</Text>
+        ) : null}
         <View className="flex-row gap-2">
           <NoticeButton
             label="Retry setup"
