@@ -2617,7 +2617,7 @@ export default function ChatView(props: ChatViewProps) {
       : null;
   const workspaceBannerItem = useWorkspaceBannerItem({
     environmentId,
-    threadId: serverThread?.id ?? null,
+    threadId,
     workspace: serverThread?.workspace,
   });
   // A staged provider switch is composer state, not thread history. It sits

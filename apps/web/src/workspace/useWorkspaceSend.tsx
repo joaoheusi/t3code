@@ -50,6 +50,9 @@ export function useStartWorkspaceThread() {
   }): Promise<boolean> => {
     const threadKey = scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId));
     const store = useWorkspaceUiStore.getState();
+    // Queue first: the server inspects and fetches every repository before it answers, and
+    // the queued send is what shows the preparing banner meanwhile.
+    store.setPendingSend(threadKey, input.prompt);
     try {
       if (input.createThread) {
         const created = await dispatch({
@@ -80,9 +83,9 @@ export function useStartWorkspaceThread() {
       if (configured._tag === "Failure") throw squashAtomCommandFailure(configured);
       // On failure the selection stays, so the chip still shows it and Send can retry.
       store.setDraftRepositories(input.draftKey, null);
-      store.setPendingSend(threadKey, input.prompt);
       return true;
     } catch (error) {
+      store.setPendingSend(threadKey, null);
       toastManager.add({
         type: "error",
         title: "Couldn't prepare the repositories",
@@ -115,7 +118,7 @@ export function useSendWhenWorkspaceReady(input: {
       useWorkspaceUiStore.getState().setPendingSend(input.threadKey, null);
       return;
     }
-    if (state !== "ready") return;
+    if (state !== "ready" || !pending.setupComplete) return;
     useWorkspaceUiStore.getState().setPendingSend(input.threadKey, null);
     // Edited text is the user's to send; only the message they sent waits here.
     if (readPromptRef.current() === pending.prompt) sendRef.current();
@@ -125,24 +128,33 @@ export function useSendWhenWorkspaceReady(input: {
 /** Preparation progress and failures, shown above the composer like other thread notices. */
 export function useWorkspaceBannerItem(input: {
   readonly environmentId: EnvironmentId;
-  readonly threadId: ThreadId | null;
+  readonly threadId: ThreadId;
   readonly workspace: ThreadWorkspace | undefined;
 }): ComposerBannerStackItem | null {
   const { workspace } = input;
-  const sendQueued = useWorkspaceUiStore((state) =>
-    input.threadId
-      ? state.pendingSends[scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId))] !==
-        undefined
-      : false,
+  const sendQueued = useWorkspaceUiStore(
+    (state) =>
+      state.pendingSends[scopedThreadKey(scopeThreadRef(input.environmentId, input.threadId))] !==
+      undefined,
   );
   const dispatch = useAtomCommand(orchestrationEnvironment.v2.dispatchCommand, {
     reportFailure: false,
   });
   const [busy, setBusy] = useState(false);
-  const { environmentId, threadId: inputThreadId } = input;
+  const { environmentId, threadId } = input;
   return ((): ComposerBannerStackItem | null => {
-    if (!workspace || !inputThreadId || workspace.state === "ready") return null;
-    const threadId = inputThreadId;
+    if (!workspace) {
+      return sendQueued
+        ? {
+            id: `workspace:${threadId}:preparing`,
+            variant: "info",
+            icon: <Spinner />,
+            title: "Preparing repositories",
+            description: "Your message sends when they're ready.",
+          }
+        : null;
+    }
+    if (workspace.state === "ready") return null;
     const control = async (type: "retry" | "cancel") => {
       setBusy(true);
       const result = await dispatch({
