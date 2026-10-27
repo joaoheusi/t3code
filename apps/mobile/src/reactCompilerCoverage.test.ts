@@ -44,7 +44,6 @@ const KNOWN_BAILOUTS: Record<string, string> = {
   "src/features/threads/use-composer-command-menu.ts": "manual memo not preserved",
   "src/features/voice-input/VoiceInputProvider.tsx": "ref read during render",
   "src/features/voice-input/useVoiceInputController.ts": "ref read during render",
-  "src/native/StackHeader.tsx": "ref read during render",
   "src/native/T3ComposerEditor.ios.tsx": "ref read during render",
   "src/native/T3ComposerEditor.native.tsx": "ref read during render",
 };

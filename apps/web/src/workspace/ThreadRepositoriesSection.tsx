@@ -36,7 +36,8 @@ import {
   linkedPullRequestSnapshotStatus,
   prStatusIndicator,
 } from "../components/ThreadStatusIndicators";
-import { findProjectOnChangeRequestHost, useOpenPrLink } from "../lib/openPullRequestLink";
+import { findProjectOnChangeRequestHost } from "@t3tools/client-runtime/change-request-links";
+import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { cn } from "../lib/utils";
 import { useProjects, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
