@@ -47,7 +47,6 @@ import Animated, {
   ReduceMotion,
   useAnimatedStyle,
   useDerivedValue,
-  useSharedValue,
   withTiming,
 } from "react-native-reanimated";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";

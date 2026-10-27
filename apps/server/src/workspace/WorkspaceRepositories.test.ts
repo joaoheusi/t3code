@@ -323,62 +323,56 @@ describe("host workspace identity and preparation", () => {
     }),
   );
   it.effect("never adopts or deletes an unknown directory at an expected worktree path", () =>
-    Effect.gen(function* () {
-      yield* run((service) =>
-        Effect.gen(function* () {
-          const plan = yield* service.plan(
-            {
-              expectedRevision: 0,
-              primaryBindingId: "a",
-              bindings: [
-                {
-                  id: "a",
-                  label: "A",
-                  sourcePath: repo,
-                  mode: "new-worktree",
-                  baseRef: "main",
-                  branch: "task/collision",
-                },
-              ],
-            },
-            CommandId.make("occupied"),
-          );
-          const binding = plan.bindings[0]!;
-          mkdirSync(binding.checkoutPath, { recursive: true });
-          writeFileSync(join(binding.checkoutPath, "keep.txt"), "unowned");
-          const failure = yield* service.prepare(binding, plan.operationId).pipe(Effect.flip);
-          expect(failure.message).toContain("unowned");
-          expect(readFileSync(join(binding.checkoutPath, "keep.txt"), "utf8")).toBe("unowned");
-          expect(git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(
-            1,
-          );
-        }),
-      );
-    }),
+    run((service) =>
+      Effect.gen(function* () {
+        const plan = yield* service.plan(
+          {
+            expectedRevision: 0,
+            primaryBindingId: "a",
+            bindings: [
+              {
+                id: "a",
+                label: "A",
+                sourcePath: repo,
+                mode: "new-worktree",
+                baseRef: "main",
+                branch: "task/collision",
+              },
+            ],
+          },
+          CommandId.make("occupied"),
+        );
+        const binding = plan.bindings[0]!;
+        mkdirSync(binding.checkoutPath, { recursive: true });
+        writeFileSync(join(binding.checkoutPath, "keep.txt"), "unowned");
+        const failure = yield* service.prepare(binding, plan.operationId).pipe(Effect.flip);
+        expect(failure.message).toContain("unowned");
+        expect(readFileSync(join(binding.checkoutPath, "keep.txt"), "utf8")).toBe("unowned");
+        expect(git(repo, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(1);
+      }),
+    ),
   );
   it.effect("blocks continuation only when preparation is incomplete or a checkout is gone", () =>
-    Effect.gen(function* () {
-      yield* run((service) =>
-        Effect.gen(function* () {
-          const plan = yield* service.plan(
-            {
-              expectedRevision: 0,
-              primaryBindingId: "a",
-              bindings: [{ id: "a", label: "A", sourcePath: repo, mode: "current" }],
-            },
-            CommandId.make("resume"),
-          );
-          expect((yield* service.validate(plan).pipe(Effect.flip)).message).toContain("incomplete");
-          const binding = yield* service.prepare(plan.bindings[0]!, plan.operationId);
-          const ready = { ...plan, state: "ready" as const, bindings: [binding] };
-          yield* service.validate(ready);
-          git(repo, "switch", "-c", "changed");
-          yield* service.validate(ready);
-          rmSync(repo, { recursive: true, force: true });
-          expect((yield* service.validate(ready).pipe(Effect.flip)).message).toContain("missing");
-        }),
-      );
-    }),
+    run((service) =>
+      Effect.gen(function* () {
+        const plan = yield* service.plan(
+          {
+            expectedRevision: 0,
+            primaryBindingId: "a",
+            bindings: [{ id: "a", label: "A", sourcePath: repo, mode: "current" }],
+          },
+          CommandId.make("resume"),
+        );
+        expect((yield* service.validate(plan).pipe(Effect.flip)).message).toContain("incomplete");
+        const binding = yield* service.prepare(plan.bindings[0]!, plan.operationId);
+        const ready = { ...plan, state: "ready" as const, bindings: [binding] };
+        yield* service.validate(ready);
+        git(repo, "switch", "-c", "changed");
+        yield* service.validate(ready);
+        rmSync(repo, { recursive: true, force: true });
+        expect((yield* service.validate(ready).pipe(Effect.flip)).message).toContain("missing");
+      }),
+    ),
   );
 });
 

@@ -182,65 +182,66 @@ const make = Effect.gen(function* () {
   return WorkspaceApi.of({
     // Only branch-changing operations reach this guard. They would move a checkout that a
     // multi-repository thread recorded, so the exact checkout is protected, not the repository.
-    assertLegacyMutation: (cwd) =>
-      Effect.gen(function* () {
-        const actual = yield* repositories.inspect(cwd).pipe(Effect.result);
-        if (actual._tag === "Failure") return;
-        const snapshot = yield* projections
-          .getShellSnapshot({ location: "active" })
-          .pipe(Effect.mapError(failure));
-        const owner = snapshot.threads.find(
-          (thread) =>
-            hasRepositorySet(thread.workspace) &&
-            thread.workspace.bindings.some(
-              (binding) => binding.checkoutPath === actual.success.path,
-            ),
+    assertLegacyMutation: Effect.fn("WorkspaceApi.assertLegacyMutation")(function* (cwd: string) {
+      const actual = yield* repositories.inspect(cwd).pipe(Effect.result);
+      if (actual._tag === "Failure") return;
+      const snapshot = yield* projections
+        .getShellSnapshot({ location: "active" })
+        .pipe(Effect.mapError(failure));
+      const owner = snapshot.threads.find(
+        (thread) =>
+          hasRepositorySet(thread.workspace) &&
+          thread.workspace.bindings.some((binding) => binding.checkoutPath === actual.success.path),
+      );
+      if (owner)
+        return yield* failure(
+          `This checkout belongs to the multi-repository thread “${owner.title}”. Changing its branch would stop that thread, so use a worktree instead.`,
         );
-        if (owner)
-          return yield* failure(
-            `This checkout belongs to the multi-repository thread “${owner.title}”. Changing its branch would stop that thread, so use a worktree instead.`,
-          );
-      }),
-    terminalTarget: (input) =>
-      Effect.gen(function* () {
-        const thread = yield* projections
-          .getThreadShell(ThreadId.make(input.threadId))
-          .pipe(Effect.mapError(failure));
-        if (!thread?.workspace) return null;
-        // A folder thread's own terminals open in its folder, not in one of its repositories.
-        if (thread.workspace.root && !input.terminalId.startsWith("repo:")) {
-          if (thread.workspace.state !== "ready")
-            return yield* failure("Prepare the workspace before opening a terminal.");
-          return { cwd: thread.workspace.root.checkoutPath, worktreePath: null };
-        }
-        const binding = yield* Effect.try({
-          try: () => resolveWorkspaceTerminal(thread.workspace!, input.terminalId),
-          catch: failure,
-        });
-        yield* resolve({
-          threadId: thread.id,
-          bindingId: binding.id,
-          expectedRevision: thread.workspace.revision,
-        });
-        return { cwd: binding.checkoutPath, worktreePath: null };
-      }),
+    }),
+    terminalTarget: Effect.fn("WorkspaceApi.terminalTarget")(function* (input: {
+      threadId: string;
+      terminalId: string;
+    }) {
+      const thread = yield* projections
+        .getThreadShell(ThreadId.make(input.threadId))
+        .pipe(Effect.mapError(failure));
+      if (!thread?.workspace) return null;
+      // A folder thread's own terminals open in its folder, not in one of its repositories.
+      if (thread.workspace.root && !input.terminalId.startsWith("repo:")) {
+        if (thread.workspace.state !== "ready")
+          return yield* failure("Prepare the workspace before opening a terminal.");
+        return { cwd: thread.workspace.root.checkoutPath, worktreePath: null };
+      }
+      const binding = yield* Effect.try({
+        try: () => resolveWorkspaceTerminal(thread.workspace!, input.terminalId),
+        catch: failure,
+      });
+      yield* resolve({
+        threadId: thread.id,
+        bindingId: binding.id,
+        expectedRevision: thread.workspace.revision,
+      });
+      return { cwd: binding.checkoutPath, worktreePath: null };
+    }),
     context,
-    terminal: (input) =>
-      resolve(input).pipe(
-        Effect.tap((binding) =>
-          input.terminalId.startsWith(`repo:${binding.id}:`)
-            ? Effect.void
-            : Effect.fail(failure("Use a repository-qualified terminal ID.")),
+    terminal: Effect.fn("WorkspaceApi.terminal")(
+      (input: WorkspaceBindingTarget & { terminalId: string }) =>
+        resolve(input).pipe(
+          Effect.tap((binding) =>
+            input.terminalId.startsWith(`repo:${binding.id}:`)
+              ? Effect.void
+              : Effect.fail(failure("Use a repository-qualified terminal ID.")),
+          ),
+          Effect.flatMap((binding) =>
+            terminals.open({
+              threadId: input.threadId,
+              terminalId: input.terminalId,
+              cwd: binding.checkoutPath,
+            }),
+          ),
+          Effect.mapError(failure),
         ),
-        Effect.flatMap((binding) =>
-          terminals.open({
-            threadId: input.threadId,
-            terminalId: input.terminalId,
-            cwd: binding.checkoutPath,
-          }),
-        ),
-        Effect.mapError(failure),
-      ),
+    ),
   });
 });
 export const layer = Layer.effect(WorkspaceApi, make).pipe(Layer.provide(ProjectionStore.layer));

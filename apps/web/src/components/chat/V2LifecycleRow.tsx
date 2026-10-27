@@ -574,11 +574,12 @@ export function HandoffRow(props: {
   readonly environmentId: EnvironmentId;
   readonly endpoints: HandoffEndpoints;
   readonly providers: ReadonlyArray<ServerProvider>;
+  readonly pending?: boolean;
   readonly failed?: boolean;
 }) {
   return (
     <TimelineSystemDivider
-      label="Context handoff"
+      label={props.pending ? "Context handoff pending" : "Context handoff"}
       icon={ArrowRightLeftIcon}
       showDetailSeparator={false}
       tone={props.failed ? "danger" : "neutral"}
@@ -593,7 +594,7 @@ export function HandoffRow(props: {
   );
 }
 
-export function HandoffEndpointsDetail(props: {
+function HandoffEndpointsDetail(props: {
   readonly environmentId: EnvironmentId;
   readonly endpoints: HandoffEndpoints;
   readonly providers: ReadonlyArray<ServerProvider>;

@@ -182,6 +182,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // the first option when a question appears. Take focus only from the composer or nothing, so a
   // terminal, dialog, or search keeps it. Skip phones: no digit keys, and blurring collapses it.
   const activeQuestionId = activeQuestion?.id ?? null;
+  // oxlint-disable-next-line t3code/react-effect-budget -- Move DOM focus to the first option when a question appears; focus cannot move during render.
   useEffect(() => {
     if (activeQuestionId === null || responseDisabled || isCollapsed || isMobileViewport) return;
     const options = optionsRef.current;

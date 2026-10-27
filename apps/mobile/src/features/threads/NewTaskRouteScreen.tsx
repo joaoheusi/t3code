@@ -273,12 +273,15 @@ export function NewTaskRouteScreen({ route }: StaticScreenProps<NewTaskRoutePara
   const startPicked = () => {
     const [primary, ...rest] = picked;
     if (!primary) return;
-    projectPickerRoot?.navigate("Thread", {
-      draft: {
-        environmentId: String(primary.environmentId),
-        projectId: String(primary.id),
-        title: primary.title,
-        repositoryPaths: rest.map((project) => project.workspaceRoot),
+    selectDetail({
+      name: "Thread",
+      params: {
+        draft: {
+          environmentId: String(primary.environmentId),
+          projectId: String(primary.id),
+          title: primary.title,
+          repositoryPaths: rest.map((project) => project.workspaceRoot),
+        },
       },
     });
     setSelecting(false);

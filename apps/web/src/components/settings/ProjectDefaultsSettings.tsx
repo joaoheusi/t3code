@@ -95,9 +95,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
-  const mixedSubmodules = useScopedSettingsMixed(["worktreeSubmodules"]);
   const mixedRepositories = useScopedSettingsMixed(["workspaceRepositories"]);
-  const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);

@@ -14,6 +14,11 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
+const decodeQuickActionSaveInput = Schema.decodeEffect(QuickActionSaveInput);
+const decodeQuickActionImportInput = Schema.decodeEffect(QuickActionImportInput);
+const encodeQuickAction = Schema.encodeEffect(Schema.fromJsonString(QuickAction));
+const isQuickActionError = Schema.is(QuickActionError);
+
 export class QuickActions extends Context.Service<
   QuickActions,
   {
@@ -42,11 +47,11 @@ const make = Effect.gen(function* () {
       Effect.flatMap((rows) => Effect.forEach(rows, (row) => decode(row.record_json))),
       Effect.mapError(storageError),
     );
-  const save: QuickActions["Service"]["save"] = (input) =>
-    Effect.gen(function* () {
-      const { action, expectedRevision } = yield* Schema.decodeEffect(QuickActionSaveInput)(
-        input,
-      ).pipe(Effect.mapError(() => new QuickActionError({ code: "invalid-template" })));
+  const save: QuickActions["Service"]["save"] = Effect.fn("QuickActions.save")(
+    function* (input) {
+      const { action, expectedRevision } = yield* decodeQuickActionSaveInput(input).pipe(
+        Effect.mapError(() => new QuickActionError({ code: "invalid-template" })),
+      );
       if (validateQuickActionTemplate(action.template).length)
         return yield* new QuickActionError({ code: "invalid-template" });
       if (action.projectId !== null) {
@@ -83,26 +88,29 @@ const make = Effect.gen(function* () {
         updatedAt: now,
       };
       yield* sql`INSERT INTO fork_quick_actions (id, project_id, record_json, revision)
-      VALUES (${record.id}, ${record.projectId}, ${yield* Schema.encodeEffect(Schema.fromJsonString(QuickAction))(record).pipe(Effect.mapError(() => new QuickActionError({ code: "storage" })))}, ${record.revision})
+      VALUES (${record.id}, ${record.projectId}, ${yield* encodeQuickAction(record).pipe(Effect.mapError(() => new QuickActionError({ code: "storage" })))}, ${record.revision})
       ON CONFLICT(id) DO UPDATE SET project_id = excluded.project_id, record_json = excluded.record_json, revision = excluded.revision`.pipe(
         Effect.mapError(storageError),
       );
       return record;
-    }).pipe(
-      sql.withTransaction,
-      Effect.mapError((error) => (Schema.is(QuickActionError)(error) ? error : storageError())),
-    );
-  const remove: QuickActions["Service"]["remove"] = (input) =>
-    Effect.gen(function* () {
+    },
+    sql.withTransaction,
+    Effect.mapError((error) => (isQuickActionError(error) ? error : storageError())),
+  );
+  const remove: QuickActions["Service"]["remove"] = Effect.fn("QuickActions.remove")(
+    function* (input) {
       const rows =
         yield* sql`DELETE FROM fork_quick_actions WHERE id = ${input.id} AND revision = ${input.expectedRevision} RETURNING id`.pipe(
           Effect.mapError(storageError),
         );
       if (!rows.length) return yield* new QuickActionError({ code: "stale-revision" });
-    });
-  const importCopies: QuickActions["Service"]["importCopies"] = (input) =>
-    Effect.gen(function* () {
-      const validated = yield* Schema.decodeEffect(QuickActionImportInput)(input).pipe(
+    },
+  );
+  const importCopies: QuickActions["Service"]["importCopies"] = Effect.fn(
+    "QuickActions.importCopies",
+  )(
+    function* (input) {
+      const validated = yield* decodeQuickActionImportInput(input).pipe(
         Effect.mapError(() => new QuickActionError({ code: "invalid-template" })),
       );
       const ids = new Set(validated.actions.map((action) => action.id));
@@ -113,10 +121,10 @@ const make = Effect.gen(function* () {
         (action) => save({ action, expectedRevision: null }),
         { concurrency: 1 },
       );
-    }).pipe(
-      sql.withTransaction,
-      Effect.mapError((error) => (Schema.is(QuickActionError)(error) ? error : storageError())),
-    );
+    },
+    sql.withTransaction,
+    Effect.mapError((error) => (isQuickActionError(error) ? error : storageError())),
+  );
   return QuickActions.of({ list, save, remove, importCopies });
 });
 export const layer = Layer.effect(QuickActions, make);

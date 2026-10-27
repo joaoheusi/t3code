@@ -1162,8 +1162,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     });
     // A concurrent fetch can win a tracking-ref update. Retry once after it releases the ref.
     return run.pipe(
-      Effect.flatMap((result) =>
-        result.exitCode !== 0 && isRefLockFailure(result.stderr) ? run : Effect.succeed(result),
+      Effect.filterOrElse(
+        (result) => !(result.exitCode !== 0 && isRefLockFailure(result.stderr)),
+        () => run,
       ),
     );
   };

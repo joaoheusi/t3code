@@ -733,7 +733,7 @@ function RepositoryRow(props: {
 }
 
 /** A started thread's repositories with what can be done in each. */
-export function ThreadRepositories(props: {
+function ThreadRepositories(props: {
   detail: string;
   environmentId: EnvironmentId;
   threadId: ThreadId;

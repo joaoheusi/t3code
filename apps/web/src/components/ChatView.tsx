@@ -98,7 +98,7 @@ import {
   threadSupportsProviderHandoff,
 } from "@t3tools/client-runtime/state/thread-workflows";
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
-import { HandoffEndpointsDetail } from "./chat/V2LifecycleRow";
+import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
   codexFeedbackMessage,
   isCompleteTurnItemRow,
@@ -185,7 +185,6 @@ import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { shortcutLabelForCommand } from "../keybindings";
-import { ArrowRightLeftIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 import { stackedThreadToast, toastManager } from "./ui/toast";

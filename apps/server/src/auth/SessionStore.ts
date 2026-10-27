@@ -495,7 +495,7 @@ function toClientMetadata(record: {
  * client permission, including ones added after it paired, so updates never force a
  * re-pair. Grants without it, admin permissions, and MCP agent sessions stay as recorded.
  */
-export function effectiveSessionScopes(
+function effectiveSessionScopes(
   subject: string,
   scopes: ReadonlyArray<AuthEnvironmentScope>,
 ): ReadonlyArray<AuthEnvironmentScope> {

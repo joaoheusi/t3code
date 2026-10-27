@@ -28,6 +28,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   memo,
+  useEffect,
   useImperativeHandle,
   useRef,
   useState,

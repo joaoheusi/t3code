@@ -97,7 +97,7 @@ export function resolveThreadPanelPullRequestAction(
  * them. GitHub merges past a failing optional check, so the menus do too. Hosts that never mark
  * checks fall back to every check, the safe reading.
  */
-export function classifyMergeGatingChecks(
+function classifyMergeGatingChecks(
   checks: ReadonlyArray<PullRequestCheck>,
 ): PullRequestChecksState {
   return classifyPullRequestChecks(

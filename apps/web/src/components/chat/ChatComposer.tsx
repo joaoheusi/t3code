@@ -2319,6 +2319,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
     return true;
   };
+  // oxlint-disable-next-line t3code/react-effect-budget -- Publish the latest submit to quick-action callbacks that are defined before it and run after async loads.
   useEffect(() => {
     submitComposerRef.current = submitComposer;
   });
@@ -2855,6 +2856,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const insertComposerTextAtEndStable = useStableCallback(insertComposerTextAtEnd);
 
+  // oxlint-disable-next-line t3code/react-effect-budget -- Register this composer with the quick-action dispatcher and unregister it on cleanup; the registry lives outside React.
   useEffect(
     () =>
       registerActionEditor(composerDraftTarget, {

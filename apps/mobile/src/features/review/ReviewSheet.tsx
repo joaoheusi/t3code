@@ -506,7 +506,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     } finally {
       setIsPullRefreshing(false);
     }
-  }, [refreshSelectedSection]);
+  }, []);
   const reviewFileNavigatorRef = useRef<ReviewFileNavigatorHandle>(null);
   const reviewFiles = parsedDiff.kind === "files" ? parsedDiff.files : [];
   const fileVisibility = useReviewFileVisibility({
@@ -554,7 +554,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
       showcasedReviewDrawRef.current = showcaseReviewKey;
       reportShowcaseSceneRendered({ scene: "review", themeId: nativeBridge.themeId });
     },
-    [nativeBridge.onDebug, nativeBridge.themeId, showcaseReviewKey],
+    [nativeBridge, showcaseReviewKey],
   );
 
   const handleSelectFile = useCallback(
@@ -638,7 +638,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
       name: "Thread",
       params: { environmentId: String(environmentId), threadId: String(threadId) },
     });
-  }, [environmentId, navigation, threadId]);
+  }, [environmentId, navigation, selectDetail, threadId]);
   const androidHeaderSubtitle = [
     selectedSection?.title,
     headerDiffSummary.additions,

@@ -90,14 +90,13 @@ const make = Effect.gen(function* () {
   const runner = yield* ProcessRunner.ProcessRunner;
   const config = yield* ServerConfig.ServerConfig;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
-  const canonical = (input: string) =>
-    Effect.gen(function* () {
-      const path = expandHomePath(input, home);
-      if (!isAbsolute(path)) return yield* fail("Enter an absolute path on this execution host.");
-      return yield* fs
-        .realPath(path)
-        .pipe(Effect.mapError(() => fail(`The path is missing or unreadable: ${path}`)));
-    });
+  const canonical = Effect.fn("WorkspaceRepositories.canonical")(function* (input: string) {
+    const path = expandHomePath(input, home);
+    if (!isAbsolute(path)) return yield* fail("Enter an absolute path on this execution host.");
+    return yield* fs
+      .realPath(path)
+      .pipe(Effect.mapError(() => fail(`The path is missing or unreadable: ${path}`)));
+  });
   /** Whether `child` is strictly inside `parent`; both must already be canonical. */
   const contains = (parent: string, child: string) => {
     const rel = relative(parent, child);
@@ -202,7 +201,7 @@ const make = Effect.gen(function* () {
         break;
       }
       const next = queue.shift()!;
-      const actual = yield* canonical(next.path).pipe(Effect.catch(() => Effect.succeed(null)));
+      const actual = yield* canonical(next.path).pipe(Effect.orElseSucceed(() => null));
       if (actual === null) {
         issues.push({ path: next.path, reason: "Unreadable or missing" });
         continue;
@@ -226,18 +225,18 @@ const make = Effect.gen(function* () {
         issues.push({ path: next.path, reason: "Symlink skipped; select it explicitly if needed" });
         continue;
       }
-      const info = yield* fs.stat(actual).pipe(Effect.catch(() => Effect.succeed(null)));
+      const info = yield* fs.stat(actual).pipe(Effect.orElseSucceed(() => null));
       if (info?.type !== "Directory") continue;
       const repository = (yield* fs
         .exists(join(actual, ".git"))
         .pipe(Effect.orElseSucceed(() => false)))
-        ? yield* inspect(actual).pipe(Effect.catch(() => Effect.succeed(null)))
+        ? yield* inspect(actual).pipe(Effect.orElseSucceed(() => null))
         : null;
       if (repository?.path === actual && !repositories.some((entry) => entry.path === actual))
         repositories.push(repository);
       if (next.level >= depth) {
         if (
-          (yield* fs.readDirectory(actual).pipe(Effect.catch(() => Effect.succeed([])))).some(
+          (yield* fs.readDirectory(actual).pipe(Effect.orElseSucceed(() => []))).some(
             (name) => !excluded.has(name),
           )
         )
@@ -462,9 +461,7 @@ const make = Effect.gen(function* () {
       yield* fs
         .makeDirectory(join(binding.commonDir, "j4code-workspace-ownership"), { recursive: true })
         .pipe(Effect.mapError(() => fail("Could not record worktree ownership.")));
-      const existing = yield* fs
-        .readFileString(marker)
-        .pipe(Effect.catch(() => Effect.succeed(null)));
+      const existing = yield* fs.readFileString(marker).pipe(Effect.orElseSucceed(() => null));
       if (existing !== null && existing !== text)
         return yield* fail(
           "This operation's ownership marker does not match. No checkout was changed.",

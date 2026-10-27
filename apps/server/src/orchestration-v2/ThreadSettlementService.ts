@@ -427,12 +427,12 @@ export const make = Effect.gen(function* () {
     });
     const invalidatedWorkspaceCwds = new Set<string>();
     const reportedRepositoryFailures = new Set<string>();
-    const evaluateBinding = (
+    const evaluateBinding = Effect.fn("ThreadSettlementServiceV2.evaluateBinding")(function* (
       threadId: ThreadId,
       binding: ThreadWorkspace["bindings"][number],
       links: ReturnType<typeof visibleThreadPullRequests>,
-    ) =>
-      Effect.gen(function* () {
+    ) {
+      const evaluate = Effect.gen(function* () {
         if (binding.state !== "ready") return { kind: "blocked" } as const;
         const actual = yield* Cache.get(repositoryInspections, binding.checkoutPath);
         if (
@@ -476,7 +476,8 @@ export const make = Effect.gen(function* () {
             closedAt: request.closedAt ?? null,
           },
         } as const;
-      }).pipe(
+      });
+      return yield* evaluate.pipe(
         Effect.catchCauseIf(
           (cause) => !Cause.hasInterruptsOnly(cause),
           (cause) =>
@@ -497,6 +498,7 @@ export const make = Effect.gen(function* () {
             }),
         ),
       );
+    });
     yield* Effect.forEach(
       candidates.filter((thread) => hasRepositorySet(thread.workspace)),
       (thread) =>

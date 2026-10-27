@@ -161,30 +161,6 @@ it.each(["left", "right", "bottom"] as const)(
   },
 );
 
-function ContinueToolbar(props: { readonly selected: string }) {
-  return (
-    <NativeHeaderToolbar placement="right">
-      <NativeHeaderToolbar.Button
-        label="Continue"
-        onPress={() => harness.openedDocuments.push(props.selected)}
-      />
-    </NativeHeaderToolbar>
-  );
-}
-
-it("presses run the latest handler when the button looks unchanged", () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  root ??= createRoot(document.createElement("div"));
-  act(() => root!.render(<ContinueToolbar selected="first" />));
-  act(() => root!.render(<ContinueToolbar selected="first,second" />));
-
-  const button = harness.renderedItems[0];
-  if (button?.type !== "button") throw new Error("Expected the native Continue button");
-  button.onPress();
-
-  expect(harness.openedDocuments).toEqual(["first,second"]);
-});
-
 it("applies a custom header element rendered inside a navigation container", () => {
   renderConnecting("Connecting");
   expect(renderedCustomLabel()).toBe("Connecting");

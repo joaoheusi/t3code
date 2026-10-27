@@ -3019,28 +3019,28 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.gitResolvePullRequest]: (input) => gitWorkflow.resolvePullRequest(input),
         [WS_METHODS.gitPreparePullRequestThread]: (input) =>
-          workspaceApi
-            .assertLegacyMutation(input.cwd)
-            .pipe(Effect.andThen(gitWorkflow.preparePullRequestThread(input)))
-            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          workspaceApi.assertLegacyMutation(input.cwd).pipe(
+            Effect.andThen(gitWorkflow.preparePullRequestThread(input)),
+            Effect.tap(() => refreshGitStatus(input.cwd)),
+          ),
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
-          workspaceApi
-            .assertLegacyMutation(input.cwd)
-            .pipe(Effect.andThen(gitWorkflow.removeWorktree(input)))
-            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          workspaceApi.assertLegacyMutation(input.cwd).pipe(
+            Effect.andThen(gitWorkflow.removeWorktree(input)),
+            Effect.tap(() => refreshGitStatus(input.cwd)),
+          ),
         [WS_METHODS.vcsCreateRef]: (input) =>
-          workspaceApi
-            .assertLegacyMutation(input.cwd)
-            .pipe(Effect.andThen(gitWorkflow.createRef(input)))
-            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          workspaceApi.assertLegacyMutation(input.cwd).pipe(
+            Effect.andThen(gitWorkflow.createRef(input)),
+            Effect.tap(() => refreshGitStatus(input.cwd)),
+          ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
-          workspaceApi
-            .assertLegacyMutation(input.cwd)
-            .pipe(Effect.andThen(gitWorkflow.switchRef(input)))
-            .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          workspaceApi.assertLegacyMutation(input.cwd).pipe(
+            Effect.andThen(gitWorkflow.switchRef(input)),
+            Effect.tap(() => refreshGitStatus(input.cwd)),
+          ),
         [WS_METHODS.vcsInit]: (input) =>
           vcsProvisioning.initRepository(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),

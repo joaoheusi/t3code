@@ -50,7 +50,7 @@ export const isInsideFolder = (folder: string, path: string) => {
 };
 
 /** A linked worktree keeps its own git dir under the repository's common dir. */
-export const isLinkedWorktree = (repository: Pick<WorkspaceRepository, "gitDir" | "commonDir">) =>
+const isLinkedWorktree = (repository: Pick<WorkspaceRepository, "gitDir" | "commonDir">) =>
   repository.gitDir !== repository.commonDir;
 
 /**
@@ -112,7 +112,7 @@ export function draftRepositoryFrom(
 }
 
 /** A repository checked out the thread's way. A linked worktree is already its own checkout. */
-export const withMode = (repository: DraftRepository, envMode: "local" | "worktree") =>
+const withMode = (repository: DraftRepository, envMode: "local" | "worktree") =>
   repository.mode === "existing-worktree"
     ? repository
     : {
