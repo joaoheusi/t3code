@@ -29,7 +29,7 @@ import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
  * repository. After each run this refreshes every repository's status and links the pull request
  * on its branch under that repository's binding.
  */
-export class WorkspaceRepositorySync extends Context.Service<
+class WorkspaceRepositorySync extends Context.Service<
   WorkspaceRepositorySync,
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;

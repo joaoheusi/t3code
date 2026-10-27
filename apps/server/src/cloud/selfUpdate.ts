@@ -233,9 +233,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
     "cloud.server_self_update.update",
   )(function* (input, reportProgress = () => Effect.void, onHandoffAccepted = () => Effect.void) {
     if (!forkUpdatesEnabled())
-      return yield* Effect.fail(
-        failWith("J4 Code uses manual fork updates. Install matching fork artifacts."),
-      );
+      return yield* failWith("J4 Code uses manual fork updates. Install matching fork artifacts.");
     if (capability === "desktop-managed") {
       if (desktopAppUpdate.available) {
         return yield* desktopAppUpdate.run(reportProgress);
@@ -373,8 +371,11 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
 
   return ServerSelfUpdate.of({
     update,
-    commitDesktopUpdate: (requestId, onHandoffAccepted) =>
-      desktopAppUpdate.commit(requestId, onHandoffAccepted),
+    commitDesktopUpdate: Effect.fn("ServerSelfUpdate.commitDesktopUpdate")(
+      function (requestId, onHandoffAccepted) {
+        return desktopAppUpdate.commit(requestId, onHandoffAccepted);
+      },
+    ),
   });
 });
 

@@ -6,7 +6,6 @@ export type NewTaskDraftRouteParams = {
   readonly worktreePath?: string | null;
   readonly title?: string | string[];
   readonly cloning?: string | string[];
-  readonly pendingTaskId?: string | string[];
   readonly draftId?: string | string[];
   readonly incomingShareId?: string | string[];
   /** Other projects picked together with this one, added as its repositories. */
@@ -34,7 +33,6 @@ export function draftRouteIdentity(draft: NewTaskDraftRouteParams): string {
   const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
   return JSON.stringify([
     draft.requestId,
-    first(draft.pendingTaskId),
     first(draft.draftId),
     first(draft.environmentId),
     first(draft.projectId),

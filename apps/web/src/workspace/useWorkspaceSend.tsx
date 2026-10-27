@@ -180,7 +180,6 @@ export function useWorkspaceBannerItem(input: {
       return {
         id: `workspace:${threadId}:failed:${workspace.revision}`,
         variant: "error",
-        priority: "urgent",
         icon: <TriangleAlertIcon />,
         title: first
           ? `Couldn't prepare ${first.label}${others.length > 0 ? ` and ${others.length} more` : ""}`

@@ -308,7 +308,7 @@ const knownState = (variant: QuickActionVariant): PullRequestKnownState => ({
  * threads). Null when it reads none or the state is unknown, so incomplete snapshots never block
  * a PR; only fresh state can rule out checks, the base comparison, or review threads.
  */
-export function quickActionTargetNeedsAction(
+function quickActionTargetNeedsAction(
   action: QuickActionShape,
   variant: QuickActionVariant,
 ): boolean | null {

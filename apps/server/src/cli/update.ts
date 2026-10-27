@@ -224,11 +224,9 @@ export const updateCommand = Command.make("update", {
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       if (!forkUpdatesEnabled())
-        return yield* Effect.fail(
-          new CliUpdateError({
-            reason: "J4 Code uses manual fork updates. Build and install from joaoheusi/t3code.",
-          }),
-        );
+        return yield* new CliUpdateError({
+          reason: "J4 Code uses manual fork updates. Build and install from joaoheusi/t3code.",
+        });
       const logLevel = yield* GlobalFlag.LogLevel;
       const config = yield* resolveCliAuthConfig(flags, logLevel);
       return yield* runUpdate({
