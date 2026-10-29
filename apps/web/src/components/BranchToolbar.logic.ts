@@ -7,12 +7,8 @@ import type {
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
-import { toSortableTimestamp } from "../lib/threadSort";
-export {
-  dedupeRemoteBranchesWithLocalMatches,
-  deriveLocalBranchNameFromRemoteRef,
-  sanitizeNewRefName,
-} from "@t3tools/shared/git";
+import { toSortableTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+export { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
 
 export interface EnvironmentOption {
   environmentId: EnvironmentId;
@@ -74,16 +70,16 @@ export function shouldShowComposerContextStrip(input: {
   /** Repositories are still being found, so the strip stays up with them disabled. */
   repositoriesLoading?: boolean;
   showEnvironmentIndicator: boolean;
-  hostsRestingComposerControls: boolean;
 }): boolean {
+  // A new thread always shows the strip, since it names the permissions the first send uses.
   return (
     input.hasActiveProject &&
-    (input.isDraftHeroState || input.persistInActiveThreads) &&
-    (input.isGitRepo ||
-      input.hasRepositories === true ||
-      input.repositoriesLoading === true ||
-      input.showEnvironmentIndicator ||
-      input.hostsRestingComposerControls)
+    (input.isDraftHeroState ||
+      (input.persistInActiveThreads &&
+        (input.isGitRepo ||
+          input.hasRepositories === true ||
+          input.repositoriesLoading === true ||
+          input.showEnvironmentIndicator)))
   );
 }
 

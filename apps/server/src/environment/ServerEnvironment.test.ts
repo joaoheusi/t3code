@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -19,6 +20,9 @@ import {
 } from "../cloud/config.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "./ServerEnvironment.ts";
+
+// The fork ships manual updates; these tests cover the enabled upstream flow.
+vi.mock("@t3tools/shared/forkIdentity", () => ({ forkUpdatesEnabled: () => true }));
 
 const layerServerEnvironment = (baseDir: string) =>
   ServerEnvironment.layer.pipe(

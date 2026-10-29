@@ -1,8 +1,4 @@
-import type {
-  GitRunStackedActionResult,
-  GitStackedAction,
-  VcsStatusResult,
-} from "@t3tools/contracts";
+import type { GitRunStackedActionResult, VcsStatusResult } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import type { ChangeRequestTerminology } from "@t3tools/client-runtime/source-control-clients";
 import {
@@ -265,7 +261,5 @@ export function resolveLiveThreadBranchUpdate(input: {
     branch: input.gitStatus.refName,
   };
 }
-
-export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
 
 export { resolveQuickAction, type GitQuickAction } from "@t3tools/client-runtime/quickActionGit";

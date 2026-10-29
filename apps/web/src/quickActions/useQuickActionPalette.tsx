@@ -49,7 +49,7 @@ import { QuickActionPullRequestStatus } from "./QuickActionPullRequestStatus";
 import { useQuickActionLibrary, useRunQuickAction } from "./useQuickActions";
 
 const QUICK_ACTIONS_GROUP = "quick-actions";
-const LIBRARY_GROUP = "quick-actions-library";
+export const LIBRARY_GROUP = "quick-actions-library";
 /** The palette keeps this view live while the library loads; other submenus are snapshots. */
 export const isQuickActionsView = (groups: readonly CommandPaletteGroup[]) =>
   groups.some((group) => group.value === LIBRARY_GROUP);

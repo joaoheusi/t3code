@@ -34,7 +34,7 @@ export type PerformPullRequestAction = (
   updateMethod?: PullRequestUpdateMethod,
 ) => Promise<boolean>;
 
-function ActOnEnvironmentPicker({
+export function ActOnEnvironmentPicker({
   environments,
   value,
   onChange,
