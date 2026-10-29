@@ -213,7 +213,6 @@ export function resolveThreadOutboxDeliveryAction(input: {
   readonly threadExists: boolean;
   readonly shellStatus: EnvironmentShellStatus;
   readonly environmentConnected: boolean;
-  readonly threadBusy: boolean;
   /** Workspace setup creates the thread before delivering its first message. */
   readonly workspacePreparation?: {
     readonly state: ThreadWorkspace["state"] | null;
@@ -339,3 +338,8 @@ export function resolveThreadOutboxFailureAction(input: {
   }
   return "restore";
 }
+
+export type AcknowledgedThreadMessage = QueuedThreadMessage & {
+  /** The server sequence that committed the message; older servers do not report it. */
+  readonly sequence?: number;
+};

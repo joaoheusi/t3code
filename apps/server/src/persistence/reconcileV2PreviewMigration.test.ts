@@ -55,6 +55,9 @@ describe("V2 preview upgrade", () => {
         [73, "WebhookDedupe"],
         [74, "ShellStopRequestIndex"],
         [75, "ThreadMessageSearch"],
+        [76, "PeerLinks"],
+        [77, "PeerLinkFence"],
+        [78, "WaitingLinkRequestIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -153,6 +156,9 @@ describe("V2 preview upgrade", () => {
         [73, "WebhookDedupe"],
         [74, "ShellStopRequestIndex"],
         [75, "ThreadMessageSearch"],
+        [76, "PeerLinks"],
+        [77, "PeerLinkFence"],
+        [78, "WaitingLinkRequestIndex"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

@@ -11,10 +11,8 @@ import {
 import { BackgroundThreadContext } from "./backgroundThread";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { type PendingUserInput } from "../../session-logic";
-import {
-  derivePendingUserInputProgress,
-  type PendingUserInputDraftAnswer,
-} from "../../pendingUserInput";
+import type { PendingUserInputDraftAnswer } from "@t3tools/client-runtime/state/pending-user-input";
+import { derivePendingUserInputProgress } from "../../pendingUserInput";
 import { CheckboxMark } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -147,6 +145,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
     setOptimisticSingleSelect(null);
   }
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears the auto-advance timer when the question changes, input is disabled, or the panel unmounts
   useEffect(() => {
     const clearAutoAdvance = () => {
       if (autoAdvanceTimerRef.current !== null) {
@@ -182,7 +181,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // the first option when a question appears. Take focus only from the composer or nothing, so a
   // terminal, dialog, or search keeps it. Skip phones: no digit keys, and blurring collapses it.
   const activeQuestionId = activeQuestion?.id ?? null;
-  // oxlint-disable-next-line t3code/react-effect-budget -- Move DOM focus to the first option when a question appears; focus cannot move during render.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Move DOM focus to the first option when a question appears; focus cannot move during render.
   useEffect(() => {
     if (activeQuestionId === null || responseDisabled || isCollapsed || isMobileViewport) return;
     const options = optionsRef.current;
@@ -226,6 +225,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // outside editable fields. Multi-select prompts toggle options in place; single-
   // select prompts keep the existing auto-advance behavior. Collapsed prompts opt
   // out, since the numbers they refer to are not on screen.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes a document keydown listener for digit shortcuts while a question is answerable
   useEffect(() => {
     if (!activeQuestion || responseDisabled || isCollapsed || backgroundThread) return;
     const handler = (event: globalThis.KeyboardEvent) => {

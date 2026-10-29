@@ -29,14 +29,8 @@ describe("project thread title", () => {
       title: "report.pdf",
     },
   ])("titles a $type-only message without changing its data", ({ text, title, ...attachment }) => {
-    const uploadedAttachments = [
-      {
-        ...attachment,
-        id: "prepared-attachment",
-        sizeBytes: 3,
-      },
-    ];
-    const wire = serializeComposerMessageForServer(text, undefined, true);
+    const uploadedAttachments = [{ ...attachment, id: "prepared-attachment", sizeBytes: 3 }];
+    const wire = serializeComposerMessageForServer(text, undefined);
     const spec = {
       projectId: ProjectId.make("project"),
       projectCwd: "/workspace",
