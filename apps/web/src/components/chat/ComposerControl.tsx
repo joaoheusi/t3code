@@ -1,6 +1,7 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { useRender } from "@base-ui/react/use-render";
+import { ChevronDownIcon } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 import { cn } from "~/lib/utils";
@@ -60,6 +61,27 @@ export function ComposerControlIcon({
         className,
       )}
       data-composer-control-icon
+    />
+  );
+}
+
+export function ComposerControlChevron({
+  className,
+  size = "sm",
+}: {
+  className?: string;
+  size?: ComposerControlSize;
+} = {}) {
+  return (
+    <ChevronDownIcon
+      aria-hidden="true"
+      className={cn(
+        "shrink-0",
+        size === "xs" ? "size-3 text-current" : "size-3.5 text-icon-muted",
+        className,
+      )}
+      data-composer-control-chevron
+      strokeWidth={2.25}
     />
   );
 }

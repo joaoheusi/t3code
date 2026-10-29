@@ -1378,7 +1378,9 @@ export const make = Effect.gen(function* () {
     const key = `branch.${branch}.gh-merge-base`;
     return gitCore.readConfigValue(cwd, key).pipe(
       Effect.flatMap((recorded) =>
-        recorded === baseBranch ? Effect.void : gitCore.writeConfigValue(cwd, key, baseBranch),
+        recorded === baseBranch
+          ? Effect.void
+          : gitCore.writeConfigValue({ cwd, key, value: baseBranch }),
       ),
       Effect.catch((error) =>
         Effect.logWarning("Could not record the pull request base branch.").pipe(

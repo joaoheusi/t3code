@@ -295,15 +295,22 @@ const cleanupFixture = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const originalConfig = yield* ServerConfig.ServerConfig;
-    // Canonical fixture paths keep macOS's /var alias from triggering the symlink guard.
+    // Canonical fixture parents keep macOS's /var alias from triggering the symlink guard,
+    // without resolving a folder that is itself the symlink under test.
     yield* fs.makeDirectory(originalConfig.browserArtifactsDir, { recursive: true });
     yield* fs.makeDirectory(originalConfig.logsDir, { recursive: true });
     yield* fs.makeDirectory(originalConfig.worktreesDir, { recursive: true });
+    const canonicalParent = Effect.fn(function* (directory: string) {
+      return NodePath.join(
+        yield* fs.realPath(NodePath.dirname(directory)),
+        NodePath.basename(directory),
+      );
+    });
     const config = {
       ...originalConfig,
-      browserArtifactsDir: yield* fs.realPath(originalConfig.browserArtifactsDir),
-      logsDir: yield* fs.realPath(originalConfig.logsDir),
-      worktreesDir: yield* fs.realPath(originalConfig.worktreesDir),
+      browserArtifactsDir: yield* canonicalParent(originalConfig.browserArtifactsDir),
+      logsDir: yield* canonicalParent(originalConfig.logsDir),
+      worktreesDir: yield* canonicalParent(originalConfig.worktreesDir),
     };
     const git = yield* GitVcsDriver.GitVcsDriver;
     const repo = yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: "cleanup-repo-" }));

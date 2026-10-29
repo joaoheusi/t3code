@@ -339,11 +339,6 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       key: string,
     ) => Effect.Effect<string | null, GitCommandError>;
-    readonly writeConfigValue: (
-      cwd: string,
-      key: string,
-      value: string,
-    ) => Effect.Effect<void, GitCommandError>;
     /**
      * The branch, named as on the host, that T3 recorded `branch` was cut from. Null when none
      * was recorded.

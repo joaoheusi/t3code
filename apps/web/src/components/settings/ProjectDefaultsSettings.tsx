@@ -1,6 +1,7 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
+  type ProviderInstanceId,
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
 import { createModelSelection, modelSelectionsEqual } from "@t3tools/shared/model";

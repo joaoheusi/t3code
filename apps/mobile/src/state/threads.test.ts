@@ -27,13 +27,14 @@ vi.mock("@t3tools/client-runtime/state/threads", async (importOriginal) => {
       return null;
     }),
   );
+  const shellAtom = Atom.make(() => null);
   return {
     ...(await importOriginal<object>()),
     createThreadFamilyAtoms: () => ({}),
     createOlderSettledThreadAtoms: () => ({}),
     createThreadEnvironmentAtoms: () => ({}),
     createEnvironmentThreadDetailAtoms: () => ({}),
-    createEnvironmentThreadShellAtoms: () => ({}),
+    createEnvironmentThreadShellAtoms: () => ({ threadShellAtom: () => shellAtom }),
     createEnvironmentThreadStateAtoms: () => ({
       stateAtom: (environmentId: string, threadId: string) =>
         stateAtom(`${environmentId}:${threadId}`),

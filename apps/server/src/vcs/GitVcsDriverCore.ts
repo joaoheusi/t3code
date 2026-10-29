@@ -2592,9 +2592,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       ),
       Effect.orElseSucceed((): string[] => []),
     );
+    const wildcardRefspec = `+refs/heads/*:refs/remotes/${remoteName}/*`;
     if (
       !fetchRefspecs.includes(trackingRefspec) &&
-      !fetchRefspecs.includes(trackingRefspec.slice(1))
+      !fetchRefspecs.includes(trackingRefspec.slice(1)) &&
+      !fetchRefspecs.includes(wildcardRefspec) &&
+      !fetchRefspecs.includes(wildcardRefspec.slice(1))
     ) {
       yield* runGit("GitVcsDriver.pushCurrentBranch.recordPublishedBranch", cwd, [
         "remote",

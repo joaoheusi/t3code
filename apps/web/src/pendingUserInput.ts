@@ -11,6 +11,8 @@ import {
 
 import { collectInlineContextIds } from "./lib/composerContextReferences";
 
+export type { PendingUserInputDraftAnswer };
+
 export function projectPendingUserInputAnswer(
   answer: unknown,
   threadContexts: ReadonlyArray<ThreadContextRecord>,

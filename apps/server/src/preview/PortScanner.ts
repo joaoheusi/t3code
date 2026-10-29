@@ -893,7 +893,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
     const resolveOwners = (pids: ReadonlyArray<number>) =>
       agentsPossible ? withAgentOwners(terminalOwners, pids) : Effect.succeed(terminalOwners);
     if (hostPlatform === "win32") {
-      if (terminalByProcessId.size === 0 && configuredUrls.length === 0) {
+      if (terminalOwners.size === 0 && configuredUrls.length === 0) {
         return { discovered: [], configured: new Map() } satisfies WebProbeSnapshot;
       }
       const recoverWindowsProbeFailure = recoverProcessProbeFailure("windows-listeners");

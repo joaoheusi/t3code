@@ -46,8 +46,9 @@ export function resolveServerSelfUpdateCapability(input: {
   readonly desktopManaged: boolean;
   readonly launcherManaged: boolean;
 }): ServerSelfUpdateCapability | null {
-  void input;
-  return null;
+  if (!forkUpdatesEnabled()) return null;
+  if (input.desktopManaged) return "desktop-managed" as const;
+  return input.launcherManaged ? ("boot-service" as const) : null;
 }
 
 export class ServerSelfUpdate extends Context.Service<

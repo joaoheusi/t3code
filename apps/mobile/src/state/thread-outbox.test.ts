@@ -1197,7 +1197,6 @@ describe("thread outbox", () => {
           threadExists: true,
           shellStatus: "live",
           environmentConnected: true,
-          threadBusy: false,
           workspacePreparation: { state, messageDelivered: false },
         }),
       ).toBe("wait");
@@ -1210,7 +1209,6 @@ describe("thread outbox", () => {
       threadExists: true,
       shellStatus: "live" as const,
       environmentConnected: true,
-      threadBusy: false,
     };
     expect(
       resolveThreadOutboxDeliveryAction({

@@ -43,7 +43,7 @@ describe("DesktopUpdates", () => {
 
   it.effect("keeps the disabled reason available after configuration and channel changes", () => {
     const harness = makeHarness({ env: { T3CODE_DISABLE_AUTO_UPDATE: "true" } });
-    const reason = "Automatic updates are disabled by the T3CODE_DISABLE_AUTO_UPDATE setting.";
+    const reason = "J4 Code uses manual fork updates. Build and install matching fork artifacts.";
 
     return Effect.scoped(
       Effect.gen(function* () {

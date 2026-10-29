@@ -322,7 +322,7 @@ const layerWorkspacePreparationProvided = WorkspacePreparation.layer.pipe(
     Layer.mergeAll(
       WorkspaceRepositories.layer,
       ProjectionStore.layer,
-      layerEventSinkProvided,
+      layerEventSink,
       ThreadCommandExecutor.layer,
     ),
   ),

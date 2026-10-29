@@ -21,6 +21,9 @@ const native = vi.hoisted(() => ({
     vi.fn<(uri: string, url: string, options: UploadOptions) => Promise<{ status: number }>>(),
 }));
 
+vi.mock("./orchestration", () => ({
+  orchestrationEnvironment: { v2: { dispatchCommand: vi.fn() } },
+}));
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() } }));
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: Parameters<typeof appAtomRegistry.get>[0]) => appAtomRegistry.get(atom),
