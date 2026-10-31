@@ -18,6 +18,7 @@ import { ScheduledTasksSettings } from "./ScheduledTasksSettings";
 
 const environmentId = EnvironmentId.make("laptop");
 const projectId = ProjectId.make("project");
+const otherProjectId = ProjectId.make("other-project");
 const task: ScheduledTask = {
   id: ScheduledTaskId.make("nightly"),
   title: "Review issues",
@@ -136,7 +137,10 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
-  useProjects: (() => [{ id: projectId, environmentId, title: "Project" }]) as never,
+  useProjects: (() => [
+    { id: projectId, environmentId, title: "Project" },
+    { id: otherProjectId, environmentId, title: "Other project" },
+  ]) as never,
 }));
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
@@ -212,5 +216,30 @@ describe("ScheduledTasksSettings", () => {
 
     await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
     await expect.element(name).toHaveValue("My draft");
+  });
+
+  it("opens a new-task link on its project when creation is allowed, once per link", async () => {
+    setup();
+    const registry = AtomRegistry.make();
+    using _registry = { [Symbol.dispose]: () => registry.dispose() };
+    registry.set(permissions.get(environmentId)!, false);
+    const ui = (link: boolean) => (
+      <RegistryContext.Provider value={registry}>
+        <ScheduledTasksSettings {...(link ? { newTask: true, projectId: otherProjectId } : {})} />
+      </RegistryContext.Provider>
+    );
+    await using screen = await render(ui(true));
+    const dialog = page.getByRole("dialog");
+    await expect.element(dialog).not.toBeInTheDocument();
+
+    await act(() => registry.set(permissions.get(environmentId)!, true));
+    await expect.element(dialog.getByLabelText("Project")).toHaveTextContent("Other project");
+
+    await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+    await expect.element(dialog).not.toBeInTheDocument();
+
+    await screen.rerender(ui(false));
+    await screen.rerender(ui(true));
+    await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
   });
 });

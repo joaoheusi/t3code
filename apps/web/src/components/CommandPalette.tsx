@@ -53,6 +53,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   BugIcon,
+  CalendarClockIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -740,6 +741,11 @@ function OpenCommandPaletteDialog(props: {
   const canTriage =
     useAtomValue(serverEnvironment.prepareTriage.permissionAtom(triageEnvironmentId)) &&
     supportsTriage(triageEnvironmentId);
+  const canCreateScheduledTask = useAtomValue(
+    serverEnvironment.upsertScheduledTask.permissionAtom(
+      currentProjectEnvironmentId ?? defaultAddProjectEnvironmentId,
+    ),
+  );
   const currentProject = resolveCommandPaletteProject(
     projectByKey,
     currentProjectEnvironmentId,
@@ -1385,6 +1391,27 @@ function OpenCommandPaletteDialog(props: {
       icon: <MessageSquareDashedIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "chat.newWithoutProject",
       run: () => startScratchThread(scratchTargetEnvironmentId),
+    });
+  }
+
+  if (canCreateScheduledTask) {
+    actionItems.push({
+      kind: "action",
+      value: "action:new-scheduled-task",
+      searchTerms: ["new scheduled task", "schedule", "automation", "recurring", "cron", "webhook"],
+      title: "New scheduled task",
+      icon: <CalendarClockIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/settings/scheduled-tasks",
+          search: {
+            newTask: true,
+            ...(currentProjectEnvironmentId && currentProjectId
+              ? { environmentId: currentProjectEnvironmentId, projectId: currentProjectId }
+              : {}),
+          },
+        });
+      },
     });
   }
 
