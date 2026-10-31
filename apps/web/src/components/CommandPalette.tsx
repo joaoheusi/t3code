@@ -53,6 +53,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   BugIcon,
+  CalendarClockIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -116,7 +117,9 @@ import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
+import { environmentIdsKey } from "../state/environmentAtomList";
 import { useEnvironmentQuery } from "../state/query";
+import { scheduledTaskCreatePermissionsAtom } from "../state/scheduledTasks";
 import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
@@ -165,6 +168,7 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { isConnectedWithConfig } from "./settings/scopedSettings";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -740,6 +744,18 @@ function OpenCommandPaletteDialog(props: {
   const canTriage =
     useAtomValue(serverEnvironment.prepareTriage.permissionAtom(triageEnvironmentId)) &&
     supportsTriage(triageEnvironmentId);
+  // With nothing on screen, the settings page opens the editor on any permitted environment.
+  const canCreateScheduledTask = useAtomValue(
+    scheduledTaskCreatePermissionsAtom(
+      environmentIdsKey(
+        currentProjectEnvironmentId !== null
+          ? [currentProjectEnvironmentId]
+          : environments
+              .filter(isConnectedWithConfig)
+              .map((environment) => environment.environmentId),
+      ),
+    ),
+  ).some(Boolean);
   const currentProject = resolveCommandPaletteProject(
     projectByKey,
     currentProjectEnvironmentId,
@@ -1385,6 +1401,27 @@ function OpenCommandPaletteDialog(props: {
       icon: <MessageSquareDashedIcon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "chat.newWithoutProject",
       run: () => startScratchThread(scratchTargetEnvironmentId),
+    });
+  }
+
+  if (canCreateScheduledTask) {
+    actionItems.push({
+      kind: "action",
+      value: "action:new-scheduled-task",
+      searchTerms: ["new scheduled task", "schedule", "automation", "recurring", "cron", "webhook"],
+      title: "New scheduled task",
+      icon: <CalendarClockIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/settings/scheduled-tasks",
+          search: {
+            newTask: true,
+            ...(currentProjectEnvironmentId && currentProjectId
+              ? { environmentId: currentProjectEnvironmentId, projectId: currentProjectId }
+              : {}),
+          },
+        });
+      },
     });
   }
 

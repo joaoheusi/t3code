@@ -70,6 +70,7 @@ import {
 import { parseActiveThreadPath, type HardwareKeyboardCommand } from "./hardwareKeyboardCommands";
 import { threadJumpIndex } from "./threadKeyboardShortcuts";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
+import { requestNewScheduledTaskEditor } from "../settings/scheduled-task-editor-state";
 import { openSettings } from "../settings/settings-navigation";
 import { useSelectWorkspaceTab } from "../workspace/useSelectWorkspaceTab";
 import { useSelectWorkspaceDetail } from "../workspace/useSelectWorkspaceDetail";
@@ -92,6 +93,7 @@ const ACTION_ICONS: Record<string, AppSymbolName> = {
   settings: "gearshape",
   appearance: "paintbrush",
   environments: "desktopcomputer",
+  newScheduledTask: "calendar.badge.clock",
   usage: "chart.bar.xaxis",
   archive: "archivebox",
   files: "doc.text",
@@ -331,6 +333,16 @@ export function CommandPalette(props: {
         title: "Scheduled tasks",
         searchTerms: ["schedule", "automations", "recurring"],
         run: () => openSettings(navigation, "SettingsScheduledTasks"),
+      },
+      {
+        key: "newScheduledTask",
+        kind: "action",
+        title: "New scheduled task",
+        searchTerms: ["schedule", "automations", "recurring", "create"],
+        run: () => {
+          requestNewScheduledTaskEditor();
+          openSettings(navigation, "SettingsScheduledTaskNew");
+        },
       },
       {
         key: "usage",

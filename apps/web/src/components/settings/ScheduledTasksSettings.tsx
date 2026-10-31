@@ -63,6 +63,7 @@ import { useProjects, useThreadShell } from "../../state/entities";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { environmentAtomList, environmentIdsKey } from "../../state/environmentAtomList";
 import { formatEnvironmentQueryError, useEnvironmentQuery } from "../../state/query";
+import { scheduledTaskCreatePermissionsAtom } from "../../state/scheduledTasks";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { threadFamilies } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -350,11 +351,14 @@ function statusVariant(status: ScheduledTask["lastRunStatus"]) {
 export function ScheduledTasksSettings(target: {
   readonly environmentId?: EnvironmentId;
   readonly taskId?: ScheduledTaskId | undefined;
+  readonly newTask?: true | undefined;
+  readonly projectId?: ProjectId | undefined;
 }) {
   const { scope, environments, connectedEnvironments, environment } = useSettingsScope();
   const [editor, setEditor] = useState<{
     environmentId: EnvironmentId;
     task: ScheduledTask | null;
+    initialProjectId?: ProjectId | undefined;
   } | null>(null);
   const openForEdit = (environmentId: EnvironmentId, task: ScheduledTask) => {
     setEditor({ environmentId, task });
@@ -378,24 +382,13 @@ export function ScheduledTasksSettings(target: {
       linkedEnvironmentId !== undefined &&
       matchesScheduledTaskScope(scope, linkedEnvironmentId, task.projectId),
   );
-  // A `taskId` link opens its editor once, the first time the task loads. The editor then owns
-  // the session until close, so a disconnect that disables the query cannot drop unsaved edits.
-  // An editor the user already opened wins: a late-loading link must not replace its draft.
-  const [openedLinkTaskId, setOpenedLinkTaskId] = useState<ScheduledTaskId | undefined>();
-  if (target.taskId === undefined && openedLinkTaskId !== undefined) {
-    setOpenedLinkTaskId(undefined);
-  }
-  if (linkedTask && linkedEnvironmentId !== undefined && openedLinkTaskId !== target.taskId) {
-    setOpenedLinkTaskId(target.taskId);
-    if (editor === null) setEditor({ environmentId: linkedEnvironmentId, task: linkedTask });
-  }
   const navigate = useNavigate({ from: "/settings/scheduled-tasks" });
   const closeEditor = () => {
     setEditor(null);
-    if (target.taskId === undefined) return;
+    if (target.taskId === undefined && target.newTask === undefined) return;
     void navigate({
       to: "/settings/scheduled-tasks",
-      search: ({ taskId: _closed, ...rest }) => rest,
+      search: ({ taskId: _task, newTask: _new, projectId: _project, ...rest }) => rest,
       replace: true,
     });
   };
@@ -411,6 +404,26 @@ export function ScheduledTasksSettings(target: {
     permittedEnvironments.find(
       (entry) => entry.environmentId === defaultEnvironment?.environmentId,
     ) ?? permittedEnvironments[0];
+  // A link opens its editor once, the first time its task or a permitted environment loads. The
+  // editor then owns the session until close, so a disconnect cannot drop unsaved edits.
+  // An editor the user already opened wins: a late-loading link must not replace its draft.
+  const linkKey = target.taskId ?? (target.newTask ? "new" : undefined);
+  const [openedLinkKey, setOpenedLinkKey] = useState<string | undefined>();
+  if (linkKey === undefined && openedLinkKey !== undefined) setOpenedLinkKey(undefined);
+  const linkedEditor =
+    linkedTask && linkedEnvironmentId !== undefined
+      ? { environmentId: linkedEnvironmentId, task: linkedTask }
+      : target.newTask && creationEnvironment
+        ? {
+            environmentId: creationEnvironment.environmentId,
+            task: null,
+            initialProjectId: target.projectId,
+          }
+        : null;
+  if (linkedEditor && openedLinkKey !== linkKey) {
+    setOpenedLinkKey(linkKey);
+    if (editor === null) setEditor(linkedEditor);
+  }
   return (
     <SettingsPageContainer>
       <SettingsSection
@@ -468,6 +481,7 @@ export function ScheduledTasksSettings(target: {
         <ScheduledTaskEditorDialog
           key={`${editor.environmentId}:${editor.task?.id ?? "new"}`}
           initialEnvironmentId={editor.environmentId}
+          initialProjectId={editor.initialProjectId}
           task={editor.task}
           onClose={closeEditor}
         />
@@ -475,11 +489,6 @@ export function ScheduledTasksSettings(target: {
     </SettingsPageContainer>
   );
 }
-
-const scheduledTaskCreatePermissionsAtom = environmentAtomList(
-  "web-scheduled-task-create-permissions",
-  serverEnvironment.upsertScheduledTask.permissionAtom,
-);
 
 const scheduledTasksListAtom = environmentAtomList("web-scheduled-tasks-list", (environmentId) =>
   serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
@@ -1094,10 +1103,12 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
 
 function ScheduledTaskEditorDialog({
   initialEnvironmentId,
+  initialProjectId,
   task,
   onClose,
 }: {
   readonly initialEnvironmentId: EnvironmentId;
+  readonly initialProjectId: ProjectId | undefined;
   readonly task: ScheduledTask | null;
   readonly onClose: () => void;
 }) {
@@ -1113,6 +1124,7 @@ function ScheduledTaskEditorDialog({
       <DialogPopup className="max-w-xl">
         <ScheduledTaskEditorForm
           initialEnvironmentId={initialEnvironmentId}
+          initialProjectId={initialProjectId}
           task={task}
           saving={saving}
           onSavingChange={setSaving}
@@ -1157,12 +1169,14 @@ function ScheduledTaskDestination({
 
 function ScheduledTaskEditorForm({
   initialEnvironmentId,
+  initialProjectId,
   task,
   saving,
   onSavingChange: setSaving,
   onClose,
 }: {
   readonly initialEnvironmentId: EnvironmentId;
+  readonly initialProjectId: ProjectId | undefined;
   readonly task: ScheduledTask | null;
   readonly saving: boolean;
   readonly onSavingChange: (saving: boolean) => void;
@@ -1196,7 +1210,7 @@ function ScheduledTaskEditorForm({
       ? taskToDraft(task)
       : {
           ...EMPTY_DRAFT,
-          projectId: defaultScheduledTaskProjectId(scopedProjects, scope),
+          projectId: initialProjectId ?? defaultScheduledTaskProjectId(scopedProjects, scope),
         },
   );
   // Pinned first. The chosen project stays listed after it is archived.
@@ -1453,7 +1467,7 @@ function ScheduledTaskEditorForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Project" htmlFor="scheduled-task-project">
               <Select
-                value={selectedProjectId}
+                value={selectedProject?.id ?? null}
                 onValueChange={(projectId) =>
                   setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
                 }

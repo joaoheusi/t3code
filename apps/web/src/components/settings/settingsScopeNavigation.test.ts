@@ -1,4 +1,4 @@
-import { EnvironmentId, ProviderInstanceId, ScheduledTaskId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ScheduledTaskId } from "@t3tools/contracts";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -257,5 +257,23 @@ describe("scheduled task scope navigation", () => {
       search: () => ({ machine: undefined, project: undefined, checkout: undefined }),
     });
     expect(router.state.matches.at(-1)?.search).toEqual({});
+  });
+
+  it("opens a new-task link on its owning environment with its project", async () => {
+    const router = createSettingsRouter();
+    await router.navigate({
+      to: "/settings/scheduled-tasks",
+      search: {
+        newTask: true,
+        environmentId: EnvironmentId.make("remote-server"),
+        projectId: ProjectId.make("project-1"),
+      },
+    });
+    expect(router.state.matches.at(-1)?.search).toEqual({
+      machine: "remote-server",
+      environmentId: "remote-server",
+      newTask: true,
+      projectId: "project-1",
+    });
   });
 });

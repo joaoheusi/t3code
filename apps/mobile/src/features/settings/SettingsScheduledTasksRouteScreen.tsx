@@ -470,7 +470,7 @@ export function SettingsScheduledTasksRouteScreen() {
   );
 }
 
-// The "New task" action and takeScheduledTaskNewLink clear the editor before
+// The "New task" action and requestNewScheduledTaskEditor clear the editor before
 // this screen opens, so it starts from the default target.
 export function SettingsScheduledTaskNewRouteScreen() {
   return <SettingsScheduledTaskEditorScreen title="New scheduled task" />;

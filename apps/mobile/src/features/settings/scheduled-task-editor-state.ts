@@ -84,21 +84,23 @@ export function readScheduledTaskEditor(
 }
 
 /**
- * A new-task link starts a fresh editor, or a warm app reopens the last task's draft under
- * "New" and saves over it. Links parse before the open editor's removal guard runs, so
- * unsaved changes stay until the user discards them there.
+ * A new-task request starts a fresh editor, or a warm app reopens the last task's draft under
+ * "New" and saves over it. It arrives before the open editor's removal guard runs, so unsaved
+ * changes stay until the user discards them there.
  */
+export function requestNewScheduledTaskEditor(): void {
+  const session = appAtomRegistry.get(scheduledTaskEditorSessionAtom);
+  if (session && scheduledTaskEditorHasChanges(session.initial, session.current)) {
+    newTaskLinkAwaitsDiscard = true;
+  } else {
+    appAtomRegistry.set(scheduledTaskEditorSessionAtom, null);
+  }
+}
+
 export function takeScheduledTaskNewLink(
   state: PartialState<NavigationState> | undefined,
 ): PartialState<NavigationState> | undefined {
-  if (findLinkedRoute(state, ["SettingsScheduledTaskNew"])) {
-    const session = appAtomRegistry.get(scheduledTaskEditorSessionAtom);
-    if (session && scheduledTaskEditorHasChanges(session.initial, session.current)) {
-      newTaskLinkAwaitsDiscard = true;
-    } else {
-      appAtomRegistry.set(scheduledTaskEditorSessionAtom, null);
-    }
-  }
+  if (findLinkedRoute(state, ["SettingsScheduledTaskNew"])) requestNewScheduledTaskEditor();
   return state;
 }
 

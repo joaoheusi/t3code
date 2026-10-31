@@ -2,7 +2,7 @@ import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import {
   EnvironmentId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
-  type ProjectId,
+  ProjectId,
   ScheduledTaskId,
   type ScheduledTask,
   type ScheduledTaskUpsertSchedule,
@@ -48,6 +48,10 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
       : {}),
     ...(typeof raw.taskId === "string" && raw.taskId.trim()
       ? { taskId: ScheduledTaskId.make(raw.taskId) }
+      : {}),
+    ...(raw.newTask === true ? { newTask: true as const } : {}),
+    ...(typeof raw.projectId === "string" && raw.projectId.trim()
+      ? { projectId: ProjectId.make(raw.projectId) }
       : {}),
   };
 }
