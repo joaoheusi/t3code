@@ -117,7 +117,9 @@ import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
 import { projectEnvironment } from "../state/projects";
+import { environmentIdsKey } from "../state/environmentAtomList";
 import { useEnvironmentQuery } from "../state/query";
+import { scheduledTaskCreatePermissionsAtom } from "../state/scheduledTasks";
 import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
@@ -166,6 +168,7 @@ import {
   newProjectId,
 } from "../lib/utils";
 import { buildThreadRouteParams } from "../threadRoutes";
+import { isConnectedWithConfig } from "./settings/scopedSettings";
 import { useAvailableSettingsSearchItems } from "./settings/useAvailableSettingsSearchItems";
 import {
   applyWslEnvironmentConfiguration,
@@ -741,11 +744,18 @@ function OpenCommandPaletteDialog(props: {
   const canTriage =
     useAtomValue(serverEnvironment.prepareTriage.permissionAtom(triageEnvironmentId)) &&
     supportsTriage(triageEnvironmentId);
+  // With nothing on screen, the settings page opens the editor on any permitted environment.
   const canCreateScheduledTask = useAtomValue(
-    serverEnvironment.upsertScheduledTask.permissionAtom(
-      currentProjectEnvironmentId ?? defaultAddProjectEnvironmentId,
+    scheduledTaskCreatePermissionsAtom(
+      environmentIdsKey(
+        currentProjectEnvironmentId !== null
+          ? [currentProjectEnvironmentId]
+          : environments
+              .filter(isConnectedWithConfig)
+              .map((environment) => environment.environmentId),
+      ),
     ),
-  );
+  ).some(Boolean);
   const currentProject = resolveCommandPaletteProject(
     projectByKey,
     currentProjectEnvironmentId,
