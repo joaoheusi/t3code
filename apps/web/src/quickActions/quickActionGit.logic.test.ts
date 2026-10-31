@@ -95,7 +95,7 @@ describe("repository quick actions", () => {
       description: "6 repositories · 1 commit to push",
       disabled: false,
     });
-    expect(quickActionGitRowTitle(withWork[5]!)).toBe("App 0 — Push");
+    expect(quickActionGitRowTitle(withWork[5]!)).toBe("App 0: Push");
 
     const diverged = status({ aheadCount: 1, behindCount: 1 });
     const detached = status({ refName: null });

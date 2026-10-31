@@ -2679,7 +2679,7 @@ const make = Effect.gen(function* () {
     Stream.runForEach((key) =>
       Effect.gen(function* () {
         const id = tabKey(key.threadId, key.tabId);
-        const pending = pendingTabs.get(id);
+        const pending = pendingTabs.get(id)?.promise;
         if (pending) yield* Effect.promise(() => pending.catch(constVoid));
         const current = tabs.get(id);
         if (current?.desktop) return;

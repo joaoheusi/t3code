@@ -414,7 +414,7 @@ const ready = Effect.gen(function* () {
   const tabId = PreviewTabId.make(opened.tabId!);
   return { browser, broker, tabId };
 });
-const stallViewer = (
+const fillViewer = (
   viewer: ServerBrowser.ServerBrowserViewer,
   item: ServerBrowser.ServerBrowserViewerOutput,
 ) => {
@@ -1970,7 +1970,7 @@ it.live("an agent tab that started headless moves to the desktop page once it mo
       expect(contexts).toHaveLength(1);
       const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
       // A stalled viewer must still learn the tab moved.
-      stallViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
+      fillViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
       yield* fixtureReady(() => desktopDetaches.listenerCount("attach") > 0);
       // An attach the desktop already took back leaves the headless page alone.
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });

@@ -301,6 +301,7 @@ describe("AgentScope service", () => {
             "app-t3code-agents.slice",
             expect.stringMatching(/^MemoryHigh=\d+$/),
             expect.stringMatching(/^MemoryMax=\d+$/),
+            expect.stringMatching(/^MemorySwapMax=\d+$/),
           ],
           [
             "--user",
