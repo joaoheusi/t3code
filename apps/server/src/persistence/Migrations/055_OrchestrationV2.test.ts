@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 73 }, (_, index) => index + 1),
+        Array.from({ length: 82 }, (_, index) => index + 1),
       );
     }),
   );
@@ -45,6 +45,15 @@ layer("055_OrchestrationV2", (it) => {
         [71, "CodexUsageNativeTurnIndex"],
         [72, "RepairClientSettlementTimestamps"],
         [73, "WebhookDedupe"],
+        [74, "ShellStopRequestIndex"],
+        [75, "ThreadMessageSearch"],
+        [76, "PeerLinks"],
+        [77, "PeerLinkFence"],
+        [78, "WaitingLinkRequestIndex"],
+        [79, "ActiveTurnItemIndexes"],
+        [80, "ExcludeAttachmentPlaceholdersFromSearch"],
+        [81, "SubagentDeliveryState"],
+        [82, "ProjectionProjectsPinArchive"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -84,6 +93,15 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 71, name: "CodexUsageNativeTurnIndex" },
         { migration_id: 72, name: "RepairClientSettlementTimestamps" },
         { migration_id: 73, name: "WebhookDedupe" },
+        { migration_id: 74, name: "ShellStopRequestIndex" },
+        { migration_id: 75, name: "ThreadMessageSearch" },
+        { migration_id: 76, name: "PeerLinks" },
+        { migration_id: 77, name: "PeerLinkFence" },
+        { migration_id: 78, name: "WaitingLinkRequestIndex" },
+        { migration_id: 79, name: "ActiveTurnItemIndexes" },
+        { migration_id: 80, name: "ExcludeAttachmentPlaceholdersFromSearch" },
+        { migration_id: 81, name: "SubagentDeliveryState" },
+        { migration_id: 82, name: "ProjectionProjectsPinArchive" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -173,6 +191,15 @@ layer("055_OrchestrationV2", (it) => {
         [71, "CodexUsageNativeTurnIndex"],
         [72, "RepairClientSettlementTimestamps"],
         [73, "WebhookDedupe"],
+        [74, "ShellStopRequestIndex"],
+        [75, "ThreadMessageSearch"],
+        [76, "PeerLinks"],
+        [77, "PeerLinkFence"],
+        [78, "WaitingLinkRequestIndex"],
+        [79, "ActiveTurnItemIndexes"],
+        [80, "ExcludeAttachmentPlaceholdersFromSearch"],
+        [81, "SubagentDeliveryState"],
+        [82, "ProjectionProjectsPinArchive"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

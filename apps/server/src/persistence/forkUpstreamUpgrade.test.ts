@@ -28,6 +28,13 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [73, "WebhookDedupe"],
       [74, "ShellStopRequestIndex"],
       [75, "ThreadMessageSearch"],
+      [76, "PeerLinks"],
+      [77, "PeerLinkFence"],
+      [78, "WaitingLinkRequestIndex"],
+      [79, "ActiveTurnItemIndexes"],
+      [80, "ExcludeAttachmentPlaceholdersFromSearch"],
+      [81, "SubagentDeliveryState"],
+      [82, "ProjectionProjectsPinArchive"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(
