@@ -1467,7 +1467,7 @@ function ScheduledTaskEditorForm({
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Project" htmlFor="scheduled-task-project">
               <Select
-                value={selectedProjectId}
+                value={selectedProject?.id ?? null}
                 onValueChange={(projectId) =>
                   setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
                 }

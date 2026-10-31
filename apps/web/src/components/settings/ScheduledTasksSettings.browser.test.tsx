@@ -1,4 +1,4 @@
-import { RegistryContext } from "@effect/atom-react";
+import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import {
   DEFAULT_UNIFIED_SETTINGS,
@@ -51,6 +51,11 @@ const threadFamilyRead = {
 const state = vi.hoisted(() => ({ connected: true, tasksLoaded: true, secondary: false }));
 const secondaryId = EnvironmentId.make("secondary");
 const permissions = new Map<string, Atom.Writable<boolean>>();
+const projects = [
+  { id: projectId, environmentId, title: "Project" },
+  { id: otherProjectId, environmentId, title: "Other project" },
+];
+const projectsAtom = Atom.make<typeof projects>(projects);
 
 function setup() {
   state.connected = true;
@@ -137,10 +142,7 @@ vi.mock(import("../../state/environments"), async (original) => ({
 }));
 vi.mock(import("../../state/entities"), async (original) => ({
   ...(await original()),
-  useProjects: (() => [
-    { id: projectId, environmentId, title: "Project" },
-    { id: otherProjectId, environmentId, title: "Other project" },
-  ]) as never,
+  useProjects: (() => useAtomValue(projectsAtom)) as never,
 }));
 vi.mock(import("../../hooks/useSettings"), async (original) => ({
   ...(await original()),
@@ -223,6 +225,7 @@ describe("ScheduledTasksSettings", () => {
     const registry = AtomRegistry.make();
     using _registry = { [Symbol.dispose]: () => registry.dispose() };
     registry.set(permissions.get(environmentId)!, false);
+    registry.set(projectsAtom, []);
     const ui = (link: boolean) => (
       <RegistryContext.Provider value={registry}>
         <ScheduledTasksSettings {...(link ? { newTask: true, projectId: otherProjectId } : {})} />
@@ -233,6 +236,8 @@ describe("ScheduledTasksSettings", () => {
     await expect.element(dialog).not.toBeInTheDocument();
 
     await act(() => registry.set(permissions.get(environmentId)!, true));
+    await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
+    await act(() => registry.set(projectsAtom, projects));
     await expect.element(dialog.getByLabelText("Project")).toHaveTextContent("Other project");
 
     await userEvent.click(dialog.getByRole("button", { name: "Cancel" }));
@@ -241,5 +246,15 @@ describe("ScheduledTasksSettings", () => {
     await screen.rerender(ui(false));
     await screen.rerender(ui(true));
     await expect.element(dialog.getByRole("heading", { name: "New task" })).toBeInTheDocument();
+  });
+
+  it("leaves a stale new-task project unselected rather than picking another", async () => {
+    setup();
+    await using _screen = await render(
+      <ScheduledTasksSettings newTask projectId={ProjectId.make("deleted-project")} />,
+    );
+    await expect
+      .element(page.getByRole("dialog").getByLabelText("Project"))
+      .toHaveTextContent("Select a project");
   });
 });
