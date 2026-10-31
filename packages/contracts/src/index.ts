@@ -70,4 +70,6 @@ export * from "./secretRequest.ts";
 export * from "./quickActions.ts";
 
 export * from "./forkWorkspace.ts";
+export * from "./secretReference.ts";
+export * from "./settingsSecretValue.ts";
 export * from "./clientRpcPermissions.ts";
