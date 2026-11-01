@@ -2,7 +2,27 @@
 
 Baseline: `pingdotgg/t3code` at `f4f148eb670622a049ae6561d7795011e383fc43` (upstream v0.0.45). Fork: `joaoheusi/t3code`, branch `main`, version `0.1.0-j4.15`. Wire protocol: 1002. Fork migrations: 059 (quick actions), 060 (Git operation receipts), 061 (starter action text), 062 (drops unused workspace operation receipts). Multi-repository capability: 2 (folder projects).
 
-The initial target is macOS arm64 desktop plus its bundled responsive web client. Packaging is not notarized and updates are manual. Windows, Linux, native mobile, remote bootstrap archives, signing, notarization, and owned cloud services need their own release verification.
+Continuous delivery targets macOS arm64 and the native iPhone app. The desktop release includes its server and web client. Windows, Linux, remote bootstrap archives, and owned cloud services are not published by the fork workflow.
+
+## Continuous delivery
+
+[J4 Code delivery](../../.github/workflows/fork-delivery.yml) runs after CI succeeds on a push to `main`. Manual runs must select `main` and also require passing CI on that commit. Mac releases use `0.2.<main first-parent commit count>`. An older run cannot publish over a newer release. Rerunning a partially completed delivery skips an already published desktop release and retries mobile.
+
+Configure these repository secrets in `joaoheusi/t3code`. They use Cue's names so the same Apple exports can be reused:
+
+- `DEVELOPER_ID_P12_BASE64` and `DEVELOPER_ID_P12_PASSWORD`: the Developer ID Application certificate and export password. Use the existing identity `EC925C91F270121DD2F51F02AF34A320505539DD` from team `SC7RQ3BWQ6` to retain macOS permissions.
+- `APPLE_API_KEY_BASE64`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER_ID`: an App Store Connect API key for notarization.
+- `EXPO_TOKEN`: an Expo access token with access to `@joaoheusi/j4code`.
+
+The Expo project is `33717343-6d0f-44ca-9221-5b8d98737ac5`. Its App Store Connect app is `6829346774`, with bundle ID `com.joaoheusi.j4code`. Configure production iOS signing and submission credentials with EAS. Add yourself to the internal `J4 Personal` TestFlight group, which has access to all builds, and enable Automatic Updates on the iPhone.
+
+The Mac job signs, notarizes, verifies, and uploads all assets to a draft before publishing it. It does not publish the upstream npm package or deploy upstream cloud services. Desktop updates only accept `joaoheusi/t3code`. CLI and standalone server updates remain manual; the bundled server updates with the desktop app.
+
+The iOS job runs after the Mac release. It publishes JavaScript and assets through Expo only when a matching native runtime has been uploaded to TestFlight within 75 days. Otherwise it builds and submits a new native binary. The monthly run refreshes the binary before TestFlight's 90-day expiry. EAS cloud builds run only for a new or expiring runtime, or an explicit **rebuild_ios** request. These builds use the Expo account's build allowance.
+
+Old manually installed builds have updates disabled. Replace the Mac app once and install the TestFlight build over the existing iPhone app without deleting it. Keep the existing identifiers and Apple team so the operating systems can retain app data. Verify saved connections on the actual phone before relying on delivery. When a release changes the wire protocol, update the Mac host before connecting a newer phone client.
+
+For release verification, use isolated profiles and check an actual signed upgrade: available → downloaded → restart → reconnect to the new bundled server. Confirm that background downloading leaves an active agent running. For iOS, verify both an OTA on a matching runtime and a new TestFlight binary, including saved connections and pending drafts. A passing build does not prove those installation paths.
 
 Use the repository's Node and package-manager requirements. Install with `pnpm install --frozen-lockfile`. Run focused checks with:
 

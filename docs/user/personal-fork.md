@@ -6,7 +6,13 @@ J4 Code is a personal fork of T3 Code. This build adds quick actions, repository
 
 The macOS app is **J4 Code (Unofficial)**. Its app ID is `dev.joaoheusi.j4code`. Its default data directory is `~/.j4code`; its Electron profile is `~/Library/Application Support/j4code`. The official application and its data remain separate.
 
-The fork reads `J4CODE_HOME` for a custom data directory. It ignores the official `T3CODE_HOME` setting. Do not point the fork at the official profile. Initial updates are manual. The desktop updater, CLI updater, and server updater cannot replace this fork with an official release.
+The fork reads `J4CODE_HOME` for a custom data directory. It ignores the official `T3CODE_HOME` setting. Do not point the fork at the official profile. The desktop updater only accepts releases from the J4 fork. CLI and standalone server updates remain manual.
+
+## Updates
+
+Release builds download Mac updates in the background. Choose the in-app restart action when you are ready to stop local work. The update includes the Mac's bundled server and web client. It never installs automatically while agents are running.
+
+The J4 iPhone app receives compatible code updates inside the app. Changes to native code arrive through TestFlight; enable **Automatic Updates** there. Old manually installed J4 builds need one replacement installation to enable updates. Install the replacement over the existing app without deleting it, then check that your saved connections remain available.
 
 Keep the official application available while testing this build. To return to it, close J4 Code and open the official application. Do not copy the fork's migrated database back into the official profile.
 

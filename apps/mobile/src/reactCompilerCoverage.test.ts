@@ -25,7 +25,6 @@ const KNOWN_BAILOUTS: Record<string, string> = {
   "src/features/threads/MobileQuickActions.tsx": "throw inside try, try/finally",
   "src/features/threads/MobileRepositories.tsx": "throw inside try, try/finally",
   "src/features/threads/ThreadArrangementSheet.tsx": "ref read during render",
-  "src/features/threads/new-task-flow-provider.tsx": "try without catch",
   "src/features/voice-input/useVoiceInputController.ts": "ref read during render",
   "src/native/T3ComposerEditor.ios.tsx": "ref read during render",
   "src/native/T3ComposerEditor.native.tsx": "ref read during render",

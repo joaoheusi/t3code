@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { forkUpdatesEnabled } from "@t3tools/shared/forkIdentity";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 // @effect-diagnostics nodeBuiltinImport:off - Node's typed junction API avoids Windows symlink privileges while keeping the probe isolated.
 
 import * as NodeFSP from "node:fs/promises";
@@ -2692,9 +2692,7 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
     Option.getOrUndefined(env.githubRepository)?.trim() ||
     ""
   ).trim();
-  if (rawRepo !== "joaoheusi/t3code") return undefined;
-  // Manual updates until owned fork artifacts pass the distribution gates.
-  if (!forkUpdatesEnabled()) return undefined;
+  if (rawRepo !== FORK_IDENTITY.repository) return undefined;
 
   const [owner, repo, ...rest] = rawRepo.split("/");
   if (!owner || !repo || rest.length > 0) return undefined;

@@ -1,0 +1,216 @@
+name: J4 Code delivery
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      rebuild_ios:
+        description: Upload a fresh TestFlight binary
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 6 1 * *"
+
+concurrency:
+  group: j4code-delivery
+  cancel-in-progress: false
+  queue: max
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: >-
+      github.repository == 'joaoheusi/t3code' &&
+      (github.event_name != 'workflow_run' ||
+        (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+      skip: ${{ steps.plan.outputs.skip }}
+      published: ${{ steps.plan.outputs.published }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { execFileSync } = require('node:child_process');
+            const { planForkRelease } = require('./.github/scripts/fork-delivery.cjs');
+            const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            const sequence = Number(execFileSync('git', ['rev-list', '--first-parent', '--count', 'HEAD'], { encoding: 'utf8' }).trim());
+            const plan = await planForkRelease({ github, repo: context.repo, sha, sequence });
+            core.setOutput('sha', sha);
+            for (const [key, value] of Object.entries(plan)) core.setOutput(key, value);
+
+  desktop:
+    needs: plan
+    if: needs.plan.outputs.skip == 'false' && needs.plan.outputs.published == 'false'
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
+      - name: Build signed Mac release
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          CSC_LINK: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: joaoheusi/t3code
+          T3CODE_DESKTOP_MAC_LOCAL_IDENTITY: EC925C91F270121DD2F51F02AF34A320505539DD
+        run: |
+          set -euo pipefail
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER; do
+            if [[ -z "${!name}" ]]; then echo "::error::Missing $name"; exit 1; fi
+          done
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          export APPLE_API_KEY="$key_path"
+          trap 'rm -f "$key_path"' EXIT
+          node scripts/update-release-package-versions.ts "$VERSION"
+          node scripts/build-desktop-artifact.ts --platform mac --arch arm64 --target dmg --signed --output-dir "$RUNNER_TEMP/j4-release"
+      - name: Verify the shipped update
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="$RUNNER_TEMP/j4-release"
+          test -s "$release_dir/latest-mac.yml"
+          test -s "$release_dir/J4-Code-$VERSION-arm64.dmg"
+          test -s "$release_dir/J4-Code-$VERSION-arm64.zip"
+          ditto -x -k "$release_dir/J4-Code-$VERSION-arm64.zip" "$RUNNER_TEMP/verify-j4"
+          app_path="$RUNNER_TEMP/verify-j4/J4 Code (Unofficial).app"
+          codesign --verify --deep --strict "$app_path"
+          codesign -dv "$app_path" 2>&1 | grep -F 'TeamIdentifier=SC7RQ3BWQ6'
+          xcrun stapler validate "$app_path"
+          spctl --assess --type execute "$app_path"
+          grep -q 'owner: joaoheusi' "$app_path/Contents/Resources/app-update.yml"
+          grep -q 'repo: t3code' "$app_path/Contents/Resources/app-update.yml"
+          (cd "$release_dir" && shasum -a 256 *.dmg *.zip *.blockmap latest-mac.yml > SHA256SUMS)
+      - name: Publish only after every asset is attached
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$TAG" --draft --target "$RELEASE_SHA" --title "J4 Code $TAG" --generate-notes
+          fi
+          gh release upload "$TAG" "$RUNNER_TEMP/j4-release/"*.dmg "$RUNNER_TEMP/j4-release/"*.zip "$RUNNER_TEMP/j4-release/"*.blockmap "$RUNNER_TEMP/j4-release/latest-mac.yml" "$RUNNER_TEMP/j4-release/SHA256SUMS" --clobber
+          gh release edit "$TAG" --draft=false --latest
+
+  ios:
+    needs: [plan, desktop]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.skip == 'false' &&
+      (needs.desktop.result == 'success' || needs.plan.outputs.published == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      APP_VARIANT: production
+      MOBILE_VERSION_POLICY: fingerprint
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EAS_NO_AUTO_TESTFLIGHT_SETUP: "1"
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-ci-deps
+        with:
+          install-args: --filter=@t3tools/mobile...
+      - name: Expose the pinned package manager to EAS
+        run: |
+          pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
+          vp_pnpm_bin="$HOME/.vite-plus/package_manager/pnpm/$pnpm_version/pnpm/bin"
+          echo "$vp_pnpm_bin" >> "$GITHUB_PATH"
+          "$vp_pnpm_bin/pnpm" --version
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 21.8.0
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+      - name: Resolve native runtime
+        id: runtime
+        env:
+          FORCE_BUILD: ${{ github.event_name == 'schedule' || inputs.rebuild_ios == true }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_TOKEN" || { echo '::error::Missing EXPO_TOKEN'; exit 1; }
+          cd apps/mobile
+          eas env:pull production --non-interactive
+          eas fingerprint:generate --platform ios --environment production --json --non-interactive | sed -n '/^{/,$p' > "$RUNNER_TEMP/j4-fingerprint.json"
+          jq -e '[.sources[] | select((.reasons // []) | index("expoAutolinkingIos"))] | length > 0' "$RUNNER_TEMP/j4-fingerprint.json"
+          fingerprint="$(jq -er '.hash' "$RUNNER_TEMP/j4-fingerprint.json")"
+          cd ../..
+          export FINGERPRINT="$fingerprint"
+          node <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const { hasRecentIosRuntime } = require('./.github/scripts/fork-delivery.cjs');
+          const tags = execFileSync('git', ['tag', '--list', 'j4-ios-runtime-*'], { encoding: 'utf8' }).trim().split('\n');
+          const build = process.env.FORCE_BUILD === 'true' || !hasRecentIosRuntime(process.env.FINGERPRINT, tags, new Date());
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `fingerprint=${process.env.FINGERPRINT}\nbuild=${build}\n`);
+          NODE
+      - name: Publish compatible in-app update
+        if: steps.runtime.outputs.build == 'false'
+        working-directory: apps/mobile
+        env:
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+        run: eas update --channel production --platform ios --environment production --message "J4 Code $RELEASE_SHA" --non-interactive
+      - name: Build and submit new native runtime
+        if: steps.runtime.outputs.build == 'true'
+        working-directory: apps/mobile
+        env:
+          FINGERPRINT: ${{ steps.runtime.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          eas build --platform ios --profile production --non-interactive --wait --json > "$RUNNER_TEMP/j4-ios-build.json"
+          build_id="$(jq -er '.[0] | select(.status == "FINISHED") | .id' "$RUNNER_TEMP/j4-ios-build.json")"
+          runtime="$(jq -er '.[0].runtimeVersion' "$RUNNER_TEMP/j4-ios-build.json")"
+          test "$runtime" = "$FINGERPRINT" || { echo '::error::The native build and OTA fingerprints differ'; exit 1; }
+          eas submit --platform ios --profile production --id "$build_id" --non-interactive --wait
+      - name: Record the uploaded runtime
+        if: steps.runtime.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINGERPRINT: ${{ steps.runtime.outputs.fingerprint }}
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="j4-ios-runtime-$FINGERPRINT-$(date -u +%F)-$GITHUB_RUN_ID"
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$RELEASE_SHA" >/dev/null
+          fi

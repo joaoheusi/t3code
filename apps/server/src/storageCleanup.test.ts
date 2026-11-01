@@ -295,6 +295,7 @@ describe("manifest worktree retention", () => {
       storageCleanupThreadIdle(
         { ...shell({ branch: "main", worktreePath: "/worktrees/api" }), workspace },
         NOW_MS,
+        DEFAULT_SERVER_SETTINGS,
       ),
     ).toBe(false);
   });

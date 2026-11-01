@@ -22,12 +22,16 @@ it.each(["prod", ""])("rejects APP_VARIANT=%j before selecting production IDs", 
 });
 
 it.each([
-  [undefined, "com.t3tools.t3code"],
+  [undefined, "com.joaoheusi.j4code"],
   ["development", "com.t3tools.t3code.dev"],
   ["preview", "com.t3tools.t3code.preview"],
-  ["production", "com.t3tools.t3code"],
+  ["production", "com.joaoheusi.j4code"],
 ])("keeps the iOS and Android identifiers for APP_VARIANT=%j", async (value, identifier) => {
   const config = await loadConfig(value);
   expect(config.ios?.bundleIdentifier).toBe(identifier);
   expect(config.android?.package).toBe(identifier);
+  expect(config.owner).toBe("joaoheusi");
+  expect(config.extra?.eas.projectId).toBe("33717343-6d0f-44ca-9221-5b8d98737ac5");
+  expect(config.updates?.url).toBe("https://u.expo.dev/33717343-6d0f-44ca-9221-5b8d98737ac5");
+  expect(config.ios?.appleTeamId).toBe("SC7RQ3BWQ6");
 });

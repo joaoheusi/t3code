@@ -669,7 +669,7 @@ export function NewTaskFlowProvider(
     const request = {};
     latestSwitchRef.current = request;
     setSwitchingToEnvironmentId(environmentId);
-    try {
+    const performSwitch = async () => {
       const result = await openScratch({
         environmentId,
         input: {},
@@ -689,12 +689,13 @@ export function NewTaskFlowProvider(
         );
       }
       return false;
-    } finally {
+    };
+    return performSwitch().finally(() => {
       if (latestSwitchRef.current === request) {
         latestSwitchRef.current = null;
         setSwitchingToEnvironmentId(null);
       }
-    }
+    });
   };
   const setWorkspaceMode = (mode: WorkspaceMode) => {
     if (!selectedProjectDraftKey) {
