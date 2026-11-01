@@ -107,6 +107,7 @@ export function useInitialRepositories(
     choice.supported &&
     (!choice.discovery.isPending || !!choice.discovery.data);
   const key = ready ? `${draftKey}:${initial.paths.join("\n")}` : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Inspect repositories supplied by navigation once the remote project is ready.
   useEffect(() => {
     if (!key || !project || applied.current === key) return;
     applied.current = key;
@@ -143,6 +144,5 @@ export function useInitialRepositories(
           "They could not be read as repositories on this machine.",
         );
     })();
-    // Runs once per key; the selection is read at that moment on purpose.
-  }, [key]);
+  }, [choice, envMode, initial, inspect, key, project]);
 }

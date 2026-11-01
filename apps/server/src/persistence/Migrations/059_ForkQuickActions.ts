@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import { QUICK_ACTION_STARTERS } from "@t3tools/shared/quickActions";
 
+const encodeQuickAction = Schema.encodeEffect(Schema.fromJsonString(QuickAction));
+
 export default Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`CREATE TABLE fork_quick_actions (
@@ -14,6 +16,6 @@ export default Effect.gen(function* () {
   for (const action of QUICK_ACTION_STARTERS) {
     const record = { ...action, revision: 1, createdAt: now, updatedAt: now };
     yield* sql`INSERT INTO fork_quick_actions (id, project_id, record_json, revision)
-      VALUES (${action.id}, ${action.projectId}, ${yield* Schema.encodeEffect(Schema.fromJsonString(QuickAction))(record)}, ${1})`;
+      VALUES (${action.id}, ${action.projectId}, ${yield* encodeQuickAction(record)}, ${1})`;
   }
 });

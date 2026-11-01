@@ -87,6 +87,7 @@ export function MobileMergeQuickAction(props: {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {

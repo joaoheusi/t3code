@@ -110,6 +110,7 @@ export function MobileGitQuickAction(props: {
   const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [selectedCwds, setSelectedCwds] = useState<readonly string[]>([]);
   const busy = busyCwd !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {

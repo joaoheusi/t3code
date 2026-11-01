@@ -53,7 +53,7 @@ export function useStartWorkspaceThread() {
     // Queue first: the server inspects and fetches every repository before it answers, and
     // the queued send is what shows the preparing banner meanwhile.
     store.setPendingSend(threadKey, input.prompt);
-    try {
+    return (async () => {
       if (input.createThread) {
         const created = await dispatch({
           environmentId: input.environmentId,
@@ -84,7 +84,7 @@ export function useStartWorkspaceThread() {
       // On failure the selection stays, so the chip still shows it and Send can retry.
       store.setDraftRepositories(input.draftKey, null);
       return true;
-    } catch (error) {
+    })().catch((error) => {
       store.setPendingSend(threadKey, null);
       toastManager.add({
         type: "error",
@@ -92,7 +92,7 @@ export function useStartWorkspaceThread() {
         description: error instanceof Error ? error.message : "Try sending again.",
       });
       return false;
-    }
+    });
   };
 }
 
@@ -106,11 +106,13 @@ export function useSendWhenWorkspaceReady(input: {
   const pending = useWorkspaceUiStore((state) => state.pendingSends[input.threadKey] ?? null);
   const sendRef = useRef(input.send);
   const readPromptRef = useRef(input.readPrompt);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep the queued-send callback pointed at the committed composer.
   useEffect(() => {
     sendRef.current = input.send;
     readPromptRef.current = input.readPrompt;
   });
   const state = input.workspace?.state;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Deliver the queued message when remote workspace preparation completes.
   useEffect(() => {
     if (!pending || state === undefined) return;
     // A failed preparation keeps the message queued for Retry; cancelling drops it.

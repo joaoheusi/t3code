@@ -1,7 +1,6 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { render } from "../../test/render";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuickActionScope } from "./quickActionRunner";
 
 const mocks = vi.hoisted(() => ({
@@ -9,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   run: vi.fn(async () => {}),
   gitItems: [] as unknown[],
 }));
-vi.mock("@effect/atom-react", () => ({
+vi.mock("@effect/atom-react", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@effect/atom-react")>()),
   useAtomValue: () => [],
 }));
 vi.mock("../state/pullRequests", () => ({
@@ -58,47 +58,41 @@ const scope = {
   },
 } as unknown as QuickActionScope;
 
-let root: Root;
-let latestProbeView: ReturnType<typeof useQuickActionPalette>;
-function Probe(props: { view: ReturnType<typeof useQuickActionPalette> }) {
-  latestProbeView = props.view;
-  return null;
-}
-function Surface() {
-  return (
-    <Probe
-      view={useQuickActionPalette({
-        target: { threadId: ThreadId.make("thread") } as never,
-        scope,
-        gitCwd: null,
-        onClose: () => {},
-        onManage: async () => {},
-        onCreate: async () => {},
-      })}
-    />
-  );
-}
-function view(): ReturnType<typeof useQuickActionPalette> {
-  return latestProbeView;
-}
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  root = createRoot(document.createElement("div"));
+function setup() {
   vi.clearAllMocks();
   mocks.merge.mockReset().mockResolvedValue(undefined);
   mocks.gitItems = [];
-  act(() => {
-    root.render(<Surface />);
-  });
-});
-afterEach(() => {
-  act(() => root.unmount());
-  vi.unstubAllGlobals();
-});
+
+  let latestProbeView: ReturnType<typeof useQuickActionPalette>;
+  function Probe(props: { view: ReturnType<typeof useQuickActionPalette> }) {
+    latestProbeView = props.view;
+    return null;
+  }
+  function Surface() {
+    return (
+      <Probe
+        view={useQuickActionPalette({
+          target: { threadId: ThreadId.make("thread") } as never,
+          scope,
+          gitCwd: null,
+          onClose: () => {},
+          onManage: async () => {},
+          onCreate: async () => {},
+        })}
+      />
+    );
+  }
+  function view(): ReturnType<typeof useQuickActionPalette> {
+    return latestProbeView;
+  }
+
+  return { Surface, view };
+}
 
 describe("merge quick action palette item", () => {
   it("is a toggle view whose rows never submit a single PR on their own", async () => {
+    const { Surface, view } = setup();
+    await using _screen = await render(<Surface />);
     const item = view().groups[0]!.items.find((entry) => entry.value === "quick-action:merge")!;
     expect(item.kind).toBe("submenu");
     if (item.kind !== "submenu") throw new Error("Expected the merge toggle view");
@@ -125,11 +119,13 @@ describe("merge quick action palette item", () => {
 });
 
 describe("quick action palette order", () => {
-  it("lists available actions before ones with nothing to do", () => {
+  it("lists available actions before ones with nothing to do", async () => {
+    const { Surface, view } = setup();
+    await using screen = await render(<Surface />);
     mocks.gitItems = [
       { kind: "action", value: "quick-action:git", disabled: true, run: async () => {} },
     ];
-    act(() => root.render(<Surface />));
+    await screen.rerender(<Surface />);
     expect(view().groups[0]!.items.map((item) => item.value)).toEqual([
       "quick-action:merge",
       "quick-action:git",

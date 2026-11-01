@@ -83,6 +83,7 @@ function useGitBatchRunner(input: {
 }) {
   const preparingBatch = useRef(false);
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -98,7 +99,7 @@ function useGitBatchRunner(input: {
     const selected = handlers.filter((handler) => values.includes(handler.value));
     if (selected.length === 0 || preparingBatch.current) return;
     preparingBatch.current = true;
-    try {
+    return (async () => {
       const checkAll = async (): Promise<BatchEntry[]> => {
         const entries: BatchEntry[] = [];
         for (const handler of selected) {
@@ -111,12 +112,7 @@ function useGitBatchRunner(input: {
         type: "loading",
         title: "Checking repository status…",
       });
-      let entries: BatchEntry[];
-      try {
-        entries = await checkAll();
-      } finally {
-        toastManager.close(checking);
-      }
+      const entries = await checkAll().finally(() => toastManager.close(checking));
       const plan = planQuickActionGitBatch(entries);
       if (plan.kind === "blocked") throw new Error(plan.reason);
       if (plan.kind === "publish") {
@@ -130,7 +126,7 @@ function useGitBatchRunner(input: {
         if (started) return;
         started = true;
         let list = entries;
-        try {
+        await (async () => {
           if (recheck) {
             list = await checkAll();
             const replanned = planQuickActionGitBatch(list);
@@ -142,11 +138,11 @@ function useGitBatchRunner(input: {
               throw new Error("Repository status changed. Choose the updated action.");
             }
           }
-        } catch (error) {
+        })().catch((error) => {
           // No write has started, so the confirmation can safely be retried.
           started = false;
           throw error;
-        }
+        });
         input.close();
         const progress = toastManager.add({
           type: "loading",
@@ -160,19 +156,19 @@ function useGitBatchRunner(input: {
             title: `${entry.action.label}…`,
             description: entry.label,
           });
-          try {
+          await (async () => {
             const result = await entry.handler.write(
               entry,
               featureBranch && confirmedCwds.has(entry.cwd),
               (label) => toastManager.update(progress, { title: label }),
             );
-            firstTitle ??= result.title;
+            firstTitle = firstTitle ?? result.title;
             succeeded.push(`${entry.label} · ${result.title}`);
-          } catch (error) {
+          })().catch((error) => {
             failures.push(
               `${entry.label}: ${error instanceof Error ? error.message : "Action failed."}`,
             );
-          }
+          });
         }
         toastManager.update(progress, {
           type: failures.length ? "error" : "success",
@@ -240,9 +236,9 @@ function useGitBatchRunner(input: {
           ],
         },
       });
-    } finally {
+    })().finally(() => {
       preparingBatch.current = false;
-    }
+    });
   };
 }
 
@@ -284,6 +280,7 @@ export function useQuickActionGit(
   const mounted = useRef(true);
   const [publishCwd, setPublishCwd] = useState<string | null>(null);
   const runGitBatch = useGitBatchRunner({ close, onPublish: setPublishCwd });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -340,11 +337,9 @@ export function useQuickActionGit(
             title: "Checking repository status…",
             description: repository.label,
           });
-          try {
-            return await checkStatus();
-          } finally {
+          return checkStatus().finally(() => {
             toastManager.close(progress);
-          }
+          });
         };
 
         const write: RepositoryGitHandler["write"] = async (prepared, featureBranch, onPhase) => {
@@ -355,7 +350,7 @@ export function useQuickActionGit(
             !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
           )
             throw new Error("This connection cannot change the thread's branch.");
-          try {
+          return (async () => {
             if (prepared.action.kind === "run_pull") {
               const result = await vcsActionManager.track(
                 registry,
@@ -417,19 +412,18 @@ export function useQuickActionGit(
                 ? { description: result.value.toast.description }
                 : {}),
             };
-          } finally {
+          })().finally(() => {
             registry.refresh(vcsEnvironment.status({ environmentId, input: { cwd: target.cwd } }));
-          }
+          });
         };
 
         let started = false;
         const execute = async (featureBranch: boolean, preparedInput?: PreparedGitAction) => {
           if (started) return;
           started = true;
-          let prepared = preparedInput;
-          try {
+          const prepared = await (async () => {
             // A confirmation rechecks first; no write has started yet, so it can be retried.
-            prepared ??= await checkStatusWithToast();
+            const checked = preparedInput ?? (await checkStatusWithToast());
             assertWriteAccess();
             if (
               featureBranch &&
@@ -437,17 +431,18 @@ export function useQuickActionGit(
               !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
             )
               throw new Error("This connection cannot change the thread's branch.");
-          } catch (error) {
+            return checked;
+          })().catch((error) => {
             started = false;
             throw error;
-          }
+          });
           close();
           const progress = toastManager.add({
             type: "loading",
             title: `${prepared.action.label}…`,
             description: repository.label,
           });
-          try {
+          return (async () => {
             const result = await write(prepared, featureBranch, (label) =>
               toastManager.update(progress, { title: label }),
             );
@@ -456,19 +451,19 @@ export function useQuickActionGit(
               title: result.title,
               description: result.description ?? repository.label,
             });
-          } catch (error) {
+          })().catch((error) => {
             toastManager.update(progress, {
               type: "error",
               title: `${repository.label}: action failed`,
               description: error instanceof Error ? error.message : "Try again.",
             });
-          }
+          });
         };
 
         const run: CommandPaletteActionItem["run"] = async () => {
           if (preparing.current.has(value)) return;
           preparing.current.add(value);
-          try {
+          return (async () => {
             const prepared = await checkStatusWithToast();
             // A slow status check can outlive the palette. The write and any
             // confirmation view do not need it; only the publish dialog does.
@@ -529,9 +524,9 @@ export function useQuickActionGit(
                 },
               });
             } else await execute(false, prepared);
-          } finally {
+          })().finally(() => {
             preparing.current.delete(value);
-          }
+          });
         };
         const item: CommandPaletteActionItem = {
           kind: "action",

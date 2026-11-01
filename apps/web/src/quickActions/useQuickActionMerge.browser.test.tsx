@@ -6,9 +6,8 @@ import {
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import * as Cause from "effect/Cause";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { render } from "../../test/render";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { CommandPaletteOpenDetail } from "../commandPaletteBus";
 
 const { loadDetail, runAction, openPalette, toast } = vi.hoisted(() => ({
@@ -43,37 +42,31 @@ const detail = (overrides: Partial<PullRequestDetail> = {}) =>
     mergeCapabilities: { merge: true, squash: true, rebase: true },
     ...overrides,
   }) as PullRequestDetail;
-let root: Root;
-let latestProbeView: ReturnType<typeof useQuickActionMerge>;
-function Probe(props: { view: ReturnType<typeof useQuickActionMerge> }) {
-  latestProbeView = props.view;
-  return null;
-}
-function Surface() {
-  return <Probe view={useQuickActionMerge()} />;
-}
-function currentMerge(): ReturnType<typeof useQuickActionMerge> {
-  return latestProbeView;
-}
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  root = createRoot(document.createElement("div"));
+function setup() {
   vi.clearAllMocks();
   toast.add.mockImplementation(({ title }) => title);
   loadDetail.mockReset().mockResolvedValue(AsyncResult.success(detail()));
   runAction.mockReset().mockResolvedValue(AsyncResult.success(undefined));
-  act(() => {
-    root.render(<Surface />);
-  });
-});
-afterEach(() => {
-  act(() => root.unmount());
-  vi.unstubAllGlobals();
-});
+
+  let latestProbeView: ReturnType<typeof useQuickActionMerge>;
+  function Probe(props: { view: ReturnType<typeof useQuickActionMerge> }) {
+    latestProbeView = props.view;
+    return null;
+  }
+  function Surface() {
+    return <Probe view={useQuickActionMerge()} />;
+  }
+  function currentMerge(): ReturnType<typeof useQuickActionMerge> {
+    return latestProbeView;
+  }
+
+  return { Surface, currentMerge };
+}
 
 describe("merge quick action confirmation", () => {
   it("propagates a failed refresh to the palette's error handler and allows retry", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     loadDetail.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Connection lost"))));
     await expect(currentMerge()(environmentId, [reference])).rejects.toThrow("Connection lost");
     expect(toast.close).toHaveBeenCalledWith("Checking pull requests before merging…");
@@ -87,6 +80,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("keeps feedback visible during checking and merging, including failures", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     let finishCheck!: (detail: AsyncResult.Success<PullRequestDetail>) => void;
     const checked = new Promise<AsyncResult.Success<PullRequestDetail>>((resolve) => {
       finishCheck = resolve;
@@ -133,6 +128,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("choosing a method confirms and merges without another screen", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     await currentMerge()(environmentId, [reference]);
     expect(runAction).not.toHaveBeenCalled();
     const view = (openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail).pushView!;
@@ -159,6 +156,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("checks every selected PR and offers only their common methods", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     loadDetail
       .mockResolvedValueOnce(AsyncResult.success(detail()))
       .mockResolvedValueOnce(
@@ -184,6 +183,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("stacks the method choice on the current palette view instead of replacing it", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     await currentMerge()(environmentId, [reference]);
     const detailArg = openPalette.mock.calls[0]![0] as CommandPaletteOpenDetail;
     expect(detailArg.view).toBeUndefined();
@@ -191,6 +192,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("merges each PR with its default method when they share none", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     loadDetail
       .mockResolvedValueOnce(
         AsyncResult.success(
@@ -225,6 +228,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("arms auto-merge for a PR whose required checks still run, in the same batch", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     const pending = detail({
       checks: [{ name: "ci", status: "pending", description: null, url: null }],
       autoMergeEnabled: false,
@@ -259,6 +264,8 @@ describe("merge quick action confirmation", () => {
   });
 
   it("does not offer a confirmation when fresh status blocks merging", async () => {
+    const { Surface, currentMerge } = setup();
+    await using _screen = await render(<Surface />);
     loadDetail.mockResolvedValue(AsyncResult.success(detail({ isDraft: true })));
     await expect(currentMerge()(environmentId, [reference])).rejects.toThrow(
       "acme/web #7: Still a draft.",

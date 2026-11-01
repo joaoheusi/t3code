@@ -228,6 +228,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     }),
   );
   const generation = useRef(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Invalidate pending native action callbacks when their sheet unmounts.
   useEffect(
     () => () => {
       generation.current++;

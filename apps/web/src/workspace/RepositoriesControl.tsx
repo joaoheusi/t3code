@@ -326,7 +326,7 @@ function EditableRepositories(props: RepositoriesControlProps & { readonly onDon
   const listRef = useRef<HTMLUListElement>(null);
   const focusAddButtonOnReturnRef = useRef(false);
   const { repositories } = selection;
-  // Leaving the picker unmounts its search field; land back on the button that opened it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Restore DOM focus after the repository picker unmounts.
   useEffect(() => {
     if (adding || !focusAddButtonOnReturnRef.current) return;
     focusAddButtonOnReturnRef.current = false;

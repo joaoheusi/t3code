@@ -1,7 +1,7 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { act, useEffect, useState } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { useEffect, useState } from "react";
+import { render } from "../../test/render";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -22,23 +22,10 @@ vi.mock(import("./useAddRepository"), () => ({
 import { RepositoriesControl } from "./RepositoriesControl";
 import type { DraftRepository } from "./workspaceModel";
 
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
+function setup() {
   picker.projects = [];
   picker.onAddPath = null;
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+}
 
 const repository = (label: string): DraftRepository => ({
   id: label,
@@ -50,55 +37,54 @@ const repository = (label: string): DraftRepository => ({
   head: "abc123",
 });
 
-function render(loading: boolean) {
+function surface(loading: boolean) {
   const repositories = [repository("movitera-web"), repository("movitera-backend")];
-  return act(async () =>
-    root.render(
-      <RepositoriesControl
-        environmentId={EnvironmentId.make("local")}
-        threadId={ThreadId.make("thread")}
-        composerKey="draft-1"
-        project={{
-          id: ProjectId.make("project"),
-          title: "movitera",
-          workspaceRoot: "/tmp/movitera",
-        }}
-        isGitRepo={false}
-        repositories={
-          {
-            workspace: undefined,
-            started: false,
-            editable: true,
-            selection: {
-              repositories,
-              loading,
-              folder: true,
-              foundCount: repositories.length,
-              untouched: true,
-              saved: [],
-            },
-            visible: true,
+  return (
+    <RepositoriesControl
+      environmentId={EnvironmentId.make("local")}
+      threadId={ThreadId.make("thread")}
+      composerKey="draft-1"
+      project={{
+        id: ProjectId.make("project"),
+        title: "movitera",
+        workspaceRoot: "/tmp/movitera",
+      }}
+      isGitRepo={false}
+      repositories={
+        {
+          workspace: undefined,
+          started: false,
+          editable: true,
+          selection: {
+            repositories,
             loading,
             folder: true,
-            labels: repositories.map((entry) => entry.label),
-            multiple: !loading,
-          } as never
-        }
-        envMode="worktree"
-        envModeLocked={false}
-        startFromOrigin={false}
-        onEnvModeChange={vi.fn()}
-        worktreePath={null}
-        branch={null}
-        primaryBranch={null}
-      />,
-    ),
+            foundCount: repositories.length,
+            untouched: true,
+            saved: [],
+          },
+          visible: true,
+          loading,
+          folder: true,
+          labels: repositories.map((entry) => entry.label),
+          multiple: !loading,
+        } as never
+      }
+      envMode="worktree"
+      envModeLocked={false}
+      startFromOrigin={false}
+      onEnvModeChange={vi.fn()}
+      worktreePath={null}
+      branch={null}
+      primaryBranch={null}
+    />
   );
 }
 
 it("keeps a disabled control in the strip while repositories load", async () => {
-  await render(true);
-  const trigger = container.querySelector<HTMLButtonElement>("button")!;
+  setup();
+  await using screen = await render(surface(true));
+  const trigger = screen.container.querySelector<HTMLButtonElement>("button")!;
   expect(trigger.disabled).toBe(true);
   expect(trigger.textContent).toContain("Finding repositories…");
   expect(trigger.getAttribute("aria-label")).toBe("Finding repositories");
@@ -106,7 +92,8 @@ it("keeps a disabled control in the strip while repositories load", async () => 
 });
 
 it("opens from the keyboard, closes on Escape, and returns focus to the trigger", async () => {
-  await render(false);
+  setup();
+  await using _screen = await render(surface(false));
   const trigger = page.getByRole("button", { name: "movitera · 2 repositories" });
   await expect.element(trigger).toHaveAttribute("data-composer-shortcut", "composer.repositories");
 
@@ -170,6 +157,7 @@ function AtLimitHarness() {
 }
 
 it("keeps focus inside the popover when adding reaches the repository limit", async () => {
+  setup();
   picker.projects = [
     {
       id: "candidate",
@@ -178,7 +166,7 @@ it("keeps focus inside the popover when adding reaches the repository limit", as
       environmentId: "local",
     },
   ];
-  await act(async () => root.render(<AtLimitHarness />));
+  await using _screen = await render(<AtLimitHarness />);
 
   const trigger = page.getByRole("button", { name: "movitera · 19 repositories" });
   (trigger.element() as HTMLElement).focus();
@@ -197,7 +185,8 @@ it("keeps focus inside the popover when adding reaches the repository limit", as
 });
 
 it("moves focus to Add a repository after removing one with the keyboard", async () => {
-  await render(false);
+  setup();
+  await using _screen = await render(surface(false));
   const trigger = page.getByRole("button", { name: "movitera · 2 repositories" });
   (trigger.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");

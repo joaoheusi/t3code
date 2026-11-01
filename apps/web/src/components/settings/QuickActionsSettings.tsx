@@ -132,6 +132,34 @@ function Field(props: { label: string; hint?: ReactNode; htmlFor?: string; child
   );
 }
 
+function exportActions(selected: readonly QuickAction[]) {
+  const portable = selected.filter((action) => !quickActionRequirements(action.template).host);
+  const skipped = selected.length - portable.length;
+  if (portable.length === 0) {
+    toastManager.add({
+      type: "info",
+      title: "Nothing to export",
+      description: "Thread, repository, and pull request variables only work in this app.",
+    });
+    return;
+  }
+  try {
+    downloadTextFile(
+      portable.length === 1 ? `${slug(portable[0]!.name)}.json` : "quick-actions.json",
+      exportPortableActions(portable, new Date().toISOString()),
+    );
+  } catch (error) {
+    reportFailure("Could not export quick actions", error);
+    return;
+  }
+  if (skipped > 0)
+    toastManager.add({
+      type: "info",
+      title: `Exported ${portable.length} of ${selected.length} actions`,
+      description: `${skipped} use thread, repository, or pull request variables, which only work in this app.`,
+    });
+}
+
 export function QuickActionsSettingsPanel() {
   const { environment } = useSettingsScope();
   if (!environment) {
@@ -189,40 +217,13 @@ function QuickActionsEnvironmentSettings(props: {
   // "New quick action" from the command palette lands here with a hash.
   const hash = useLocation({ select: (location) => location.hash });
   const navigate = useNavigate();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Consume the router hash that requests a new action editor.
   useEffect(() => {
     if (hash !== NEW_QUICK_ACTION_HASH || !canOperate || !supported) return;
     // oxlint-disable-next-line react/set-state-in-effect -- opening the editor also clears the hash, which must not run during render.
     setEditor({ action: null });
     void navigate({ hash: "", replace: true, resetScroll: false, hashScrollIntoView: false });
   }, [canOperate, hash, navigate, supported]);
-
-  const exportActions = (selected: readonly QuickAction[]) => {
-    const portable = selected.filter((action) => !quickActionRequirements(action.template).host);
-    const skipped = selected.length - portable.length;
-    if (portable.length === 0) {
-      toastManager.add({
-        type: "info",
-        title: "Nothing to export",
-        description: "Thread, repository, and pull request variables only work in this app.",
-      });
-      return;
-    }
-    try {
-      downloadTextFile(
-        portable.length === 1 ? `${slug(portable[0]!.name)}.json` : "quick-actions.json",
-        exportPortableActions(portable, new Date().toISOString()),
-      );
-    } catch (error) {
-      reportFailure("Could not export quick actions", error);
-      return;
-    }
-    if (skipped > 0)
-      toastManager.add({
-        type: "info",
-        title: `Exported ${portable.length} of ${selected.length} actions`,
-        description: `${skipped} use thread, repository, or pull request variables, which only work in this app.`,
-      });
-  };
 
   const categories = (() => {
     const groups = new Map<string, QuickAction[]>();
@@ -654,7 +655,14 @@ function QuickActionEditorDialog(props: {
           : previous
             ? await removeKeybinding({ environmentId, input: { ...previous, when: SHORTCUT_WHEN } })
             : null;
-        if (binding?._tag === "Failure") throw squashAtomCommandFailure(binding);
+        if (binding?._tag === "Failure") {
+          setSaving(false);
+          reportFailure(
+            "The action was saved, but its shortcut wasn't",
+            squashAtomCommandFailure(binding),
+          );
+          return;
+        }
       } catch (error) {
         setSaving(false);
         reportFailure("The action was saved, but its shortcut wasn't", error);
