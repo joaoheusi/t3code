@@ -105,6 +105,7 @@ import {
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
+import { resolveNewThreadRuntimeMode } from "./thread-settings-options";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 import {
   INACTIVE_FLOW_KEY,
@@ -400,7 +401,7 @@ export function NewTaskFlowProvider(
   const prompt = selectedProjectDraft.text;
   const attachments = selectedProjectDraft.attachments;
   const projectGitStatus = useEnvironmentQuery(
-    selectedProject !== null && selectedProject.workspaceRoot !== ""
+    props.active !== false && selectedProject !== null && selectedProject.workspaceRoot !== ""
       ? vcsEnvironment.status({
           environmentId: selectedProject.environmentId,
           input: {
@@ -454,7 +455,12 @@ export function NewTaskFlowProvider(
     (isGitRepo || repositoryFolder) &&
     (draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin);
   const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
-  const runtimeMode = selectedProjectDraft.runtimeMode ?? defaultRuntimeMode;
+  const managedPolicy = selectedEnvironmentServerConfig?.managedPolicy;
+  const runtimeMode = resolveNewThreadRuntimeMode(
+    selectedProjectDraft.runtimeMode,
+    defaultRuntimeMode,
+    managedPolicy,
+  );
 
   // Antigravity keeps unavailable selections so sign-out or a catalog change
   // cannot switch the user's model.
@@ -824,7 +830,11 @@ export function NewTaskFlowProvider(
       attachments: draft.attachments,
       context: draft.context,
       modelSelection: draftModelSelection,
-      runtimeMode: draft.runtimeMode ?? defaultRuntimeMode,
+      runtimeMode: resolveNewThreadRuntimeMode(
+        draft.runtimeMode,
+        defaultRuntimeMode,
+        managedPolicy,
+      ),
       interactionMode: resolvePendingTaskInteractionMode({
         planModeEnabled: legacyPlanModeEnabled,
         draftInteractionMode: draft.interactionMode,

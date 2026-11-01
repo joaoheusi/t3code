@@ -76,7 +76,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly displayName: string;
     readonly appUserModelId: string;
     readonly linuxDesktopEntryName: string;
-    readonly linuxWmClass: string;
     readonly linuxApplicationsDir: string;
     readonly desktopLauncherPath: Option.Option<string>;
     readonly appImagePath: Option.Option<string>;
@@ -233,7 +232,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
       isDevelopment ? "dev.joaoheusi.j4code.dev" : "dev.joaoheusi.j4code",
     ),
     linuxDesktopEntryName: resolveLinuxDesktopEntryName(isDevelopment),
-    linuxWmClass: isDevelopment ? "j4code-dev" : "j4code",
     linuxApplicationsDir,
     desktopLauncherPath: config.desktopLauncherPath,
     appImagePath: config.appImagePath,
