@@ -613,6 +613,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         undefined,
       );
 
+      const mock = yield* createBuildConfig("mac", "dmg", "0.2.101", false, true, 4141, undefined);
+      assert.deepEqual(mock.publish, [{ provider: "generic", url: "http://localhost:4141" }]);
+
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
       assert.deepEqual(release.publish, [

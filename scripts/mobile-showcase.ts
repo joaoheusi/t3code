@@ -10,6 +10,7 @@ import * as NodeProcess from "node:process";
 import * as NodeURL from "node:url";
 
 import { PNG } from "pngjs";
+import { MOBILE_PRODUCTION_IDENTITY } from "./lib/mobile-app-identity.ts";
 
 import showcaseConfig, {
   type ShowcaseAppearance,
@@ -32,8 +33,10 @@ import {
 
 const REPO_ROOT = NodePath.resolve(NodePath.dirname(NodeURL.fileURLToPath(import.meta.url)), "..");
 const MOBILE_ROOT = NodePath.join(REPO_ROOT, "apps/mobile");
-const ANDROID_PACKAGE = "com.t3tools.t3code";
-const APP_SCHEME = "t3code";
+const ANDROID_PACKAGE = MOBILE_PRODUCTION_IDENTITY.androidPackage;
+const IOS_BUNDLE_IDENTIFIER = MOBILE_PRODUCTION_IDENTITY.iosBundleIdentifier;
+const IOS_PROJECT_NAME = MOBILE_PRODUCTION_IDENTITY.appName.replace(/[^a-zA-Z0-9]/g, "");
+const APP_SCHEME = MOBILE_PRODUCTION_IDENTITY.scheme;
 // Manifest flags update expo-dev-launcher preferences before loading, hiding dev chrome in captures.
 const DEV_CLIENT_LAUNCH_FLAGS = "disableOnboarding=1&disableFab=1&disableAutoLaunch=1";
 const IOS_READY_FILENAME = "T3ShowcaseReadyScene";
@@ -41,7 +44,7 @@ const SERVER_HOST = "0.0.0.0";
 const IOS_SIMULATOR_ARCH = NodeProcess.arch === "arm64" ? "arm64" : "x86_64";
 const IOS_APP_PATH = NodePath.join(
   MOBILE_ROOT,
-  ".showcase/ios-derived-data/Build/Products/Debug-iphonesimulator/T3Code.app",
+  `.showcase/ios-derived-data/Build/Products/Debug-iphonesimulator/${IOS_PROJECT_NAME}.app`,
 );
 const ANDROID_APK_PATH = NodePath.join(
   MOBILE_ROOT,
@@ -763,9 +766,9 @@ async function buildIos(): Promise<string> {
     "xcodebuild",
     [
       "-workspace",
-      NodePath.join(MOBILE_ROOT, "ios/T3Code.xcworkspace"),
+      NodePath.join(MOBILE_ROOT, `ios/${IOS_PROJECT_NAME}.xcworkspace`),
       "-scheme",
-      "T3Code",
+      IOS_PROJECT_NAME,
       "-configuration",
       "Debug",
       "-sdk",
@@ -972,7 +975,13 @@ async function ensureIosFullScreenAppsMode(udid: string): Promise<void> {
 
 async function iosAppContainer(udid: string): Promise<string> {
   return (
-    await commandOutput("xcrun", ["simctl", "get_app_container", udid, ANDROID_PACKAGE, "data"])
+    await commandOutput("xcrun", [
+      "simctl",
+      "get_app_container",
+      udid,
+      IOS_BUNDLE_IDENTIFIER,
+      "data",
+    ])
   ).trim();
 }
 
@@ -1053,7 +1062,7 @@ async function presentIosLockScreen(udid: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = NodeChildProcess.execFile(
       "xcrun",
-      ["simctl", "push", udid, ANDROID_PACKAGE, "-"],
+      ["simctl", "push", udid, IOS_BUNDLE_IDENTIFIER, "-"],
       { cwd: REPO_ROOT },
       (error) => (error ? reject(error) : resolve()),
     );
@@ -1148,7 +1157,7 @@ async function captureIos(
   }
   await normalizeIosSimulator(capture.appearance, simulator.udid);
   if (appPath) {
-    await runCommand("xcrun", ["simctl", "uninstall", simulator.udid, ANDROID_PACKAGE]).catch(
+    await runCommand("xcrun", ["simctl", "uninstall", simulator.udid, IOS_BUNDLE_IDENTIFIER]).catch(
       () => undefined,
     );
     await runCommand("xcrun", ["simctl", "install", simulator.udid, appPath]);
@@ -1171,7 +1180,7 @@ async function captureIos(
       "launch",
       ...(terminateRunningProcess ? ["--terminate-running-process"] : []),
       simulator.udid,
-      ANDROID_PACKAGE,
+      IOS_BUNDLE_IDENTIFIER,
       "--initialUrl",
       metroUrl,
       "--showcasePairingUrl",
