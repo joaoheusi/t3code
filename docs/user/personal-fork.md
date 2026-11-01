@@ -55,7 +55,7 @@ The folder's mode also follows the project's default workspace setting. Reposito
 
 ### Scheduled tasks in a folder project
 
-A scheduled task set to **Create a new worktree** in a folder project starts each run in new worktrees, the same way a new thread does. Under **Repositories**, pick the ones the task needs (on mobile, **Repositories** in the task's **Workspace** section). Without a choice, it follows the project's saved repositories, or every repository found in the folder. Each worktree starts from its repository's default branch, so these tasks have no base branch. The agent's first message waits until every repository is ready. If setup fails, the task shows as failed and the thread's **Retry** runs setup again.
+A scheduled task set to **Create a new worktree** in a folder project starts each run in new worktrees, the same way a new thread does. Under **Repositories**, pick the ones the task needs (on mobile, **Repositories** in the task's **Workspace** section). Without a choice, it follows the project's saved repositories, or every repository found in the folder. Each worktree starts from its repository's default branch, so these tasks have no base branch. A repository with no known default branch starts from its checkout's branch. The agent's first message waits until every repository is ready. If setup fails, the task shows as failed and the thread's **Retry** runs setup again.
 
 Agents that schedule tasks or launch threads in a folder project get the same behavior. Choose **Use the project checkout** to run in the folder itself instead.
 
