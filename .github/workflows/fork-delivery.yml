@@ -112,7 +112,7 @@ jobs:
           test -s "$release_dir/J4-Code-$VERSION-arm64.dmg"
           test -s "$release_dir/J4-Code-$VERSION-arm64.zip"
           ditto -x -k "$release_dir/J4-Code-$VERSION-arm64.zip" "$RUNNER_TEMP/verify-j4"
-          app_path="$RUNNER_TEMP/verify-j4/J4 Code (Unofficial).app"
+          app_path="$RUNNER_TEMP/verify-j4/J4 Code.app"
           codesign --verify --deep --strict "$app_path"
           codesign -dv "$app_path" 2>&1 | grep -F 'TeamIdentifier=SC7RQ3BWQ6'
           xcrun stapler validate "$app_path"

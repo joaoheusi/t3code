@@ -1,10 +1,10 @@
-# J4 Code (Unofficial)
+# J4 Code
 
 J4 Code is a personal fork of T3 Code. This build adds quick actions, repository bindings in one thread, and PR tasks that stay in the current thread. It is a development build. Check the [release verification record](../fork/acceptance-status.json) before using it for daily work.
 
 ## Keep the official installation separate
 
-The macOS app is **J4 Code (Unofficial)**. Its app ID is `dev.joaoheusi.j4code`. Its default data directory is `~/.j4code`; its Electron profile is `~/Library/Application Support/j4code`. The official application and its data remain separate.
+The macOS app is **J4 Code**. Its app ID is `dev.joaoheusi.j4code`. Its default data directory is `~/.j4code`; its Electron profile is `~/Library/Application Support/j4code`. The official application and its data remain separate.
 
 The fork reads `J4CODE_HOME` for a custom data directory. It ignores the official `T3CODE_HOME` setting. Do not point the fork at the official profile. The desktop updater only accepts releases from the J4 fork. CLI and standalone server updates remain manual.
 

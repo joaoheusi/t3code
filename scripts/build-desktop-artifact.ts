@@ -2766,7 +2766,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 
 export function resolveDesktopProductName(version: string): string {
   return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "J4 Code (Unofficial Nightly)"
+    ? "J4 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
 }
 
@@ -2874,7 +2874,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       },
       protocols: [
         {
-          name: "J4 Code (Unofficial)",
+          name: FORK_IDENTITY.name,
           schemes: ["j4code", "j4code-dev"],
         },
         {
@@ -2928,7 +2928,7 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       maintainer: "T3 Tools <hello@t3.codes>",
       protocols: [
         {
-          name: "J4 Code (Unofficial)",
+          name: FORK_IDENTITY.name,
           schemes: ["j4code", "j4code-dev"],
         },
       ],
@@ -3897,7 +3897,7 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     private: true,
     packageManager: rootPackageJson.packageManager,
     description:
-      "J4 Code (Unofficial) is a personal fork of T3 Code with quick actions, repository bindings, and same-thread PR tasks. Use its matching bundled web client for remote access.",
+      "J4 Code is a personal fork of T3 Code with quick actions, repository bindings, and same-thread PR tasks. Use its matching bundled web client for remote access.",
     license: "MIT",
     // Required by the .deb control file.
     homepage: "https://github.com/joaoheusi/t3code",

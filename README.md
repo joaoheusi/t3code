@@ -1,4 +1,4 @@
-> **J4 Code (Unofficial)** is a personal fork of T3 Code. This development build adds quick actions, multi-repository threads, and same-thread PR tasks. It uses an isolated profile and manual updates. Read the [fork guide](docs/user/personal-fork.md) and [verification record](docs/fork/acceptance-status.json) before adopting it. Official clients use a different protocol.
+> **J4 Code** is a personal fork of T3 Code. This development build adds quick actions, multi-repository threads, and same-thread PR tasks. It uses an isolated profile. Release builds receive Mac updates and compatible iPhone updates automatically. Read the [fork guide](docs/user/personal-fork.md) and [verification record](docs/fork/acceptance-status.json) before adopting it. Official clients use a different protocol.
 
 # T3 Code
 

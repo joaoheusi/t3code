@@ -1,4 +1,4 @@
-/** Visual stage is separate from the updater channel; fork builds update manually. */
+/** Visual stage follows the packaged version, not the saved updater channel. */
 export function isNightlyAppVersion(version: string): boolean {
   return /^[^-+]+-(?:(?:nightly|preview)\.\d{8}\.\d+|j4\.\d+)$/.test(version);
 }
