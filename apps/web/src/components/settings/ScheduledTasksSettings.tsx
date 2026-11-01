@@ -1242,6 +1242,7 @@ function ScheduledTaskEditorForm({
     project: selectedProject ?? null,
     chosen: draft.repositories,
   });
+  const repositoriesLoading = draft.workspaceMode === "worktree" && folderRepositories?.loading;
   const instanceEntries = providerInstanceEntriesFor(
     providers,
     settings,
@@ -1282,7 +1283,8 @@ function ScheduledTaskEditorForm({
       saving ||
       editingTaskMissing ||
       !connected ||
-      tasksQuery.data === null
+      tasksQuery.data === null ||
+      repositoriesLoading
     )
       return;
     const selection = activeSelection;
@@ -1324,6 +1326,10 @@ function ScheduledTaskEditorForm({
     }
     if (draft.workspaceMode === "existing_worktree" && !draft.existingWorktreePath.trim()) {
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
+      return;
+    }
+    if (draft.workspaceMode === "worktree" && folderRepositories?.error) {
+      reportFailure("Repositories unavailable", folderRepositories.error);
       return;
     }
     if (draft.workspaceMode === "worktree" && folderRepositories?.choice.selected.length === 0) {
@@ -1541,6 +1547,8 @@ function ScheduledTaskEditorForm({
               <ScheduledTaskRepositoriesPicker
                 choice={folderRepositories.choice}
                 loading={folderRepositories.loading}
+                error={folderRepositories.error}
+                retry={folderRepositories.retry}
                 disabled={saving || !connected}
                 onChange={(repositories) => setDraft((current) => ({ ...current, repositories }))}
               />
@@ -1893,7 +1901,14 @@ function ScheduledTaskEditorForm({
         </DialogClose>
         <Button
           size="sm"
-          disabled={!canOperate || saving || editingTaskMissing || !connected || !tasksQuery.data}
+          disabled={
+            !canOperate ||
+            saving ||
+            editingTaskMissing ||
+            !connected ||
+            !tasksQuery.data ||
+            repositoriesLoading
+          }
           onClick={() => void submit()}
         >
           {draft.editingId ? "Save task" : "Create task"}

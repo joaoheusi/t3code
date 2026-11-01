@@ -1,4 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
+import { REPOSITORY_LIMIT } from "@t3tools/client-runtime/workspaceModel";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 import { Pressable } from "react-native";
@@ -123,14 +124,36 @@ export function ScheduledTaskRepositoriesPickerRouteScreen() {
   return (
     <SettingsScreen title="Repositories">
       <SettingsSection title="Each starts from its default branch">
+        {choice?.error ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={choice.retry}
+            className="min-h-14 justify-center gap-1 px-4 py-3 active:opacity-70"
+          >
+            <Text textRole="body" className="text-foreground">
+              Couldn't load repositories
+            </Text>
+            <Text textRole="footnote" className="text-foreground-muted">
+              {choice.error} Tap to retry.
+            </Text>
+          </Pressable>
+        ) : null}
+        {choice && !choice.loading && !choice.error && choice.options.length === 0 ? (
+          <Text textRole="body" className="px-4 py-3 text-foreground-muted">
+            This folder holds no repositories. Run the task in the project checkout or a specific
+            checkout instead.
+          </Text>
+        ) : null}
         {choice?.options.map(({ path, label }, index) => {
           const selected = choice.selected.includes(path);
+          const atLimit = !selected && choice.selected.length >= REPOSITORY_LIMIT;
           return (
             <Pressable
               key={path}
               accessibilityRole="checkbox"
               accessibilityLabel={label}
-              accessibilityState={{ checked: selected }}
+              accessibilityState={{ checked: selected, disabled: atLimit }}
+              disabled={atLimit}
               onPress={() => {
                 void Haptics.selectionAsync();
                 const repositories = selected
@@ -142,8 +165,8 @@ export function ScheduledTaskRepositoriesPickerRouteScreen() {
               }}
               className={
                 index === 0
-                  ? "min-h-14 flex-row items-center justify-between gap-3 px-4 py-3 active:opacity-70"
-                  : "min-h-14 flex-row items-center justify-between gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70"
+                  ? "min-h-14 flex-row items-center justify-between gap-3 px-4 py-3 active:opacity-70 disabled:opacity-50"
+                  : "min-h-14 flex-row items-center justify-between gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70 disabled:opacity-50"
               }
             >
               <Text textRole="body" className="min-w-0 flex-1 text-foreground" numberOfLines={1}>

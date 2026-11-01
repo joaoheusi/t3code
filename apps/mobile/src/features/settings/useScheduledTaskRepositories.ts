@@ -30,12 +30,18 @@ export function useScheduledTaskRepositories(
       : null,
   );
   if (!supported) return null;
-  // A project with no repository identity is probably a folder, so hold its row until the scan ends.
-  if (!discovery.data) return { loading: true, selected: [], options: [] };
+  const state = { loading: false, error: null, retry: discovery.refresh };
+  if (!discovery.data) {
+    const empty: ReturnType<typeof folderRepositoryChoice> = { selected: [], options: [] };
+    // A project with no repository identity is probably a folder, so hold its row until the scan ends.
+    return discovery.error !== null && !discovery.isPending
+      ? { ...state, ...empty, error: discovery.error }
+      : { ...state, ...empty, loading: true };
+  }
   const found = topLevelRepositories(discovery.data.repositories);
   if (found.some((repository) => repository.path === project.workspaceRoot)) return null;
   return {
-    loading: false,
+    ...state,
     ...folderRepositoryChoice({
       found,
       saved: config?.settings.projectSettingsOverrides[project.id]?.workspaceRepositories ?? [],

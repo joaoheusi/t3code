@@ -1,6 +1,7 @@
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import {
   FOLDER_DISCOVERY_DEPTH,
+  REPOSITORY_LIMIT,
   folderRepositoryChoice,
   topLevelRepositories,
 } from "@t3tools/client-runtime/workspaceModel";
@@ -11,6 +12,7 @@ import { forkWorkspace } from "../../state/forkWorkspace";
 import { useEnvironmentQuery } from "../../state/query";
 import { vcsEnvironment } from "../../state/vcs";
 import { useMultiRepositoryVersion } from "../../workspace/useComposerRepositories";
+import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 
 const NO_REPOSITORIES = [] as const;
@@ -45,6 +47,8 @@ export function useFolderRepositories(input: {
   if (!folder) return null;
   return {
     loading: discovery.isPending && discovery.data === null,
+    error: discovery.data === null ? discovery.error : null,
+    retry: discovery.refresh,
     choice: folderRepositoryChoice({
       found: topLevelRepositories(discovery.data?.repositories ?? []),
       saved,
@@ -56,10 +60,24 @@ export function useFolderRepositories(input: {
 export function ScheduledTaskRepositoriesPicker(props: {
   readonly choice: ReturnType<typeof folderRepositoryChoice>;
   readonly loading: boolean;
+  readonly error: string | null;
+  readonly retry: () => void;
   readonly disabled: boolean;
   readonly onChange: (repositories: readonly string[]) => void;
 }) {
   const { options, selected } = props.choice;
+  if (props.error !== null && !props.loading)
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 text-destructive text-xs">
+          Couldn't load this folder's repositories: {props.error}
+        </p>
+        <Button size="xs" variant="outline" onClick={props.retry}>
+          Retry
+        </Button>
+      </div>
+    );
+  const atLimit = selected.length >= REPOSITORY_LIMIT;
   if (options.length === 0)
     return (
       <p className="text-muted-foreground text-xs">
@@ -69,21 +87,28 @@ export function ScheduledTaskRepositoriesPicker(props: {
       </p>
     );
   return (
-    <div className="grid gap-1.5 sm:grid-cols-2">
-      {options.map(({ path, label }) => (
-        <label key={path} className="flex cursor-pointer items-center gap-2 text-sm">
-          <Checkbox
-            checked={selected.includes(path)}
-            disabled={props.disabled}
-            onCheckedChange={(checked) =>
-              props.onChange(
-                checked ? [...selected, path] : selected.filter((entry) => entry !== path),
-              )
-            }
-          />
-          <span className="truncate">{label}</span>
-        </label>
-      ))}
+    <div className="space-y-1.5">
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        {options.map(({ path, label }) => (
+          <label key={path} className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={selected.includes(path)}
+              disabled={props.disabled || (atLimit && !selected.includes(path))}
+              onCheckedChange={(checked) =>
+                props.onChange(
+                  checked ? [...selected, path] : selected.filter((entry) => entry !== path),
+                )
+              }
+            />
+            <span className="truncate">{label}</span>
+          </label>
+        ))}
+      </div>
+      {atLimit ? (
+        <p className="text-muted-foreground text-xs">
+          A task can use up to {REPOSITORY_LIMIT} repositories.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -764,11 +764,11 @@ function TaskForm({
       Dialog.alert("Project unavailable", "Choose a project in this environment.");
       return;
     }
-    if (
-      draft.workspace === "worktree" &&
-      repositoryChoice?.loading === false &&
-      repositoryChoice.selected.length === 0
-    ) {
+    if (draft.workspace === "worktree" && repositoryChoice?.error) {
+      Dialog.alert("Repositories unavailable", repositoryChoice.error);
+      return;
+    }
+    if (draft.workspace === "worktree" && repositoryChoice?.selected.length === 0) {
       Dialog.alert("Pick a repository", "Choose at least one repository to run in.");
       return;
     }
@@ -958,7 +958,9 @@ function TaskForm({
               value={
                 repositoryChoice.loading
                   ? "Looking…"
-                  : `${repositoryChoice.selected.length} of ${repositoryChoice.options.length}`
+                  : repositoryChoice.error
+                    ? "Unavailable"
+                    : `${repositoryChoice.selected.length} of ${repositoryChoice.options.length}`
               }
               borderTop
               disabled={
@@ -1204,7 +1206,13 @@ function TaskForm({
         tone="primary"
         fullWidth
         loading={saving}
-        disabled={!canOperate || dictationPending || taskMissing || environmentUnavailable}
+        disabled={
+          !canOperate ||
+          dictationPending ||
+          taskMissing ||
+          environmentUnavailable ||
+          (draft.workspace === "worktree" && repositoryChoice?.loading)
+        }
         onPress={() => void save()}
         label={saving ? "Saving…" : draft.task ? "Save changes" : "Create task"}
       />
