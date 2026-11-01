@@ -37,7 +37,7 @@ import { pullRequestEnvironment } from "../../state/pullRequests";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { ForkScreenHeader } from "./ForkScreenHeader";
-import type { QuickActionsTarget } from "./MobileQuickActions";
+import type { QuickActionsTarget } from "./MobileQuickActions.types";
 
 /** The thread's open PRs and merge permission, which the list reads to order the row. */
 export function useQuickActionMergeTargets(target: QuickActionsTarget) {

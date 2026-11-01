@@ -31,7 +31,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { showGitActionResult } from "../../state/use-vcs-action-state";
 import { vcsActionManager, vcsEnvironment } from "../../state/vcs";
 import { ForkScreenHeader } from "./ForkScreenHeader";
-import type { QuickActionsTarget } from "./MobileQuickActions";
+import type { QuickActionsTarget } from "./MobileQuickActions.types";
 
 /** The Git row's repositories and summary, which the list reads to order the row. */
 export function useQuickActionGitSummary(target: QuickActionsTarget) {
