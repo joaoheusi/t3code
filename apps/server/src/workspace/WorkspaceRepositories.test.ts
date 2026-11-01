@@ -448,6 +448,12 @@ describe("folder roots", () => {
               saved: [{ path: web, commonDir: join(web, ".git"), mode: "current" }],
             }),
           ).toEqual([web]);
+          const manySaved = Array.from({ length: 21 }, (_, index) => ({
+            path: join(folder, `saved-${index}`),
+            commonDir: join(folder, `saved-${index}`, ".git"),
+            mode: "current" as const,
+          }));
+          expect(yield* paths({ ...options, saved: manySaved })).toHaveLength(20);
           const empty = join(root, "empty");
           mkdirSync(empty);
           const failure = yield* Effect.flip(paths({ ...options, root: empty }));

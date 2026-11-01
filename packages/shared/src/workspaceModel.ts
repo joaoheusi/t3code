@@ -86,7 +86,7 @@ export function folderRepositoryChoice(input: {
     entries.map((entry) => entry.path);
   const selected =
     input.chosen ??
-    (input.saved.length > 0 ? paths(input.saved) : paths(input.found.slice(0, REPOSITORY_LIMIT)));
+    paths((input.saved.length > 0 ? input.saved : input.found).slice(0, REPOSITORY_LIMIT));
   return {
     selected,
     options: [...new Set([...paths(input.found), ...selected])].map((path) => ({

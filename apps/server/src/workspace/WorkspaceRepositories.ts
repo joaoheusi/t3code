@@ -290,7 +290,7 @@ const make = Effect.gen(function* () {
           ),
         )
       : input.saved.length > 0
-        ? input.saved.map(draftRepositoryFromDefault)
+        ? input.saved.slice(0, REPOSITORY_LIMIT).map(draftRepositoryFromDefault)
         : topLevelRepositories((yield* discover(root, FOLDER_DISCOVERY_DEPTH)).repositories)
             .slice(0, REPOSITORY_LIMIT)
             .map((repository) => draftRepositoryFrom(repository, repository.path));

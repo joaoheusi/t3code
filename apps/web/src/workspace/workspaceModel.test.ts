@@ -32,6 +32,8 @@ describe("folder repository choice", () => {
     expect(choose(null, [{ path: "/org/api" }])).toEqual(["/org/api"]);
     expect(choose(null, [])).toEqual(["/org/api", "/org/web"]);
     expect(choose([], [])).toEqual([]);
+    const many = Array.from({ length: 21 }, (_, index) => ({ path: `/org/${index}` }));
+    expect(choose(null, many)).toHaveLength(20);
   });
   it("keeps a chosen repository listed after it has gone", () => {
     const { options } = folderRepositoryChoice({ found, saved: [], chosen: ["/org/gone"] });
