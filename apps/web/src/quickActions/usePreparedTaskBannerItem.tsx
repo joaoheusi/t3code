@@ -21,7 +21,7 @@ export function usePreparedTaskBannerItem(
 
     const insert = async () => {
       setBusy(true);
-      try {
+      return (async () => {
         // PR evidence is only worth inserting while it still describes the PR head.
         if (task.validation) {
           for (const context of task.validation.contexts)
@@ -51,16 +51,18 @@ export function usePreparedTaskBannerItem(
           store.addReviewComment(target, comment);
         }
         dismissPreparedTask(target, task.id);
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: `Could not insert ${task.title}`,
-          description:
-            error instanceof Error ? error.message : "Its context changed. Run the action again.",
+      })()
+        .catch((error) => {
+          toastManager.add({
+            type: "error",
+            title: `Could not insert ${task.title}`,
+            description:
+              error instanceof Error ? error.message : "Its context changed. Run the action again.",
+          });
+        })
+        .finally(() => {
+          setBusy(false);
         });
-      } finally {
-        setBusy(false);
-      }
     };
 
     return {

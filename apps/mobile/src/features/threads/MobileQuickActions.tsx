@@ -20,7 +20,6 @@ import type {
   PullRequestRef,
   QuickAction,
   QuickActionFields,
-  ThreadId,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -66,13 +65,7 @@ import {
 import { MobileGitQuickAction, useQuickActionGitSummary } from "./MobileGitQuickAction";
 import { MobileMergeQuickAction, useQuickActionMergeTargets } from "./MobileMergeQuickAction";
 import { ForkScreenHeader } from "./ForkScreenHeader";
-
-export type QuickActionsTarget = {
-  readonly environmentId: EnvironmentId;
-  readonly projectId: ProjectId;
-  readonly draftKey: string;
-  readonly threadId?: ThreadId;
-};
+import type { QuickActionsTarget } from "./MobileQuickActions.types";
 
 type Editing = { readonly action: QuickActionFields; readonly revision: number | null };
 type ManageAction = "edit" | "favorite" | "enable" | "delete";
@@ -228,6 +221,7 @@ export function QuickActionsScreen({ route }: StaticScreenProps<QuickActionsTarg
     }),
   );
   const generation = useRef(0);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Invalidate pending native action callbacks when their sheet unmounts.
   useEffect(
     () => () => {
       generation.current++;

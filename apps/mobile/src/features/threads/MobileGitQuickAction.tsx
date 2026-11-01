@@ -31,7 +31,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { showGitActionResult } from "../../state/use-vcs-action-state";
 import { vcsActionManager, vcsEnvironment } from "../../state/vcs";
 import { ForkScreenHeader } from "./ForkScreenHeader";
-import type { QuickActionsTarget } from "./MobileQuickActions";
+import type { QuickActionsTarget } from "./MobileQuickActions.types";
 
 /** The Git row's repositories and summary, which the list reads to order the row. */
 export function useQuickActionGitSummary(target: QuickActionsTarget) {
@@ -110,6 +110,7 @@ export function MobileGitQuickAction(props: {
   const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [selectedCwds, setSelectedCwds] = useState<readonly string[]>([]);
   const busy = busyCwd !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {

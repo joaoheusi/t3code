@@ -18,11 +18,16 @@ import { act, render } from "../../../test/render";
 const { newThread, paletteEvents, prepareThread, refresh } = vi.hoisted(() => ({
   newThread: vi.fn(),
   // Views handed to the command palette bus, so a test can run the item the reader would pick.
-  paletteEvents: [] as Array<{
-    view?: { groups: Array<{ items: Array<{ value: string; run?: () => unknown }> }> };
-  }>,
+  paletteEvents: [] as Array<import("../../commandPaletteBus").CommandPaletteOpenDetail>,
   prepareThread: vi.fn(),
   refresh: vi.fn(),
+}));
+
+vi.mock(import("~/commandPaletteBus"), () => ({
+  openCommandPalette: (detail) => {
+    paletteEvents.push(detail ?? {});
+  },
+  isCommandPaletteOpen: () => false,
 }));
 
 vi.mock(import("~/state/session"), async (original) => ({
@@ -262,10 +267,6 @@ function renderPullRequestPanel(
   );
 }
 
-window.addEventListener("t3code:open-command-palette", (event) => {
-  paletteEvents.push((event as CustomEvent).detail ?? {});
-});
-
 function setup() {
   paletteEvents.length = 0;
   useComposerDraftStore.setState({ draftsByThreadKey: {}, draftThreadsByThreadKey: {} });
@@ -392,8 +393,8 @@ describe.each([
         .at(-1)
         ?.view?.groups.flatMap((group) => group.items)
         .find((entry) => entry.value === "new-thread");
-      if (!item?.run) throw new Error("Expected a palette destination picker");
-      await act(async () => item.run?.());
+      if (item?.kind !== "action") throw new Error("Expected a palette destination picker");
+      await act(async () => item.run());
     }
     const draft = () => useComposerDraftStore.getState().getComposerDraft(target ?? newDraftId);
     await vi.waitFor(() => {

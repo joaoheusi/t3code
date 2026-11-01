@@ -37,7 +37,7 @@ import { pullRequestEnvironment } from "../../state/pullRequests";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { ForkScreenHeader } from "./ForkScreenHeader";
-import type { QuickActionsTarget } from "./MobileQuickActions";
+import type { QuickActionsTarget } from "./MobileQuickActions.types";
 
 /** The thread's open PRs and merge permission, which the list reads to order the row. */
 export function useQuickActionMergeTargets(target: QuickActionsTarget) {
@@ -87,6 +87,7 @@ export function MobileMergeQuickAction(props: {
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {

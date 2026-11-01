@@ -42,6 +42,7 @@ export function useQuickActionMerge() {
   const runAction = useAtomCommand(pullRequestEnvironment.runAction, { reportFailure: false });
   const preparing = useRef(false);
   const mounted = useRef(true);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Prevent async palette work from opening UI after unmount.
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -56,7 +57,7 @@ export function useQuickActionMerge() {
       type: "loading",
       title: "Checking pull requests before merging…",
     });
-    try {
+    return (async () => {
       const details: PullRequestDetail[] = [];
       const kinds: QuickActionMergeKind[] = [];
       for (const reference of references) {
@@ -102,18 +103,18 @@ export function useQuickActionMerge() {
           toastManager.update(progress, {
             description: `${reference.repository} #${reference.number}`,
           });
-          try {
+          await (async () => {
             const result = await runAction({
               environmentId,
               input: quickActionMergeActionInput(plan),
             });
             if (result._tag === "Failure") throw squashAtomCommandFailure(result);
             succeeded.push(plan);
-          } catch (error) {
+          })().catch((error) => {
             failures.push(
               `${reference.repository} #${reference.number}: ${error instanceof Error ? error.message : "Merge failed."}`,
             );
-          }
+          });
         }
         toastManager.update(progress, {
           type: failures.length ? "error" : "success",
@@ -170,9 +171,9 @@ export function useQuickActionMerge() {
           ],
         },
       });
-    } finally {
+    })().finally(() => {
       toastManager.close(loading);
       preparing.current = false;
-    }
+    });
   };
 }

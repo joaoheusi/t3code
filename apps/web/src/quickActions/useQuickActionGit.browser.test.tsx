@@ -8,9 +8,8 @@ import {
   type VcsStatusResult,
 } from "@t3tools/contracts";
 import { Atom, AtomRegistry, AsyncResult } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { act, render } from "../../test/render";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type { QuickActionScope } from "./quickActionRunner";
 import type { CommandPaletteOpenDetail } from "../commandPaletteBus";
 
@@ -83,35 +82,12 @@ const status = (overrides: Partial<VcsStatusResult> = {}): VcsStatusResult => ({
   pr: null,
   ...overrides,
 });
-let registry: ReturnType<typeof AtomRegistry.make>;
-let root: Root;
-
-let statuses: Map<
-  string,
-  Atom.Writable<AsyncResult.Success<VcsStatusResult>, AsyncResult.Success<VcsStatusResult>>
->;
-let latestProbeView: ReturnType<typeof useQuickActionGit>;
-function Probe(props: { view: ReturnType<typeof useQuickActionGit> }) {
-  latestProbeView = props.view;
-  return null;
-}
-function Surface() {
-  return <Probe view={useQuickActionGit(scope, "/parent", mocks.close)} />;
-}
-function view(): ReturnType<typeof useQuickActionGit> {
-  return latestProbeView;
-}
-const item = (name: string) =>
-  view().repositoryItems.find((entry) => entry.value === `quick-action:git:/worktrees/${name}`)!;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  root = createRoot(document.createElement("div"));
+function setup() {
   vi.clearAllMocks();
   mocks.permission.mockReturnValue(true);
   mocks.toast.add.mockImplementation(({ title }) => title);
-  registry = AtomRegistry.make();
-  statuses = new Map([
+  const registry = AtomRegistry.make();
+  const statuses = new Map([
     ["/worktrees/web", Atom.make(AsyncResult.success(status({ hasWorkingTreeChanges: true })))],
     ["/worktrees/api", Atom.make(AsyncResult.success(status({ behindCount: 2 })))],
   ]);
@@ -123,22 +99,53 @@ beforeEach(() => {
     AsyncResult.success({ branch: { status: "unchanged" }, toast: { title: "Done" } }),
   );
   mocks.pull.mockResolvedValue(AsyncResult.success({ status: "pulled" }));
-  act(() => {
-    root.render(
-      <RegistryContext value={registry}>
-        <Surface />
-      </RegistryContext>,
-    );
-  });
-});
-afterEach(() => {
-  act(() => root.unmount());
-  registry.dispose();
-  vi.unstubAllGlobals();
-});
+
+  let latestProbeView: ReturnType<typeof useQuickActionGit>;
+  function Probe(props: { view: ReturnType<typeof useQuickActionGit> }) {
+    latestProbeView = props.view;
+    return null;
+  }
+  function Surface() {
+    return <Probe view={useQuickActionGit(scope, "/parent", mocks.close)} />;
+  }
+  function view(): ReturnType<typeof useQuickActionGit> {
+    return latestProbeView;
+  }
+  const item = (name: string) =>
+    view().repositoryItems.find((entry) => entry.value === `quick-action:git:/worktrees/${name}`)!;
+
+  const submitBatch = async (values: readonly string[]) => {
+    const entry = view().items[0]!;
+    if (entry.kind !== "submenu" || !entry.multiSelect)
+      throw new Error("Expected the repository toggle picker");
+    await act(async () => {
+      await entry.multiSelect!.run(values);
+    });
+  };
+  function MountedSurface({ children }: { children: import("react").ReactNode }) {
+    return <RegistryContext value={registry}>{children}</RegistryContext>;
+  }
+  return {
+    Surface,
+    MountedSurface,
+    view,
+    item,
+    registry,
+    statuses,
+    submitBatch,
+    [Symbol.dispose]: () => registry.dispose(),
+  };
+}
 
 describe("Git palette actions", () => {
   it("acknowledges a click before a slow status check and ignores a second click", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     let finishRefresh!: (status: AsyncResult.Success<VcsStatusResult>) => void;
     const refresh = new Promise<AsyncResult.Success<VcsStatusResult>>((resolve) => {
       finishRefresh = resolve;
@@ -163,6 +170,13 @@ describe("Git palette actions", () => {
   });
 
   it("still runs the action when the palette closes during a slow status check", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     let finishRefresh!: (status: AsyncResult.Success<VcsStatusResult>) => void;
     mocks.load.mockReturnValueOnce(
       new Promise<AsyncResult.Success<VcsStatusResult>>((resolve) => {
@@ -170,13 +184,20 @@ describe("Git palette actions", () => {
       }),
     );
     const running = item("web").run();
-    act(() => root.unmount());
+    await screen.unmount();
     finishRefresh(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
     await running;
     expect(mocks.stacked).toHaveBeenCalledTimes(1);
   });
 
   it("keeps progress visible through generation and hooks, then reports completion", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item, registry } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     const state = Atom.make({ isRunning: false, currentLabel: "Generating commit message..." });
     mocks.busy.mockReturnValue(state);
     mocks.stacked.mockImplementationOnce(async (_registry, _target, input) => {
@@ -216,6 +237,13 @@ describe("Git palette actions", () => {
   });
 
   it("cleans up status feedback on failure and allows another attempt", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     mocks.load.mockRejectedValueOnce(new Error("Connection lost"));
     await expect(item("web").run()).rejects.toThrow("Connection lost");
     expect(mocks.toast.close).toHaveBeenCalledWith("Checking repository status…");
@@ -225,7 +253,14 @@ describe("Git palette actions", () => {
     expect(mocks.stacked).toHaveBeenCalledTimes(1);
   });
 
-  it("offers one entry for a mixed repository set as a toggle picker like other quick actions", () => {
+  it("offers one entry for a mixed repository set as a toggle picker like other quick actions", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, view } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     expect(view().items).toHaveLength(1);
     const entry = view().items[0]!;
     expect(entry.title).toBe("Sync repositories");
@@ -241,16 +276,14 @@ describe("Git palette actions", () => {
     expect(mocks.pull).not.toHaveBeenCalled();
   });
 
-  const submitBatch = async (values: readonly string[]) => {
-    const entry = view().items[0]!;
-    if (entry.kind !== "submenu" || !entry.multiSelect)
-      throw new Error("Expected the repository toggle picker");
-    await act(async () => {
-      await entry.multiSelect!.run(values);
-    });
-  };
-
   it("runs each selected repository's own action in one batch and skips the rest", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, submitBatch } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     await submitBatch(["quick-action:git:/worktrees/api"]);
     expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/worktrees/api" } });
     expect(mocks.stacked).not.toHaveBeenCalled();
@@ -266,6 +299,13 @@ describe("Git palette actions", () => {
   });
 
   it("checks every selected repository before any batch write", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, view, registry, statuses } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     mocks.load.mockImplementation(async ({ input }) =>
       input.cwd === "/worktrees/api"
         ? AsyncResult.success(status({ hasWorkingTreeChanges: true }))
@@ -282,6 +322,13 @@ describe("Git palette actions", () => {
   });
 
   it("confirms default-branch repositories once for the whole batch", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, registry, statuses, submitBatch } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     await act(async () =>
       registry.set(
         statuses.get("/worktrees/web")!,
@@ -307,15 +354,20 @@ describe("Git palette actions", () => {
     expect(mocks.pull).toHaveBeenCalledWith({ environmentId, input: { cwd: "/worktrees/api" } });
   });
   it("disables writes for a read-only connection", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     mocks.permission.mockImplementation(
       (_environment, permission) => permission !== AuthSourceControlWriteScope,
     );
-    act(() =>
-      root.render(
-        <RegistryContext value={registry}>
-          <Surface />
-        </RegistryContext>,
-      ),
+    await screen.rerender(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
     );
     expect(item("web").disabled).toBe(true);
     expect(item("api").disabled).toBe(true);
@@ -324,6 +376,13 @@ describe("Git palette actions", () => {
   });
 
   it("rejects a write if permission is revoked during the status refresh", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item, registry, statuses } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     mocks.load.mockImplementation(async ({ input }) => {
       mocks.permission.mockReturnValue(false);
       return registry.get(statuses.get(input.cwd)!);
@@ -335,6 +394,13 @@ describe("Git palette actions", () => {
   it.each([false, true])(
     "rechecks thread permission before creating a feature branch (initially allowed: %s)",
     async (initiallyAllowed) => {
+      using harness = setup();
+      const { Surface, MountedSurface, item, registry, statuses } = harness;
+      await using _screen = await render(
+        <MountedSurface>
+          <Surface />
+        </MountedSurface>,
+      );
       mocks.permission.mockImplementation(
         (_environment, permission) =>
           initiallyAllowed || permission !== AuthOrchestrationOperateScope,
@@ -363,6 +429,13 @@ describe("Git palette actions", () => {
   );
 
   it("runs each repository's displayed action against its own remote environment checkout", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     expect(item("web").title).toBe("web: Commit, push & PR");
     expect(item("api").title).toBe("api: Pull");
     await act(async () => {
@@ -379,6 +452,13 @@ describe("Git palette actions", () => {
   });
 
   it("updates the action when repository status changes while the palette is open", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item, registry, statuses } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     await act(async () =>
       registry.set(
         statuses.get("/worktrees/api")!,
@@ -389,6 +469,13 @@ describe("Git palette actions", () => {
   });
 
   it("does not silently change a selected operation after refreshing", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     mocks.load.mockResolvedValue(AsyncResult.success(status({ hasWorkingTreeChanges: true })));
     await expect(item("api").run()).rejects.toThrow("status changed");
     expect(mocks.stacked).not.toHaveBeenCalled();
@@ -396,6 +483,13 @@ describe("Git palette actions", () => {
   });
 
   it("keeps default-branch confirmation and rejects a branch change before confirmation", async () => {
+    using harness = setup();
+    const { Surface, MountedSurface, item, registry, statuses } = harness;
+    await using _screen = await render(
+      <MountedSurface>
+        <Surface />
+      </MountedSurface>,
+    );
     await act(async () =>
       registry.set(
         statuses.get("/worktrees/web")!,
@@ -419,6 +513,13 @@ describe("Git palette actions", () => {
   it.each(["feature", "confirm"])(
     "allows retrying %s after a failed recheck without allowing duplicate writes",
     async (choice) => {
+      using harness = setup();
+      const { Surface, MountedSurface, item, registry, statuses } = harness;
+      await using _screen = await render(
+        <MountedSurface>
+          <Surface />
+        </MountedSurface>,
+      );
       await act(async () =>
         registry.set(
           statuses.get("/worktrees/web")!,

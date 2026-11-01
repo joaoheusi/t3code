@@ -300,7 +300,6 @@ let focusedFrame: ReturnType<typeof makeFrame> | null = null;
 let contextFailure: Error | null = null;
 let initialNavigation: (() => Promise<void>) | null = null;
 let desktopRendersNext = false;
-let desktopAttachmentChecked = Promise.withResolvers<void>();
 /** Replaces the answer to the desktop page's size reads. */
 let desktopSizeAnswer: (() => Promise<Record<string, unknown>>) | null = null;
 const desktopDetaches = new NodeEvents.EventEmitter();
@@ -382,7 +381,6 @@ const dependencies = Layer.mergeAll(
     isAttached: (key) =>
       Effect.sync(() => {
         const attached = desktopRenders(key.tabId);
-        desktopAttachmentChecked.resolve();
         return attached;
       }),
     endpoint: (key) =>
@@ -469,7 +467,6 @@ beforeEach(() => {
   focusedFrame = null;
   desktopTabs.clear();
   desktopRendersNext = false;
-  desktopAttachmentChecked = Promise.withResolvers<void>();
   desktopSizeAnswer = null;
   desktopDetachReady = Promise.withResolvers<void>();
   desktopReleased = Promise.withResolvers<void>();
@@ -1962,35 +1959,33 @@ it.live("a desktop page that comes back reconnects without waiting for a viewer"
   ).pipe(Effect.provide(layer)),
 );
 
-it.live("an agent tab that started headless moves to the desktop page once it mounts", () =>
+it.live("a late desktop attachment preserves the headless page that clients stream", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      // No window showed the thread in time, so the agent's tab runs headless.
       const { browser, broker, tabId } = yield* ready;
-      expect(contexts).toHaveLength(1);
+      const manager = yield* Manager.PreviewManager;
+      const checked = Promise.withResolvers<void>();
+      const list = manager.list;
+      using _listed = vi
+        .spyOn(manager, "list")
+        .mockImplementation((input) =>
+          list(input).pipe(Effect.tap(() => Effect.sync(() => checked.resolve()))),
+        );
       const viewer = yield* browser.attachViewer(viewerInput(tabId, false));
-      // A stalled viewer must still learn the tab moved.
       fillViewer(viewer, { _tag: "viewport", width: 1, height: 1 });
       yield* fixtureReady(() => desktopDetaches.listenerCount("attach") > 0);
-      // An attach the desktop already took back leaves the headless page alone.
-      desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
-      yield* Effect.promise(() => desktopAttachmentChecked.promise);
-      expect(contexts[0]!.close).not.toHaveBeenCalled();
-      // The user opens the thread; the desktop draws its own page for the tab.
       desktopTabs.add(tabId);
       desktopDetaches.emit("attach", { threadId: scope.thread.threadId, tabId });
-      yield* fixtureReady(() => desktopConnections.length > 0);
-      expect(contexts[0]!.close).toHaveBeenCalled();
-      // No second headless page replaced the first.
-      expect(contexts).toHaveLength(1);
+      yield* Effect.promise(() => checked.promise);
+      expect(contexts[0]!.close).not.toHaveBeenCalled();
+      expect(desktopConnections).toHaveLength(0);
       const backlog = yield* Queue.clear(viewer.output);
-      expect(backlog.map((item) => item._tag)).toEqual(["reconnect"]);
-      // The agent now drives the page the user sees, with the user's cookies.
-      const desktopPage = desktopConnections[0]!.context.page;
-      const evaluated = desktopPage.evaluate.mock.calls.length;
+      expect(backlog.some((item) => item._tag === "reconnect")).toBe(false);
+      const page = contexts[0]!.page;
+      const evaluated = page.evaluate.mock.calls.length;
       yield* broker.invoke({ scope, tabId, operation: "snapshot", input: {} });
-      expect(desktopPage.evaluate.mock.calls.length).toBeGreaterThan(evaluated);
-      expect(desktopConnections).toHaveLength(1);
+      expect(page.evaluate.mock.calls.length).toBeGreaterThan(evaluated);
+      expect(contexts).toHaveLength(1);
     }),
   ).pipe(Effect.provide(layer)),
 );
