@@ -477,30 +477,14 @@ export const make = Effect.gen(function* () {
     return yield* withRemoteWriteLock(
       cwd,
       Effect.gen(function* () {
-        const previousRemote = (yield* getCachedStatus(cwd))?.remote?.value;
         const remoteRead = yield* readRemoteStatus(cwd, options);
-        const remote = remoteRead?.value;
         const pulled =
           options?.refreshUpstream === false
             ? null
             : yield* maybeAutoPull(cwd, remoteRead, options?.policyCwds ?? [cwd]);
         if (pulled !== null) return pulled.remote;
-        // Local status holds the Changes totals, which compare against remote refs. A fetch can
-        // move them with no local trigger (a push from a terminal, a PR merged on the host), so
-        // re-read local status on the first fetch, whenever divergence moves, and whenever the PR
-        // base moves (remote status records it as the branch's Changes base).
-        if (
-          remote &&
-          (!previousRemote ||
-            previousRemote.aheadCount !== remote.aheadCount ||
-            previousRemote.behindCount !== remote.behindCount ||
-            previousRemote.aheadOfDefaultCount !== remote.aheadOfDefaultCount ||
-            previousRemote.baseComparison?.ref !== remote.baseComparison?.ref ||
-            previousRemote.baseComparison?.behindCount !== remote.baseComparison?.behindCount ||
-            previousRemote.pr?.baseRef !== remote.pr?.baseRef)
-        ) {
-          yield* refreshLocalStatusCore(cwd);
-        }
+        // Base refs and merge bases can move without changing divergence counts.
+        yield* refreshLocalStatusCore(cwd);
         return yield* updateCachedRemoteStatus(cwd, remoteRead, { publish: true });
       }),
     );
@@ -537,8 +521,7 @@ export const make = Effect.gen(function* () {
         yield* workflow.invalidateStatus(cwd);
         const remoteRead = yield* readRemoteStatus(cwd, { refreshUpstream });
         // Fetch can move the base used for local Changes totals.
-        const local = yield* workflow.localStatus({ cwd });
-        yield* updateCachedLocalStatus(cwd, local, { publish: true });
+        yield* refreshLocalStatusCore(cwd);
         // Without a fetch, the cached behind count cannot justify an automatic pull.
         const pulled = refreshUpstream ? yield* maybeAutoPull(cwd, remoteRead, [rawCwd]) : null;
         if (pulled !== null) return mergeGitStatusParts(pulled.local, pulled.remote);
