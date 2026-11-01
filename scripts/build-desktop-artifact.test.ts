@@ -37,7 +37,7 @@ import {
   MissingMacPasskeyProvisioningProfileError,
   packWindowsServerAsar,
   preflightWindowsDesktopBuild,
-  renderMacPasskeyEntitlements,
+  renderMacEntitlements,
   resolveMacWebAuthnEntitlements,
   resolveMacPasskeySigningConfiguration,
   resolveDesktopBuildIconAssets,
@@ -294,6 +294,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         "J4 Code lets commands run by terminals and coding agents use the microphone.",
       );
       assert.equal(mac.identity, "-");
+      const signedConfig = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.2.4888",
+        true,
+        false,
+        undefined,
+        { entitlementsPath: "/tmp/entitlements.mac.plist" },
+      );
+      const signedMac = signedConfig.mac as Record<string, unknown>;
+      assert.match(String(signedMac.sign), /scripts\/sign-macos\.ts$/u);
+      assert.equal(signedMac.entitlements, "/tmp/entitlements.mac.plist");
+      assert.notProperty(signedMac, "provisioningProfile");
+      assert.notProperty(signedMac, "identity");
+      assert.notProperty(signedMac, "hardenedRuntime");
     }).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })))),
   );
 
@@ -1471,7 +1486,27 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     ),
   );
 
-  it("derives macOS passkey signing configuration from the Clerk publishable key", () => {
+  it("resolves optional macOS passkey signing configuration from the Clerk publishable key", () => {
+    assert.isUndefined(resolveMacPasskeySigningConfiguration({}));
+    assert.isUndefined(
+      resolveMacPasskeySigningConfiguration({ T3CODE_APPLE_TEAM_ID: "SC7RQ3BWQ6" }),
+    );
+    const entitlements = renderMacEntitlements(undefined, {
+      touchIdKeychainAccessGroup: undefined,
+      browserPasskeys: false,
+    });
+    for (const key of [
+      "com.apple.security.cs.allow-jit",
+      "com.apple.security.cs.allow-unsigned-executable-memory",
+      "com.apple.security.cs.disable-library-validation",
+      "com.apple.security.device.camera",
+      "com.apple.security.device.audio-input",
+    ]) {
+      assert.include(entitlements, `<key>${key}</key>\n    <true/>`);
+    }
+    assert.notInclude(entitlements, "com.apple.application-identifier");
+    assert.notInclude(entitlements, "com.apple.developer.");
+    assert.notInclude(entitlements, "keychain-access-groups");
     const configuration = resolveMacPasskeySigningConfiguration({
       T3CODE_APPLE_TEAM_ID: "abc1234567",
       T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
@@ -1493,7 +1528,8 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       T3CODE_CLERK_PASSKEY_RP_DOMAINS:
         " Clerk.Example.com,example.clerk.accounts.dev,clerk.example.com ",
     });
-    const entitlements = renderMacPasskeyEntitlements(configuration, {
+    assert.isDefined(configuration);
+    const entitlements = renderMacEntitlements(configuration, {
       touchIdKeychainAccessGroup: undefined,
       browserPasskeys: false,
     });
@@ -1560,7 +1596,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       },
     );
 
-    const entitlements = renderMacPasskeyEntitlements(
+    const entitlements = renderMacEntitlements(
       { ...configuration, rpDomains: ["clerk.example.com"], provisioningProfilePath: "" },
       resolveMacWebAuthnEntitlements(
         profile(
@@ -1580,6 +1616,21 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   });
 
   it("rejects incomplete macOS passkey signing configuration", () => {
+    assert.throws(
+      () =>
+        resolveMacPasskeySigningConfiguration({
+          T3CODE_CLERK_PASSKEY_RP_DOMAINS: "example.clerk.accounts.dev",
+        }),
+      /T3CODE_APPLE_TEAM_ID/u,
+    );
+    assert.throws(
+      () =>
+        resolveMacPasskeySigningConfiguration({
+          T3CODE_APPLE_TEAM_ID: "ABC1234567",
+          T3CODE_MACOS_PROVISIONING_PROFILE: "/tmp/t3code.provisionprofile",
+        }),
+      /T3CODE_CLERK_PUBLISHABLE_KEY or T3CODE_CLERK_PASSKEY_RP_DOMAINS is required/u,
+    );
     const captureError = (env: Readonly<Record<string, string | undefined>>) => {
       try {
         resolveMacPasskeySigningConfiguration(env);
