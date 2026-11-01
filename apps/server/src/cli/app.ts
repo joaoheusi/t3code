@@ -60,7 +60,7 @@ export class DesktopAppUnreachableError extends Schema.TaggedError<DesktopAppUnr
   },
 ) {
   override get message(): string {
-    return "Could not reach the J4 Code (Unofficial) desktop app. Start or update the desktop app on this machine, then run `j4code app` again. A running J4 Code (Unofficial) server is not enough.";
+    return "Could not reach the J4 Code desktop app. Start or update the desktop app on this machine, then run `j4code app` again. A running J4 Code server is not enough.";
   }
 }
 
@@ -74,7 +74,7 @@ export class DesktopAppRequestFailedError extends Schema.TaggedError<DesktopAppR
   },
 ) {
   override get message(): string {
-    return `J4 Code (Unofficial) could not open ${this.workspaceRoot} (${this.code}).`;
+    return `J4 Code could not open ${this.workspaceRoot} (${this.code}).`;
   }
 }
 
@@ -266,7 +266,7 @@ const runAppCommand = Effect.fn("cli.app")(function* (flags: {
     });
   }
 
-  yield* Console.log(`Opened ${workspaceRoot} in J4 Code (Unofficial).`);
+  yield* Console.log(`Opened ${workspaceRoot} in J4 Code.`);
 });
 
 export const appCommand = Command.make("app", {
@@ -276,6 +276,6 @@ export const appCommand = Command.make("app", {
     Argument.optional,
   ),
 }).pipe(
-  Command.withDescription("Open a project in the running J4 Code (Unofficial) desktop app."),
+  Command.withDescription("Open a project in the running J4 Code desktop app."),
   Command.withHandler(runAppCommand),
 );

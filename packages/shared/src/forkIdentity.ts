@@ -1,6 +1,6 @@
 /** Shared distribution identity. Upstream artifacts never contain the fork extensions. */
 export const FORK_IDENTITY = {
-  name: "J4 Code (Unofficial)",
+  name: "J4 Code",
   repository: "joaoheusi/t3code",
   upstreamCommit: "0e7346ccd9427c06161e222319e718e6bd70887f",
   version: "0.1.0-j4.15",

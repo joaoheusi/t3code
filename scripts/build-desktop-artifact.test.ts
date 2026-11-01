@@ -243,7 +243,7 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
   it("keeps fork release branding separate from updater channels", () => {
     assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
     assert.equal(resolveDesktopUpdateChannel("0.0.45-j4.3"), "latest");
-    assert.equal(resolveDesktopProductName("0.0.45-j4.3"), "J4 Code (Unofficial)");
+    assert.equal(resolveDesktopProductName("0.0.45-j4.3"), "J4 Code");
     assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.45-j4.3"), {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
@@ -267,14 +267,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       const info = mac.extendInfo as Record<string, unknown>;
 
       assert.equal(config.appId, "dev.joaoheusi.j4code");
-      assert.equal(config.productName, "J4 Code (Unofficial)");
+      assert.equal(config.productName, "J4 Code");
       assert.isNull(config.publish);
       assert.equal(
         (config.dmg as Record<string, unknown>).background,
         "dmg/dmg-background-nightly.png",
       );
       assert.deepStrictEqual(mac.protocols, [
-        { name: "J4 Code (Unofficial)", schemes: ["j4code", "j4code-dev"] },
+        { name: "J4 Code", schemes: ["j4code", "j4code-dev"] },
         { name: "Web site URL", schemes: ["http", "https"], role: "Viewer" },
       ]);
       assert.equal(
