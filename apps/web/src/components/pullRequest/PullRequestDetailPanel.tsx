@@ -1260,7 +1260,7 @@ export function PullRequestDetailPanel({
     <PullRequestResolveConflictsButton
       handoff={handoff}
       unavailable={attachTarget === null && (checkoutRoot === null || !canPrepareWorktree)}
-      onResolve={startResolveConflicts}
+      onResolve={() => startResolveConflicts()}
     />
   );
 
@@ -1395,7 +1395,7 @@ export function PullRequestDetailPanel({
                 askAboutPullRequest={askAboutPullRequest}
                 explainPullRequest={explainPullRequest}
                 canFixFindings={canFixFindings}
-                startFixFindings={startFixFindings}
+                startFixFindings={() => startFixFindings()}
                 openInNewThread={() =>
                   conflicting ? startResolveConflicts(true) : startFixFindings(true)
                 }

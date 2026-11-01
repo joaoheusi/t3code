@@ -4,6 +4,7 @@ import {
   EnvironmentId,
   ProjectId,
   SourceControlProviderKind,
+  ThreadId,
   type PullRequestDetailView,
 } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
@@ -53,8 +54,27 @@ vi.mock(import("~/state/usePullRequestStack"), async (original) => ({
 }));
 vi.mock(import("~/state/use-atom-command"), async (original) => ({
   ...(await original()),
-  useAtomCommand: (() => vi.fn()) as never,
+  useAtomCommand: (() => async () => ({ _tag: "Success", value: [] })) as never,
 }));
+
+vi.mock(import("~/quickActions/useQuickActions"), async (original) => ({
+  ...(await original()),
+  useResolveActionContext: (() => async () => ({
+    threadTitle: null,
+    workspaceRevision: null,
+    repositories: [],
+    pullRequest: {
+      url: detail.url,
+      headSha: null,
+      observedAt: detail.updatedAt,
+      conflicts: "conflicts",
+      failures: "",
+    },
+    notices: [],
+  })) as never,
+}));
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { registerActionEditor } from "../../quickActions/dispatcher";
 
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 
@@ -152,13 +172,30 @@ it.each([AuthSourceControlWriteScope, AuthOrchestrationOperateScope])(
 
 it("can still add conflict resolution to an existing composer without checkout scopes", async () => {
   setup();
+  const store = useComposerDraftStore.getState();
+  store.setProjectDraftThreadId(scopeProjectRef(environmentId, detail.projectId), draftId, {
+    threadId: ThreadId.make("draft-thread"),
+  });
+  using _composer = {
+    [Symbol.dispose]: registerActionEditor(draftId, {
+      available: () => true,
+      read: () => ({ text: "", selection: { start: 0, end: 0 } }),
+      replace: (_start, _end, text) => {
+        store.setPrompt(draftId, text);
+        return true;
+      },
+      submit: () => false,
+    }),
+  };
   permissions.checkout = false;
   permissions.operate = false;
   await using screen = await render(panel(true));
   const resolve = screen.getByRole("button", { name: "Resolve conflicts" });
   await expect.element(resolve).toBeEnabled();
   await act(() => resolve.click());
-  const draft = useComposerDraftStore.getState().getComposerDraft(draftId);
-  expect(draft?.prompt).toContain("conflicts");
-  expect(draft?.prompt).toContain(detail.url);
+  await vi.waitFor(() => {
+    const draft = useComposerDraftStore.getState().getComposerDraft(draftId);
+    expect(draft?.prompt).toContain("conflicts");
+    expect(draft?.prompt).toContain(detail.url);
+  });
 });

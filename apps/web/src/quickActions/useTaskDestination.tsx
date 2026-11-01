@@ -115,7 +115,7 @@ export function useTaskDestination(
     bindingId?: string,
     options?: TaskDeliveryOptions,
   ) => {
-    if (lock.current || !canOperate) return;
+    if (lock.current) return;
     lock.current = true;
     // Capture first: the destination is fixed even if focus moves while context loads.
     const invocation = actionDispatcher.capture(
@@ -126,7 +126,7 @@ export function useTaskDestination(
     const loading = task.context
       ? toastManager.add({ type: "loading", title: "Collecting pull request context…" })
       : null;
-    try {
+    return (async () => {
       const draft =
         typeof destination === "string"
           ? useComposerDraftStore.getState().getDraftSession(destination)
@@ -188,18 +188,20 @@ export function useTaskDestination(
         addReviewComments(destination, task);
         options?.onDelivered?.(destination);
       }
-    } catch (failure) {
-      if (invocation) actionDispatcher.cancel(invocation);
-      const error = {
-        type: "error" as const,
-        title: "Could not prepare the pull request task",
-        description: failure instanceof Error ? failure.message : "Refresh and try again.",
-      };
-      if (loading) toastManager.update(loading, error);
-      else toastManager.add(error);
-    } finally {
-      lock.current = false;
-    }
+    })()
+      .catch((failure) => {
+        if (invocation) actionDispatcher.cancel(invocation);
+        const error = {
+          type: "error" as const,
+          title: "Could not prepare the pull request task",
+          description: failure instanceof Error ? failure.message : "Refresh and try again.",
+        };
+        if (loading) toastManager.update(loading, error);
+        else toastManager.add(error);
+      })
+      .finally(() => {
+        lock.current = false;
+      });
   };
 
   const chooseRepository = (
@@ -236,12 +238,12 @@ export function useTaskDestination(
   };
 
   const request = (task: PullRequestThreadTask, options?: TaskDeliveryOptions) => {
-    if (!canOperate) {
-      toastManager.add({ type: "error", title: "This connection is read-only" });
-      return;
-    }
     if (target) {
       void deliver(target, task, undefined, options);
+      return;
+    }
+    if (!canOperate) {
+      toastManager.add({ type: "error", title: "This connection is read-only" });
       return;
     }
     // No thread asked for this task, so the user picks one. Never guess the latest thread.
