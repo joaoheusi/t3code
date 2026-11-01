@@ -1,5 +1,6 @@
 import type { ExpoConfig } from "expo/config";
 
+import { MOBILE_PRODUCTION_IDENTITY } from "../../scripts/lib/mobile-app-identity.ts";
 import { BRAND_ASSET_PATHS } from "../../scripts/lib/brand-assets.ts";
 import { loadRepoEnv } from "../../scripts/lib/public-config.ts";
 
@@ -82,7 +83,6 @@ const VARIANT_CONFIG = {
     scheme: "t3code-dev",
     iosBundleIdentifier: "com.t3tools.t3code.dev",
     androidPackage: "com.t3tools.t3code.dev",
-    relyingParty: "clerk.t3.codes",
     assets: DEVELOPMENT_ASSETS,
   },
   preview: {
@@ -90,15 +90,10 @@ const VARIANT_CONFIG = {
     scheme: "t3code-preview",
     iosBundleIdentifier: "com.t3tools.t3code.preview",
     androidPackage: "com.t3tools.t3code.preview",
-    relyingParty: "clerk.t3.codes",
     assets: PREVIEW_ASSETS,
   },
   production: {
-    appName: "J4 Code",
-    scheme: "j4code",
-    iosBundleIdentifier: "com.joaoheusi.j4code",
-    androidPackage: "com.joaoheusi.j4code",
-    relyingParty: "clerk.t3.codes",
+    ...MOBILE_PRODUCTION_IDENTITY,
     assets: RELEASE_ASSETS,
   },
 } as const;

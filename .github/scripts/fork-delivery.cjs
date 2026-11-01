@@ -66,4 +66,44 @@ function hasRecentIosRuntime(fingerprint, tags, now) {
   });
 }
 
-module.exports = { planForkRelease, hasRecentIosRuntime };
+async function ensureForkReleaseDraft({ github, repo, sha, tag }) {
+  let release;
+  try {
+    release = (await github.rest.repos.getReleaseByTag({ ...repo, tag })).data;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  if (release) {
+    if (!release.draft) throw new Error("Expected a draft release.");
+    if (release.target_commitish !== sha)
+      throw new Error("Draft release must target the exact release commit.");
+  }
+  let existingTag;
+  try {
+    existingTag = (await github.rest.git.getRef({ ...repo, ref: `tags/${tag}` })).data.object;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+  }
+  while (existingTag?.type === "tag") {
+    existingTag = (await github.rest.git.getTag({ ...repo, tag_sha: existingTag.sha })).data.object;
+  }
+  if (existingTag && (existingTag.type !== "commit" || existingTag.sha !== sha))
+    throw new Error("Release tag targets a different commit.");
+  if (!release) {
+    await github.rest.repos.createRelease({
+      ...repo,
+      tag_name: tag,
+      target_commitish: sha,
+      draft: true,
+      name: `J4 Code ${tag}`,
+      generate_release_notes: true,
+    });
+  }
+}
+
+function planIosDelivery({ fingerprint, tags, now, forceBuild }) {
+  const publishUpdate = hasRecentIosRuntime(fingerprint, tags, now);
+  return { build: forceBuild || !publishUpdate, publishUpdate };
+}
+
+module.exports = { planForkRelease, hasRecentIosRuntime, ensureForkReleaseDraft, planIosDelivery };

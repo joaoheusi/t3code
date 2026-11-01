@@ -1,23 +1,36 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { planForkRelease, hasRecentIosRuntime } = require("./fork-delivery.cjs");
+const {
+  planForkRelease,
+  hasRecentIosRuntime,
+  ensureForkReleaseDraft,
+  planIosDelivery,
+} = require("./fork-delivery.cjs");
 
 function fixture({ order = "ahead", ci = "success", main = "ahead", releases = [] } = {}) {
+  const sha = "a".repeat(40);
   return {
     repo: { owner: "joaoheusi", repo: "t3code" },
-    sha: "a".repeat(40),
+    sha,
     sequence: 101,
     github: {
       rest: {
         repos: {
           compareCommitsWithBasehead: async ({ basehead }) => ({
-            data: { status: basehead.endsWith("...main") ? main : order },
+            data: { status: basehead === `${sha}...main` ? main : order },
           }),
           listReleases() {},
         },
         actions: {
-          listWorkflowRuns: async () => ({
-            data: { workflow_runs: [{ status: "completed", conclusion: ci }] },
+          listWorkflowRuns: async (params) => ({
+            data: {
+              workflow_runs:
+                params.workflow_id === "ci.yml" &&
+                params.head_sha === sha &&
+                params.event === "push"
+                  ? [{ status: "completed", conclusion: ci }]
+                  : [],
+            },
           }),
         },
       },
@@ -70,12 +83,133 @@ test("only reuses a matching, unexpired runtime whose upload was recorded", () =
     hasRecentIosRuntime(fingerprint, [`j4-ios-runtime-${fingerprint}-2026-10-01-42`], now),
     true,
   );
+  assert.equal(
+    hasRecentIosRuntime(fingerprint, [`j4-ios-runtime-${fingerprint}-2026-08-18-42`], now),
+    true,
+  );
+  assert.equal(
+    hasRecentIosRuntime(
+      fingerprint,
+      [`j4-ios-runtime-${fingerprint}-2026-08-17-42`],
+      new Date("2026-10-31T00:00:00Z"),
+    ),
+    false,
+  );
   for (const tags of [
     [],
+    [`j4-ios-runtime-${fingerprint}-2026-08-17-42`],
     [`j4-ios-runtime-${fingerprint}-2026-07-01-42`],
     [`j4-ios-runtime-${"c".repeat(40)}-2026-10-01-42`],
     [`j4-ios-runtime-${fingerprint}-2026-11-01-42`],
   ]) {
     assert.equal(hasRecentIosRuntime(fingerprint, tags, now), false);
   }
+});
+
+test("draft reuse requires the exact commit and refuses mismatched tags or published releases", async () => {
+  const sha = "a".repeat(40);
+  const repo = { owner: "joaoheusi", repo: "t3code" };
+  const tag = "v0.2.101";
+  let release;
+  let tagSha;
+  let branchSha;
+  const annotatedTags = new Map();
+  const github = {
+    rest: {
+      repos: {
+        getReleaseByTag: async () => {
+          if (!release) throw { status: 404 };
+          return { data: release };
+        },
+        getCommit: async () => {
+          if (!tagSha && !branchSha) throw { status: 422 };
+          return { data: { sha: tagSha ?? branchSha } };
+        },
+        createRelease: async (input) => {
+          release = input;
+          return { data: input };
+        },
+      },
+      git: {
+        getRef: async ({ ref }) => {
+          assert.equal(ref, `tags/${tag}`);
+          if (!tagSha) throw { status: 404 };
+          return {
+            data: {
+              object: annotatedTags.size
+                ? { type: "tag", sha: "outer" }
+                : { type: "commit", sha: tagSha },
+            },
+          };
+        },
+        getTag: async ({ tag_sha }) => {
+          if (!annotatedTags.has(tag_sha)) throw { status: 404 };
+          return { data: { object: annotatedTags.get(tag_sha) } };
+        },
+      },
+    },
+  };
+  const run = () => ensureForkReleaseDraft({ github, repo, sha, tag });
+  await run();
+  assert.equal(release.target_commitish, sha);
+  assert.equal(release.draft, true);
+  await run();
+  release.target_commitish = "main";
+  await assert.rejects(run(), /commit/);
+  release.target_commitish = "b".repeat(40);
+  await assert.rejects(run(), /commit/);
+  release.target_commitish = sha;
+  tagSha = "b".repeat(40);
+  await assert.rejects(run(), /commit/);
+  tagSha = sha;
+  await run();
+  annotatedTags.set("outer", { type: "tag", sha: "inner" });
+  annotatedTags.set("inner", { type: "commit", sha });
+  await run();
+  annotatedTags.set("inner", { type: "commit", sha: "b".repeat(40) });
+  await assert.rejects(run(), /commit/);
+  annotatedTags.set("inner", { type: "tree", sha });
+  await assert.rejects(run(), /commit/);
+  annotatedTags.delete("inner");
+  await assert.rejects(run(), (error) => error.status === 404);
+  annotatedTags.clear();
+  release.draft = false;
+  await assert.rejects(run(), /draft/);
+  release = undefined;
+  tagSha = "b".repeat(40);
+  await assert.rejects(run(), /commit/);
+  assert.equal(release, undefined);
+  tagSha = undefined;
+  branchSha = "b".repeat(40);
+  await run();
+  assert.equal(release.target_commitish, sha);
+  github.rest.git.getRef = async () => {
+    throw { status: 403 };
+  };
+  await assert.rejects(run(), (error) => error.status === 403);
+  github.rest.repos.getReleaseByTag = async () => {
+    throw { status: 403 };
+  };
+  await assert.rejects(run(), (error) => error.status === 403);
+});
+
+test("refreshing a native build also publishes updates to compatible existing installs", () => {
+  const fingerprint = "b".repeat(40);
+  const input = {
+    fingerprint,
+    tags: [`j4-ios-runtime-${fingerprint}-2026-10-01-42`],
+    now: new Date("2026-10-31T12:00:00Z"),
+  };
+  assert.deepEqual(planIosDelivery({ ...input, forceBuild: false }), {
+    build: false,
+    publishUpdate: true,
+  });
+  assert.deepEqual(planIosDelivery({ ...input, forceBuild: true }), {
+    build: true,
+    publishUpdate: true,
+  });
+  assert.deepEqual(planIosDelivery({ ...input, tags: [], forceBuild: false }), {
+    build: true,
+    publishUpdate: false,
+  });
 });

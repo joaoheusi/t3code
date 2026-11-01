@@ -112,18 +112,21 @@ jobs:
           grep -q 'owner: joaoheusi' "$app_path/Contents/Resources/app-update.yml"
           grep -q 'repo: t3code' "$app_path/Contents/Resources/app-update.yml"
           (cd "$release_dir" && shasum -a 256 *.dmg *.zip *.blockmap latest-mac.yml > SHA256SUMS)
+      - name: Prepare and validate the draft release
+        uses: actions/github-script@v8
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+        with:
+          script: |
+            const { ensureForkReleaseDraft } = require('./.github/scripts/fork-delivery.cjs');
+            await ensureForkReleaseDraft({ github, repo: context.repo, sha: process.env.RELEASE_SHA, tag: process.env.TAG });
       - name: Publish only after every asset is attached
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
-          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --json isDraft >/dev/null 2>&1; then
-            test "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true
-          else
-            gh release create "$TAG" --draft --target "$RELEASE_SHA" --title "J4 Code $TAG" --generate-notes
-          fi
           gh release upload "$TAG" "$RUNNER_TEMP/j4-release/"*.dmg "$RUNNER_TEMP/j4-release/"*.zip "$RUNNER_TEMP/j4-release/"*.blockmap "$RUNNER_TEMP/j4-release/latest-mac.yml" "$RUNNER_TEMP/j4-release/SHA256SUMS" --clobber
           gh release edit "$TAG" --draft=false --latest
 
@@ -179,18 +182,13 @@ jobs:
           node <<'NODE'
           const fs = require('node:fs');
           const { execFileSync } = require('node:child_process');
-          const { hasRecentIosRuntime } = require('./.github/scripts/fork-delivery.cjs');
+          const { planIosDelivery } = require('./.github/scripts/fork-delivery.cjs');
           const tags = execFileSync('git', ['tag', '--list', 'j4-ios-runtime-*'], { encoding: 'utf8' }).trim().split('\n');
-          const build = process.env.FORCE_BUILD === 'true' || !hasRecentIosRuntime(process.env.FINGERPRINT, tags, new Date());
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `fingerprint=${process.env.FINGERPRINT}\nbuild=${build}\n`);
+          const { build, publishUpdate } = planIosDelivery({ fingerprint: process.env.FINGERPRINT, tags, now: new Date(), forceBuild: process.env.FORCE_BUILD === 'true' });
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `fingerprint=${process.env.FINGERPRINT}\nbuild=${build}\npublishUpdate=${publishUpdate}\n`);
           NODE
-      - name: Publish compatible in-app update
-        if: steps.runtime.outputs.build == 'false'
-        working-directory: apps/mobile
-        env:
-          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
-        run: eas update --channel production --platform ios --environment production --message "J4 Code $RELEASE_SHA" --non-interactive
       - name: Build and submit new native runtime
+        id: build
         if: steps.runtime.outputs.build == 'true'
         working-directory: apps/mobile
         env:
@@ -214,3 +212,11 @@ jobs:
           if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$RELEASE_SHA" >/dev/null
           fi
+      - name: Publish compatible in-app update
+        if: >-
+          !cancelled() && steps.runtime.outputs.publishUpdate == 'true' &&
+          (steps.runtime.outputs.build == 'false' || steps.build.outcome == 'success')
+        working-directory: apps/mobile
+        env:
+          RELEASE_SHA: ${{ needs.plan.outputs.sha }}
+        run: eas update --channel production --platform ios --environment production --message "J4 Code $RELEASE_SHA" --non-interactive

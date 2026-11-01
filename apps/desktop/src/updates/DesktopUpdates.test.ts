@@ -24,9 +24,10 @@ import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 describe("DesktopUpdates", () => {
   it.effect("accepts only the fork feed by default", () =>
     Effect.gen(function* () {
-      for (const [owner, enabled] of [
-        ["joaoheusi", true],
-        ["pingdotgg", false],
+      for (const [owner, repo, enabled] of [
+        ["joaoheusi", "t3code", true],
+        ["pingdotgg", "t3code", false],
+        ["joaoheusi", "other-repo", false],
       ] as const) {
         yield* Effect.scoped(
           Effect.gen(function* () {
@@ -37,7 +38,7 @@ describe("DesktopUpdates", () => {
         ).pipe(
           Effect.provide(
             makeHarness({
-              updateFeed: `provider: github\nowner: ${owner}\nrepo: t3code\n`,
+              updateFeed: `provider: github\nowner: ${owner}\nrepo: ${repo}\n`,
               env: { T3CODE_DISABLE_AUTO_UPDATE: undefined, T3CODE_DESKTOP_MOCK_UPDATES: "false" },
             }).layer,
           ),
@@ -52,7 +53,7 @@ describe("DesktopUpdates", () => {
       const finishCheck = yield* Deferred.make<void>();
       const downloaded = yield* Deferred.make<void>();
       const harness = makeHarness({
-        env: { J4CODE_AUTO_DOWNLOAD_UPDATES: "true" },
+        env: { J4CODE_AUTO_DOWNLOAD_UPDATES: undefined },
         checkForUpdates: Deferred.succeed(checked, undefined).pipe(
           Effect.andThen(Deferred.await(finishCheck)),
         ),
