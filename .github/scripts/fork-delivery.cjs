@@ -80,11 +80,14 @@ async function ensureForkReleaseDraft({ github, repo, sha, tag }) {
   }
   let existingTag;
   try {
-    existingTag = (await github.rest.repos.getCommit({ ...repo, ref: tag })).data;
+    existingTag = (await github.rest.git.getRef({ ...repo, ref: `tags/${tag}` })).data.object;
   } catch (error) {
     if (error.status !== 404) throw error;
   }
-  if (existingTag && existingTag.sha !== sha)
+  while (existingTag?.type === "tag") {
+    existingTag = (await github.rest.git.getTag({ ...repo, tag_sha: existingTag.sha })).data.object;
+  }
+  if (existingTag && (existingTag.type !== "commit" || existingTag.sha !== sha))
     throw new Error("Release tag targets a different commit.");
   if (!release) {
     await github.rest.repos.createRelease({

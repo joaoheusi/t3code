@@ -188,6 +188,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `fingerprint=${process.env.FINGERPRINT}\nbuild=${build}\npublishUpdate=${publishUpdate}\n`);
           NODE
       - name: Build and submit new native runtime
+        id: build
         if: steps.runtime.outputs.build == 'true'
         working-directory: apps/mobile
         env:
@@ -212,7 +213,9 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$RELEASE_SHA" >/dev/null
           fi
       - name: Publish compatible in-app update
-        if: steps.runtime.outputs.publishUpdate == 'true'
+        if: >-
+          !cancelled() && steps.runtime.outputs.publishUpdate == 'true' &&
+          (steps.runtime.outputs.build == 'false' || steps.build.outcome == 'success')
         working-directory: apps/mobile
         env:
           RELEASE_SHA: ${{ needs.plan.outputs.sha }}

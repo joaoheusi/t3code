@@ -112,6 +112,8 @@ test("draft reuse requires the exact commit and refuses mismatched tags or publi
   const tag = "v0.2.101";
   let release;
   let tagSha;
+  let branchSha;
+  const annotatedTags = new Map();
   const github = {
     rest: {
       repos: {
@@ -119,16 +121,30 @@ test("draft reuse requires the exact commit and refuses mismatched tags or publi
           if (!release) throw { status: 404 };
           return { data: release };
         },
-        getCommit: async ({ ref }) => {
-          if (ref === tag) {
-            if (!tagSha) throw { status: 404 };
-            return { data: { sha: tagSha } };
-          }
-          return { data: { sha: ref === "main" ? sha : ref } };
+        getCommit: async () => {
+          if (!tagSha && !branchSha) throw { status: 422 };
+          return { data: { sha: tagSha ?? branchSha } };
         },
         createRelease: async (input) => {
           release = input;
           return { data: input };
+        },
+      },
+      git: {
+        getRef: async ({ ref }) => {
+          assert.equal(ref, `tags/${tag}`);
+          if (!tagSha) throw { status: 404 };
+          return {
+            data: {
+              object: annotatedTags.size
+                ? { type: "tag", sha: "outer" }
+                : { type: "commit", sha: tagSha },
+            },
+          };
+        },
+        getTag: async ({ tag_sha }) => {
+          if (!annotatedTags.has(tag_sha)) throw { status: 404 };
+          return { data: { object: annotatedTags.get(tag_sha) } };
         },
       },
     },
@@ -147,12 +163,30 @@ test("draft reuse requires the exact commit and refuses mismatched tags or publi
   await assert.rejects(run(), /commit/);
   tagSha = sha;
   await run();
+  annotatedTags.set("outer", { type: "tag", sha: "inner" });
+  annotatedTags.set("inner", { type: "commit", sha });
+  await run();
+  annotatedTags.set("inner", { type: "commit", sha: "b".repeat(40) });
+  await assert.rejects(run(), /commit/);
+  annotatedTags.set("inner", { type: "tree", sha });
+  await assert.rejects(run(), /commit/);
+  annotatedTags.delete("inner");
+  await assert.rejects(run(), (error) => error.status === 404);
+  annotatedTags.clear();
   release.draft = false;
   await assert.rejects(run(), /draft/);
   release = undefined;
   tagSha = "b".repeat(40);
   await assert.rejects(run(), /commit/);
   assert.equal(release, undefined);
+  tagSha = undefined;
+  branchSha = "b".repeat(40);
+  await run();
+  assert.equal(release.target_commitish, sha);
+  github.rest.git.getRef = async () => {
+    throw { status: 403 };
+  };
+  await assert.rejects(run(), (error) => error.status === 403);
   github.rest.repos.getReleaseByTag = async () => {
     throw { status: 403 };
   };
