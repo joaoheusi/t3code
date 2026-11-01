@@ -2685,12 +2685,13 @@ const make = Effect.gen(function* () {
         if (current?.desktop) return;
         // A desktop that already let go again leaves the headless page in place.
         if (!(yield* desktopChannel.isAttached(key))) return;
-        if (current) dropTab(current, false, true);
         const { sessions } = yield* manager.list({ threadId: ThreadId.make(key.threadId) });
         const snapshot = sessions.find(
           (session) => session.tabId === key.tabId && session.runtime === "server",
         );
-        if (snapshot) yield* Effect.promise(() => ensureTab(snapshot).catch(constVoid));
+        if (!snapshot || snapshot.headless) return;
+        if (current) dropTab(current, false, true);
+        yield* Effect.promise(() => ensureTab(snapshot).catch(constVoid));
       }).pipe(Effect.ignore),
     ),
     Effect.forkScoped,
