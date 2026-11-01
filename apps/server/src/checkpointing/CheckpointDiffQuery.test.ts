@@ -255,6 +255,7 @@ it.effect("shares the turn and full-thread diff budget across real Git batches",
     const query = yield* CheckpointDiffQuery.make.pipe(
       Effect.provide(
         Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(null),
           getCheckpointContext: () =>
             Effect.succeed({
               runs: [{ id: runId, ordinal: 1, status: "completed" }],
