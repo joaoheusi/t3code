@@ -7,7 +7,7 @@ import {
   RunId,
   OrchestrationV2DelegatedFrom,
   OrchestrationV2RunStatus,
-  OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  OrchestrationV2AgentThreadLaunchWorkspaceStrategy,
   RuntimeMode,
   ProviderInteractionMode,
   Project,
@@ -138,7 +138,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     runtimeMode: Schema.optional(RuntimeMode),
     interactionMode: Schema.optional(ProviderInteractionMode),
     workspaceStrategy: Schema.optional(
-      OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
+      OrchestrationV2AgentThreadLaunchWorkspaceStrategy.annotate({
         description:
           "'worktree': new checkout from `baseRef`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the default, not your worktree. Stack: parent branch as `baseRef`, `startFromOrigin: false`. Uncommitted edits are not copied.",
       }),
