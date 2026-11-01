@@ -3,6 +3,8 @@ import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
+  ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+  type ThreadWorkspace,
   CommandId,
   type ChatAttachment,
   type MessageId,
@@ -46,12 +48,14 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
+import { userFacingDispatchErrorMessage } from "./UserFacingErrors.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
@@ -66,6 +70,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      readonly repositories?: ReadonlyArray<string> | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -176,6 +181,11 @@ export class ThreadLaunchService extends Context.Service<
       ThreadLaunchError | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
     /** Check before creation for early errors; launch otherwise accepts and reports base failures inside the thread. */
+    /** Waits for a launched run to leave preparation; returns why it failed, if it did. */
+    readonly awaitPreparation: (input: {
+      readonly threadId: ThreadId;
+      readonly messageId: MessageId;
+    }) => Effect.Effect<string | null>;
     readonly checkWorktreeBase: (
       input: Pick<ThreadLaunchInput, "projectId" | "workspaceStrategy">,
     ) => Effect.Effect<void, ThreadLaunchBaseRefError>;
@@ -195,7 +205,9 @@ const isThreadLaunchError = Schema.is(ThreadLaunchError);
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
     const cause = error.cause;
-    const detail = cause instanceof Error ? cause.message : String(cause);
+    const detail =
+      userFacingDispatchErrorMessage(cause) ??
+      (cause instanceof Error ? cause.message : String(cause));
     return `Workspace preparation failed during ${error.operation.replaceAll("-", " ")}: ${detail}`;
   }
   return `Workspace preparation failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -215,6 +227,9 @@ const make = Effect.gen(function* () {
   const ids = yield* IdAllocator.IdAllocatorV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  const workspaceRepositories = yield* Effect.serviceOption(
+    WorkspaceRepositories.WorkspaceRepositories,
+  );
   const preparationScope = yield* Scope.make("sequential");
   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
   yield* Effect.addFinalizer(() => Scope.close(preparationScope, Exit.void));
@@ -289,6 +304,99 @@ const make = Effect.gen(function* () {
         workspaceRoot: unresolved.workspaceRoot,
         baseRef,
       });
+  });
+
+  /** Runs the composer's repository setup for a folder project, then waits for it to finish. */
+  const prepareFolderWorkspace = Effect.fn("ThreadLaunchService.prepareFolderWorkspace")(function* (
+    input: PreparationInput,
+    threadId: ThreadId,
+    workspaceRoot: string,
+    strategy: Extract<ThreadLaunchWorkspaceStrategy, { readonly type: "worktree" }>,
+  ) {
+    const fail = mapError(input, "provision-worktree", threadId);
+    const currentWorkspace = threads
+      .getThreadRecords(threadId, [])
+      .pipe(Effect.map(({ thread }) => thread.workspace));
+    if (Option.isNone(workspaceRepositories))
+      return yield* fail("Repository setup is unavailable on this server.");
+    const existing = yield* currentWorkspace.pipe(Effect.mapError(fail));
+    if (existing?.state === "failed") {
+      yield* threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`${input.commandId}:folder-workspace-retry`),
+          threadId,
+          workspaceControl: { type: "retry", expectedRevision: existing.revision },
+        })
+        .pipe(Effect.mapError(fail));
+    } else if (existing === undefined || existing.state === "cancelled") {
+      const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(fail));
+      const configuration = yield* workspaceRepositories.value
+        .folderConfiguration({
+          root: workspaceRoot,
+          repositories: strategy.repositories,
+          saved: settings.projectSettingsOverrides[input.projectId]?.workspaceRepositories ?? [],
+          startFromOrigin: strategy.startFromOrigin ?? true,
+        })
+        .pipe(Effect.mapError(fail));
+      yield* threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`${input.commandId}:folder-workspace`),
+          threadId,
+          workspaceConfiguration: {
+            ...configuration,
+            expectedRevision: existing?.revision ?? 0,
+          },
+        })
+        .pipe(Effect.mapError(fail));
+    }
+    const finished = (workspace: ThreadWorkspace | undefined) =>
+      workspace !== undefined && ["ready", "failed", "cancelled"].includes(workspace.state);
+    // Taken before the read, so a state change between them still replays.
+    const afterSequence = yield* threads
+      .getThreadEventSequence(threadId)
+      .pipe(Effect.mapError(fail));
+    const settled = yield* Effect.gen(function* () {
+      const workspace = yield* currentWorkspace;
+      if (finished(workspace)) return workspace;
+      return yield* threads
+        .streamStoredEventsFrom({ threadId, afterSequence, eventType: "thread.metadata-updated" })
+        .pipe(
+          Stream.flatMap((stored) =>
+            stored.event.type === "thread.metadata-updated" &&
+            finished(stored.event.payload.workspace)
+              ? Stream.make(stored.event.payload.workspace)
+              : Stream.empty,
+          ),
+          Stream.runHead,
+          Effect.map(Option.getOrUndefined),
+        );
+    }).pipe(
+      Effect.mapError(fail),
+      Effect.onInterrupt(() =>
+        currentWorkspace.pipe(
+          Effect.flatMap((workspace) =>
+            workspace === undefined || finished(workspace)
+              ? Effect.void
+              : threads.dispatch({
+                  type: "thread.metadata.update",
+                  commandId: CommandId.make(`${input.commandId}:folder-workspace-cancel`),
+                  threadId,
+                  workspaceControl: { type: "cancel", expectedRevision: workspace.revision },
+                }),
+          ),
+          Effect.ignore,
+        ),
+      ),
+    );
+    if (settled?.state === "ready") return;
+    const failed = settled?.bindings.find((binding) => binding.state === "failed");
+    return yield* fail(
+      failed === undefined
+        ? "Repository setup was cancelled."
+        : `${failed.label}: ${failed.error ?? "Repository setup failed."}`,
+    );
   });
 
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (
@@ -382,18 +490,31 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
-      if (input.workspaceStrategy.type === "worktree") {
-        if (runId !== null) {
-          yield* threads
-            .dispatch({
-              type: "prepared-run.progress",
-              commandId: CommandId.make(`${input.commandId}:progress:worktree`),
-              threadId,
-              runId,
-              phase: "worktree",
-            })
-            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
-        }
+      const newWorktree =
+        input.workspaceStrategy.type === "worktree" ? input.workspaceStrategy : null;
+      if (newWorktree !== null && runId !== null) {
+        yield* threads
+          .dispatch({
+            type: "prepared-run.progress",
+            commandId: CommandId.make(`${input.commandId}:progress:worktree`),
+            threadId,
+            runId,
+            phase: "worktree",
+          })
+          .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+      }
+      const folderProject =
+        newWorktree !== null &&
+        !(yield* git
+          .isRepository(project.workspaceRoot)
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
+      if (newWorktree !== null && folderProject) {
+        yield* setupTracker.stageStatus(threadId, "fetch", "skipped");
+        yield* setupTracker.stageStatus(threadId, "checkout", "running");
+        yield* prepareFolderWorkspace(input, threadId, project.workspaceRoot, newWorktree);
+        yield* setupTracker.stageStatus(threadId, "checkout", "done");
+        branch = null;
+      } else if (input.workspaceStrategy.type === "worktree") {
         let startRef = input.workspaceStrategy.baseRef;
         let baseRefName = input.workspaceStrategy.baseRef;
         const shouldFetch =
@@ -460,7 +581,7 @@ const make = Effect.gen(function* () {
       }
 
       // Do not rewrite reused worktrees; that could undo the original branch rename.
-      if (reused === undefined) {
+      if (reused === undefined && !folderProject) {
         yield* threads
           .dispatch({
             type: "thread.metadata.update",
@@ -1136,7 +1257,57 @@ const make = Effect.gen(function* () {
     );
   });
 
-  return ThreadLaunchService.of({ launch, checkWorktreeBase, retryPreparation, prepareRun });
+  const awaitPreparation: ThreadLaunchService["Service"]["awaitPreparation"] = Effect.fn(
+    "ThreadLaunchService.awaitPreparation",
+  )(
+    function* (input) {
+      const { threadId, messageId } = input;
+      // Taken before the read, so a run update between them still replays.
+      const afterSequence = yield* threads.getThreadEventSequence(threadId);
+      const { runs } = yield* threads.getThreadRecords(threadId, ["runs"]);
+      const run = runs.find((candidate) => candidate.userMessageId === messageId);
+      if (run === undefined) return null;
+      const status =
+        run.status !== "preparing"
+          ? run.status
+          : yield* threads
+              .streamStoredEventsFrom({ threadId, afterSequence, eventType: "run.updated" })
+              .pipe(
+                Stream.flatMap((stored) =>
+                  stored.event.type === "run.updated" &&
+                  stored.event.payload.id === run.id &&
+                  stored.event.payload.status !== "preparing"
+                    ? Stream.make(stored.event.payload.status)
+                    : Stream.empty,
+                ),
+                Stream.runHead,
+                Effect.map(Option.getOrNull),
+              );
+      if (status === "interrupted" || status === "cancelled")
+        return "Workspace setup was cancelled.";
+      if (status !== "failed") return null;
+      const { turnItems } = yield* threads.getThreadRecords(threadId, ["turnItems"]);
+      const failure = turnItems.find(
+        (item): item is Extract<typeof item, { readonly type: "error" }> =>
+          item.type === "error" &&
+          item.failure.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
+      );
+      return failure?.failure.message ?? null;
+    },
+    Effect.catch((cause) =>
+      Effect.logWarning("Could not read the outcome of a run's preparation", { cause }).pipe(
+        Effect.as(null),
+      ),
+    ),
+  );
+
+  return ThreadLaunchService.of({
+    launch,
+    awaitPreparation,
+    checkWorktreeBase,
+    retryPreparation,
+    prepareRun,
+  });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);

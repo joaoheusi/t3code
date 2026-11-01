@@ -200,6 +200,8 @@ export type ScheduledTaskDraft = {
   readonly checkoutPath: string;
   readonly enabled: boolean;
   readonly startFromOrigin: boolean;
+  /** A folder project's chosen repositories; null follows the project. */
+  readonly repositories: ReadonlyArray<string> | null;
   readonly runtimeMode: RuntimeMode;
 };
 
@@ -227,6 +229,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.checkoutPath,
     draft.enabled,
     draft.startFromOrigin,
+    draft.repositories,
     draft.runtimeMode,
   ]);
 }
@@ -255,6 +258,7 @@ export function createDraft(
     checkoutPath: "",
     enabled: true,
     startFromOrigin: true,
+    repositories: null,
     runtimeMode: "full-access",
   };
 }
@@ -279,6 +283,10 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
       task.workspaceStrategy.type === "worktree"
         ? (task.workspaceStrategy.startFromOrigin ?? false)
         : true,
+    repositories:
+      task.workspaceStrategy.type === "worktree"
+        ? (task.workspaceStrategy.repositories ?? null)
+        : null,
     runtimeMode: task.runtimeMode,
   };
 }

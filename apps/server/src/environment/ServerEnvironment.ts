@@ -217,7 +217,7 @@ export const make = Effect.gen(function* () {
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     ...(databaseMigration === undefined ? {} : { databaseMigration }),
     capabilities: {
-      forkMultiRepoVersion: 2,
+      forkMultiRepoVersion: 3,
       forkQuickActionsVersion: 1,
       forkSameThreadActionsVersion: 1,
       repositoryIdentity: true,

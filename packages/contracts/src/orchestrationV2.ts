@@ -663,6 +663,14 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    repositories: Schema.optional(
+      Schema.Array(TrimmedNonEmptyString)
+        .check(Schema.isMinLength(1), Schema.isMaxLength(20))
+        .annotate({
+          description:
+            "Folder projects only: absolute repository paths to check out, each from its default branch; `baseRef` is ignored. Omit for the project's defaults.",
+        }),
+    ),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =

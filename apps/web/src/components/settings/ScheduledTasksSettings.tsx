@@ -68,6 +68,10 @@ import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { threadFamilies } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { WorktreeBaseBranchPicker } from "../WorktreeBaseBranchPicker";
+import {
+  ScheduledTaskRepositoriesPicker,
+  useFolderRepositories,
+} from "./ScheduledTaskRepositories";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ConnectionStatusDot, connectionPhaseDotClassName } from "../ConnectionStatusDot";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
@@ -143,6 +147,7 @@ const EMPTY_DRAFT: DraftState = {
   workspaceMode: "worktree",
   baseRef: "main",
   startFromOrigin: true,
+  repositories: null,
   existingWorktreePath: "",
   modelKey: "",
   runtimeMode: "full-access",
@@ -1232,6 +1237,11 @@ function ScheduledTaskEditorForm({
     : task;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const folderRepositories = useFolderRepositories({
+    environmentId,
+    project: selectedProject ?? null,
+    chosen: draft.repositories,
+  });
   const instanceEntries = providerInstanceEntriesFor(
     providers,
     settings,
@@ -1316,6 +1326,10 @@ function ScheduledTaskEditorForm({
       reportFailure("Checkout path is required", "Enter the path of the checkout to run in.");
       return;
     }
+    if (draft.workspaceMode === "worktree" && folderRepositories?.choice.selected.length === 0) {
+      reportFailure("Pick a repository", "Choose at least one repository to run in.");
+      return;
+    }
     const modelSelection =
       draft.baseModelSelection !== null &&
       draft.baseModelSelection.instanceId === selection.instanceId &&
@@ -1331,6 +1345,9 @@ function ScheduledTaskEditorForm({
               type: "worktree",
               baseRef: draft.baseRef.trim() || "main",
               startFromOrigin: draft.startFromOrigin,
+              ...(folderRepositories && draft.repositories
+                ? { repositories: draft.repositories }
+                : {}),
             };
     const input: ScheduledTaskUpsertInput = {
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
@@ -1391,6 +1408,7 @@ function ScheduledTaskEditorForm({
                   baseModelSelection: null,
                   baseRef: "main",
                   startFromOrigin: true,
+                  repositories: null,
                   existingWorktreePath: "",
                 }));
               }}
@@ -1469,7 +1487,11 @@ function ScheduledTaskEditorForm({
               <Select
                 value={selectedProject?.id ?? null}
                 onValueChange={(projectId) =>
-                  setDraft((current) => ({ ...current, projectId: projectId ?? "" }))
+                  setDraft((current) => ({
+                    ...current,
+                    projectId: projectId ?? "",
+                    repositories: null,
+                  }))
                 }
               >
                 <SelectTrigger size="sm" id="scheduled-task-project">
@@ -1514,7 +1536,17 @@ function ScheduledTaskEditorForm({
             </Field>
           </div>
 
-          {draft.workspaceMode === "worktree" ? (
+          {draft.workspaceMode === "worktree" && folderRepositories ? (
+            <Field label="Repositories" hint="Each starts from its default branch">
+              <ScheduledTaskRepositoriesPicker
+                choice={folderRepositories.choice}
+                loading={folderRepositories.loading}
+                disabled={saving || !connected}
+                onChange={(repositories) => setDraft((current) => ({ ...current, repositories }))}
+              />
+            </Field>
+          ) : null}
+          {draft.workspaceMode === "worktree" && !folderRepositories ? (
             <Field label="Base branch" htmlFor="scheduled-task-base-ref">
               <WorktreeBaseBranchPicker
                 key={`${environmentId}:${selectedProjectId}`}

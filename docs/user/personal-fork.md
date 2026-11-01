@@ -53,6 +53,12 @@ A project whose folder isn't a repository but holds repositories is a folder pro
 
 The folder's mode also follows the project's default workspace setting. Repositories outside the folder can still be added with their own checkout.
 
+### Scheduled tasks in a folder project
+
+A scheduled task set to **Create a new worktree** in a folder project starts each run in new worktrees, the same way a new thread does. Under **Repositories**, pick the ones the task needs (on mobile, **Repositories** in the task's **Workspace** section). Without a choice, it follows the project's saved repositories, or every repository found in the folder. Each worktree starts from its repository's default branch, so these tasks have no base branch. The agent's first message waits until every repository is ready. If setup fails, the task shows as failed and the thread's **Retry** runs setup again.
+
+Agents that schedule tasks or launch threads in a folder project get the same behavior. Choose **Use the project checkout** to run in the folder itself instead.
+
 ### Preparing and working
 
 When you send, the repositories are prepared first and your message sends once they are ready. A notice above the composer shows progress and lets you cancel or retry. New worktrees start from the latest commit; uncommitted and ignored files stay where they are. Worktrees created for a thread are not deleted automatically.

@@ -3126,11 +3126,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "providerThreads"])
         .pipe(mapDispatchError(command));
+      // A folder project's launch configures its repositories while its first run prepares,
+      // before that run's provider thread has a native session.
+      const [firstRun] = records.runs;
+      const preparingFirstRun =
+        records.runs.length === 1 &&
+        firstRun?.status === "preparing" &&
+        firstRun.workspacePreparation?.type === "worktree";
       if (
-        records.runs.some((run) =>
-          ["preparing", "queued", "running", "blocked"].includes(run.status),
-        ) ||
-        records.providerThreads.length > 0 ||
+        (preparingFirstRun
+          ? records.providerThreads.some(({ id }) => id !== firstRun.providerThreadId)
+          : records.runs.some((run) =>
+              ["preparing", "queued", "running", "blocked"].includes(run.status),
+            ) || records.providerThreads.length > 0) ||
         thread.archivedAt !== null ||
         thread.deletedAt !== null
       )

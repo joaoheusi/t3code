@@ -25,6 +25,7 @@ import {
   ScheduledTaskId,
   type ServerProvider,
   ThreadId,
+  WorkspaceError,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Deferred from "effect/Deferred";
@@ -64,6 +65,7 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadTitleRegeneration from "./ThreadTitleRegenerationService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
+import * as WorkspaceRepositories from "../workspace/WorkspaceRepositories.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const projectId = ProjectId.make("project:launch-test");
@@ -131,16 +133,21 @@ interface HarnessOptions {
   readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   readonly providers?: ReadonlyArray<ServerProvider>;
   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
+  readonly workspaceRepositories?: Partial<WorkspaceRepositories.WorkspaceRepositories["Service"]>;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
   const layerDatabase = SqlitePersistence.layerMemory;
   const layerRegistry = ProviderAdapterRegistry.layerFromAdapters(options.adapters ?? [adapter]);
+  const layerWorkspaceRepositories = Layer.mock(WorkspaceRepositories.WorkspaceRepositories)({
+    canonical: Effect.succeed,
+    ...options.workspaceRepositories,
+  });
   const layerOrchestrator = ProviderReplayHarness.layerWithRegistry(
     { name: "thread-launch" },
     layerRegistry,
     { databaseLayer: layerDatabase, runEffectWorker: false },
-  );
+  ).pipe(Layer.provide(layerWorkspaceRepositories));
   const layerServerSettings = ServerSettings.layerTest(options.serverSettings);
   const layerReceipts = CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase));
   const layerThreadManagement = ThreadManagement.layer.pipe(
@@ -197,6 +204,7 @@ function makeHarness(options: HarnessOptions = {}) {
       listShells: () => Effect.die("unused"),
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
+      isRepository: () => Effect.succeed(true),
       createWorktree,
       renameBranch,
       fetchWorktreeBaseCommit:
@@ -212,6 +220,7 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
       runForThread: runSetup,
     }),
+    layerWorkspaceRepositories,
     Layer.mock(TextGeneration.TextGeneration)({
       generateThreadTitle,
       generateBranchName,
@@ -1023,6 +1032,184 @@ it.effect("runs a Scratch scheduled task saved with a worktree in its own folder
     assert.equal(harness.runSetup.mock.calls[0]?.[0]?.worktreePath, "/scratch/folder-1");
     assert.equal(harness.createWorktree.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
+});
+
+// A folder project: nine repositories inside, no Git at its root.
+function folderHarness(options: {
+  readonly state?: "ready" | "failed";
+  readonly folderConfiguration?: WorkspaceRepositories.WorkspaceRepositories["Service"]["folderConfiguration"];
+}) {
+  const notARepository = (operation: string, cwd: string) =>
+    Effect.fail(
+      new GitCommandError({
+        operation,
+        command: "vcs-route",
+        cwd,
+        detail: "Failed to resolve the VCS driver for this Git command.",
+      }),
+    );
+  const state = options.state ?? "ready";
+  const folderConfiguration = vi.fn(
+    options.folderConfiguration ??
+      (() =>
+        Effect.succeed({
+          expectedRevision: 0,
+          root: { sourcePath: "/repo", mode: "mirror" as const },
+          primaryBindingId: "api",
+          bindings: [
+            {
+              id: "api",
+              label: "api",
+              sourcePath: "/repo/api",
+              mode: "new-worktree" as const,
+              branch: "t3/task",
+            },
+          ],
+        })),
+  );
+  const harness = makeHarness({
+    serverSettings: {
+      projectSettingsOverrides: {
+        [projectId]: {
+          workspaceRepositories: [
+            { path: "/repo/web", commonDir: "/repo/web/.git", mode: "new-worktree" },
+          ],
+        },
+      },
+    },
+    git: {
+      isRepository: () => Effect.succeed(false),
+      resolveWorktreeBaseRemote: (input) =>
+        notARepository("GitWorkflowService.resolveWorktreeBaseRemote", input.cwd),
+    },
+    createWorktree: (input) => notARepository("GitWorkflowService.createWorktree", input.cwd),
+    workspaceRepositories: {
+      folderConfiguration,
+      plan: (input, operationId) =>
+        Effect.succeed({
+          schemaVersion: 1 as const,
+          revision: 1,
+          operationId,
+          state,
+          primaryBindingId: "api",
+          bindings: input.bindings.map((binding) => ({
+            ...binding,
+            commonDir: "/repo/api/.git",
+            checkoutPath: "/worktrees/repo/api",
+            branch: "t3/task",
+            head: "abc",
+            baseCommit: "abc",
+            state,
+            owned: true,
+            error: state === "failed" ? "origin rejected the fetch" : null,
+          })),
+          root: { sourcePath: "/repo", mode: "mirror" as const, checkoutPath: "/worktrees/repo" },
+        }),
+    },
+  });
+  return { ...harness, folderConfiguration };
+}
+
+// The orchestrator checks a folder configuration against its own project records.
+const seedFolderProject = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`
+    INSERT INTO projection_projects (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+    VALUES (${projectId}, ${project.title}, ${project.workspaceRoot}, '[]', ${project.createdAt}, ${project.updatedAt})
+  `;
+});
+
+it.effect("launches a worktree request for a folder project across its repositories", () => {
+  const harness = folderHarness({});
+  return Effect.gen(function* () {
+    yield* seedFolderProject;
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:folder",
+        thread: "thread:launch:folder",
+        message: "Fix the failing requests",
+        workspace: { ...worktreeStrategy, repositories: ["/repo/api"] },
+      }),
+    );
+    const projection = yield* preparationSettled(launched.threadId);
+    assert.equal(projection.runs[0]?.status, "starting");
+    assert.equal(projection.thread.workspace?.root?.mode, "mirror");
+    assert.equal(projection.thread.worktreePath, "/worktrees/repo");
+    assert.isNull(projection.thread.branch);
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+    assert.equal(harness.runSetup.mock.calls.length, 0);
+    assert.deepEqual(harness.folderConfiguration.mock.calls[0]?.[0], {
+      root: "/repo",
+      repositories: ["/repo/api"],
+      saved: [{ path: "/repo/web", commonDir: "/repo/web/.git", mode: "new-worktree" }],
+      startFromOrigin: true,
+    });
+    assert.isNull(
+      yield* launches.awaitPreparation({
+        threadId: launched.threadId,
+        messageId: MessageId.make("Fix the failing requests:id"),
+      }),
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("fails the run with the repository's own error when a folder preparation fails", () => {
+  const harness = folderHarness({ state: "failed" });
+  return Effect.gen(function* () {
+    yield* seedFolderProject;
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:folder-failed",
+        thread: "thread:launch:folder-failed",
+        message: "Fix it",
+        workspace: worktreeStrategy,
+      }),
+    );
+    const projection = yield* preparationSettled(launched.threadId);
+    assert.equal(projection.runs[0]?.status, "failed");
+    const failure = yield* launches.awaitPreparation({
+      threadId: launched.threadId,
+      messageId: MessageId.make("Fix it:id"),
+    });
+    assert.include(failure, "api: origin rejected the fetch");
+    assert.notInclude(failure, "VCS driver");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("records a failed scheduled run when a folder project holds no repositories", () => {
+  const harness = folderHarness({
+    folderConfiguration: () =>
+      Effect.fail(new WorkspaceError({ detail: "/repo holds no Git repositories." })),
+  });
+  const layerScheduledTasks = ScheduledTasks.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        harness.layer,
+        NodeCrypto.layer,
+        Scheduler.layer,
+        Layer.mock(SecretRequests.SecretRequests)({}),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const tasks = yield* ScheduledTasks.ScheduledTaskService;
+    const { task } = yield* tasks.upsert(
+      scheduledTaskInput("scheduled-task:folder-empty", projectId),
+    );
+    const [, failed] = yield* Effect.all(
+      [
+        tasks.runNow({ id: task.id }),
+        tasks.subscribeList().pipe(
+          Stream.filter((list) => list.tasks[0]?.lastRunStatus === "failed"),
+          Stream.runHead,
+        ),
+      ],
+      { concurrency: 2 },
+    );
+    assert.include(Option.getOrThrow(failed).tasks[0]?.lastRunError, "holds no Git repositories");
+  }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
 it.effect.each(["stable", "upstream/release"])(
@@ -1975,6 +2162,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
     };
     const failed = yield* ThreadMessageIntake.launchThread(input).pipe(
       Effect.provideService(ThreadLaunch.ThreadLaunchService, {
+        awaitPreparation: launches.awaitPreparation,
         launch: (request) =>
           launches.launch(request).pipe(
             Effect.andThen(

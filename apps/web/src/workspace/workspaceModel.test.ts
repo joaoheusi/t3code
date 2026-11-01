@@ -5,6 +5,7 @@ import type { WorkspaceRepository } from "@t3tools/contracts";
 import {
   draftRepositoryFrom,
   draftRepositoryFromBinding,
+  folderRepositoryChoice,
   primaryBindingRequest,
   repositoriesSummary,
   topLevelRepositories,
@@ -20,6 +21,22 @@ const repository = (label: string, mode: DraftRepository["mode"]): DraftReposito
   mode,
   branch: "main",
   head: "abc123",
+});
+
+describe("folder repository choice", () => {
+  const found = [{ path: "/org/api" }, { path: "/org/web" }];
+  it("follows the task, then the project's default, then everything found", () => {
+    const choose = (chosen: string[] | null, saved: { path: string }[]) =>
+      folderRepositoryChoice({ found, saved, chosen }).selected;
+    expect(choose(["/org/web"], [{ path: "/org/api" }])).toEqual(["/org/web"]);
+    expect(choose(null, [{ path: "/org/api" }])).toEqual(["/org/api"]);
+    expect(choose(null, [])).toEqual(["/org/api", "/org/web"]);
+    expect(choose([], [])).toEqual([]);
+  });
+  it("keeps a chosen repository listed after it has gone", () => {
+    const { options } = folderRepositoryChoice({ found, saved: [], chosen: ["/org/gone"] });
+    expect(options.map((option) => option.label)).toEqual(["api", "web", "gone"]);
+  });
 });
 
 describe("workspace configuration", () => {

@@ -296,7 +296,7 @@ try {
   await client((rpc) =>
     Effect.gen(function* () {
       const config = yield* rpc[WS_METHODS.serverGetConfig]({});
-      assert.equal(config.environment.capabilities.forkMultiRepoVersion, 2);
+      assert.equal(config.environment.capabilities.forkMultiRepoVersion, 3);
       yield* rpc[WS_METHODS.projectsMutate]({
         type: "project.create",
         commandId: commandId(),
