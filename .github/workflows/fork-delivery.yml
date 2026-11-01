@@ -45,6 +45,10 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - id: plan
         uses: actions/github-script@v8
         with:
@@ -69,6 +73,10 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter=@t3tools/desktop... --filter=t3... --filter=@t3tools/scripts...
@@ -151,6 +159,10 @@ jobs:
           ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
         with:
           install-args: --filter=@t3tools/mobile...
