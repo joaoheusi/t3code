@@ -648,21 +648,38 @@ export const OrchestrationV2RunBackgroundWorkCancelled = Schema.Struct({
 export type OrchestrationV2RunBackgroundWorkCancelled =
   typeof OrchestrationV2RunBackgroundWorkCancelled.Type;
 
+const ThreadLaunchRootStrategy = Schema.Struct({
+  type: Schema.Literal("root"),
+  branch: Schema.optional(TrimmedNonEmptyString),
+});
+const ThreadLaunchExistingWorktreeStrategy = Schema.Struct({
+  type: Schema.Literal("existing_worktree"),
+  worktreePath: TrimmedNonEmptyString,
+  branch: Schema.optional(TrimmedNonEmptyString),
+});
+const ThreadLaunchWorktreeStrategy = Schema.Struct({
+  type: Schema.Literal("worktree"),
+  baseRef: TrimmedNonEmptyString,
+  branch: Schema.optional(TrimmedNonEmptyString),
+  startFromOrigin: Schema.optional(Schema.Boolean),
+});
+
+/** What an agent's launch tool offers; its schema counts against the agent context budget. */
+export const OrchestrationV2AgentThreadLaunchWorkspaceStrategy = Schema.Union([
+  ThreadLaunchRootStrategy,
+  ThreadLaunchExistingWorktreeStrategy,
+  ThreadLaunchWorktreeStrategy,
+]);
+
 export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
+  ThreadLaunchRootStrategy,
+  ThreadLaunchExistingWorktreeStrategy,
   Schema.Struct({
-    type: Schema.Literal("root"),
-    branch: Schema.optional(TrimmedNonEmptyString),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("existing_worktree"),
-    worktreePath: TrimmedNonEmptyString,
-    branch: Schema.optional(TrimmedNonEmptyString),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("worktree"),
-    baseRef: TrimmedNonEmptyString,
-    branch: Schema.optional(TrimmedNonEmptyString),
-    startFromOrigin: Schema.optional(Schema.Boolean),
+    ...ThreadLaunchWorktreeStrategy.fields,
+    /** A folder project's repositories to check out; omitted follows the project. */
+    repositories: Schema.optional(
+      Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1), Schema.isMaxLength(20)),
+    ),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =

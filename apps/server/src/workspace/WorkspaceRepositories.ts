@@ -13,9 +13,18 @@ import {
   type WorkspaceDiscoverResult,
   type WorkspaceBinding,
   type WorkspaceConfiguration,
+  type WorkspaceRepositoryDefault,
   type ThreadWorkspace,
   type CommandId,
 } from "@t3tools/contracts";
+import {
+  FOLDER_DISCOVERY_DEPTH,
+  REPOSITORY_LIMIT,
+  draftRepositoryFrom,
+  draftRepositoryFromDefault,
+  topLevelRepositories,
+  workspaceConfiguration,
+} from "@t3tools/shared/workspaceModel";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ServerConfig from "../config.ts";
@@ -46,6 +55,16 @@ export class WorkspaceRepositories extends Context.Service<
       root: string,
       depth: number,
     ) => Effect.Effect<WorkspaceDiscoverResult, WorkspaceError>;
+    /**
+     * New worktrees for a folder project: the given repositories, else its saved
+     * default, else every repository found inside it.
+     */
+    readonly folderConfiguration: (input: {
+      readonly root: string;
+      readonly repositories?: ReadonlyArray<string> | undefined;
+      readonly saved: ReadonlyArray<WorkspaceRepositoryDefault>;
+      readonly startFromOrigin: boolean;
+    }) => Effect.Effect<WorkspaceConfiguration, WorkspaceError>;
     readonly plan: (
       input: WorkspaceConfiguration,
       operationId: CommandId,
@@ -259,6 +278,34 @@ const make = Effect.gen(function* () {
       }
     }
     return { repositories, issues, limited };
+  });
+  const folderConfiguration: WorkspaceRepositories["Service"]["folderConfiguration"] = Effect.fn(
+    "WorkspaceRepositories.folderConfiguration",
+  )(function* (input) {
+    const root = yield* canonical(input.root);
+    const repositories = input.repositories
+      ? yield* Effect.forEach(input.repositories, (path) =>
+          inspect(path).pipe(
+            Effect.map((repository) => draftRepositoryFrom(repository, repository.path)),
+          ),
+        )
+      : input.saved.length > 0
+        ? input.saved.slice(0, REPOSITORY_LIMIT).map(draftRepositoryFromDefault)
+        : topLevelRepositories((yield* discover(root, FOLDER_DISCOVERY_DEPTH)).repositories)
+            .slice(0, REPOSITORY_LIMIT)
+            .map((repository) => draftRepositoryFrom(repository, repository.path));
+    if (repositories.length === 0)
+      return yield* fail(
+        `${root} holds no Git repositories, so it can't start in new worktrees. Use the project folder instead.`,
+      );
+    return workspaceConfiguration({
+      primary: null,
+      root: { sourcePath: root, mode: "mirror" },
+      repositories,
+      envMode: "worktree",
+      startFromOrigin: input.startFromOrigin,
+      expectedRevision: 0,
+    });
   });
   const plan: WorkspaceRepositories["Service"]["plan"] = Effect.fn("WorkspaceRepositories.plan")(
     function* (input, operationId) {
@@ -549,7 +596,15 @@ const make = Effect.gen(function* () {
         );
     }
   });
-  return WorkspaceRepositories.of({ canonical, inspect, discover, plan, prepare, validate });
+  return WorkspaceRepositories.of({
+    folderConfiguration,
+    canonical,
+    inspect,
+    discover,
+    plan,
+    prepare,
+    validate,
+  });
 });
 import * as Schema from "effect/Schema";
 export const layer = Layer.effect(WorkspaceRepositories, make).pipe(

@@ -14,6 +14,7 @@ import { useEnvironmentQuery } from "../state/query";
 import { serverEnvironment } from "../state/server";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
+  FOLDER_DISCOVERY_DEPTH,
   REPOSITORY_LIMIT,
   draftRepositoryFrom,
   draftRepositoryFromBinding,
@@ -24,7 +25,7 @@ import {
 } from "./workspaceModel";
 import { useDraftRepositories } from "./workspaceStores";
 
-/** 1: extra repositories beside the project. 2: folder projects and saved defaults too. */
+/** 1: extra repositories beside the project. 2: folder projects and saved defaults too. 3: scheduled tasks. */
 export function useMultiRepositoryVersion(environmentId: EnvironmentId) {
   return useServerConfigs().get(environmentId)?.environment.capabilities.forkMultiRepoVersion ?? 0;
 }
@@ -60,7 +61,7 @@ export function useComposerRepositories(input: {
     version >= 2 && choosing && !isGitRepo && project && project.workspaceRoot !== scratchRoot
       ? forkWorkspace.discoverQuery({
           environmentId,
-          input: { root: project.workspaceRoot, depth: 3 },
+          input: { root: project.workspaceRoot, depth: FOLDER_DISCOVERY_DEPTH },
         })
       : null,
   );

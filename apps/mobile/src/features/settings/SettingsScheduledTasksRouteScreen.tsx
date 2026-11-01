@@ -63,6 +63,7 @@ import { withNativeGlassHeaderItem } from "../layout/native-glass-header-items";
 import { resolveNewTaskBranchLabel } from "../threads/new-task-context-presentation";
 import { useVoiceInputController } from "../voice-input/useVoiceInputController";
 import { ScheduledTaskPromptField } from "./components/ScheduledTaskPromptField";
+import { useScheduledTaskRepositories } from "./useScheduledTaskRepositories";
 import {
   AndroidSettingsEnvironmentFilter,
   SettingsEnvironmentFilterHeader,
@@ -95,6 +96,7 @@ type ScheduledTaskRoutes = {
   SettingsScheduledTaskEdit: undefined;
   SettingsScheduledTaskModel: undefined;
   SettingsScheduledTaskBranch: undefined;
+  SettingsScheduledTaskRepositories: undefined;
 };
 
 const DAYS = [
@@ -678,6 +680,10 @@ function TaskForm({
     .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
   const config = useEnvironmentServerConfig(environmentId);
   const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
+  const repositoryChoice = useScheduledTaskRepositories(
+    projects.find((project) => project.id === draft.projectId) ?? null,
+    draft.repositories,
+  );
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
@@ -758,6 +764,14 @@ function TaskForm({
       Dialog.alert("Project unavailable", "Choose a project in this environment.");
       return;
     }
+    if (draft.workspace === "worktree" && repositoryChoice?.error) {
+      Dialog.alert("Repositories unavailable", repositoryChoice.error);
+      return;
+    }
+    if (draft.workspace === "worktree" && repositoryChoice?.selected.length === 0) {
+      Dialog.alert("Pick a repository", "Choose at least one repository to run in.");
+      return;
+    }
     const input: ScheduledTaskUpsertInput = {
       ...(draft.task ? { id: draft.task.id, requireExisting: true } : {}),
       title: draft.title.trim(),
@@ -776,6 +790,9 @@ function TaskForm({
                 type: "worktree",
                 baseRef: draft.baseRef.trim() || "main",
                 startFromOrigin: draft.startFromOrigin,
+                ...(repositoryChoice && draft.repositories
+                  ? { repositories: draft.repositories }
+                  : {}),
               },
       runtimeMode: draft.runtimeMode,
       interactionMode: draft.task?.interactionMode ?? "default",
@@ -878,6 +895,7 @@ function TaskForm({
               setDraft({
                 ...draft,
                 projectId: project.id,
+                repositories: null,
                 modelSelection: keepsExplicitModel
                   ? draft.modelSelection
                   : scheduledTaskDefaultModel(config, project),
@@ -934,7 +952,24 @@ function TaskForm({
                 setDraft({ ...draft, workspace: id });
             }}
           />
-          {draft.workspace === "worktree" ? (
+          {draft.workspace === "worktree" && repositoryChoice ? (
+            <PickerRow
+              label="Repositories"
+              value={
+                repositoryChoice.loading
+                  ? "Looking…"
+                  : repositoryChoice.error
+                    ? "Unavailable"
+                    : `${repositoryChoice.selected.length} of ${repositoryChoice.options.length}`
+              }
+              borderTop
+              disabled={
+                repositoryChoice.loading || saving || dictationPending || environmentUnavailable
+              }
+              onPress={() => navigation.navigate("SettingsScheduledTaskRepositories")}
+            />
+          ) : null}
+          {draft.workspace === "worktree" && !repositoryChoice ? (
             <PickerRow
               label="Base branch"
               value={resolveNewTaskBranchLabel({
@@ -1171,7 +1206,13 @@ function TaskForm({
         tone="primary"
         fullWidth
         loading={saving}
-        disabled={!canOperate || dictationPending || taskMissing || environmentUnavailable}
+        disabled={
+          !canOperate ||
+          dictationPending ||
+          taskMissing ||
+          environmentUnavailable ||
+          (draft.workspace === "worktree" && repositoryChoice?.loading)
+        }
         onPress={() => void save()}
         label={saving ? "Saving…" : draft.task ? "Save changes" : "Create task"}
       />

@@ -725,6 +725,30 @@ export const layer = Layer.effect(
         ),
     );
 
+    const serviceScope = yield* Effect.scope;
+
+    /** A launch returns before preparation ends, so a failure there is recorded afterwards. */
+    const recordPreparationFailure = Effect.fn("ScheduledTaskService.recordPreparationFailure")(
+      function* (
+        taskId: ScheduledTaskId,
+        startedAtIso: string,
+        threadId: ThreadId,
+        messageId: MessageId,
+      ) {
+        const failure = yield* threadLaunch.awaitPreparation({ threadId, messageId });
+        if (failure === null) return;
+        yield* sql`
+          UPDATE scheduled_tasks
+          SET last_run_status = 'failed', last_run_error = ${failure}
+          WHERE task_id = ${taskId} AND last_run_at = ${startedAtIso}
+        `;
+        yield* notifyChanged;
+      },
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not record a scheduled run's preparation failure", { cause }),
+      ),
+    );
+
     const runTask = Effect.fn("ScheduledTaskService.runTask")(function* (
       task: ScheduledTask,
       trigger: "scheduled" | "manual" | "webhook",
@@ -941,6 +965,12 @@ export const layer = Layer.effect(
               );
           yield* notifyChanged;
         }
+        // Due tasks run one at a time, so a slow preparation must not hold up the next one.
+        // Follows the completion write above, which would overwrite an earlier failure.
+        if (runSucceeded && active.threadId === null)
+          yield* recordPreparationFailure(task.id, startedAtIso, result.value, messageId).pipe(
+            Effect.forkIn(serviceScope),
+          );
         return { task: completed, threadId };
       }).pipe(
         Effect.onError((cause) => releaseStuckRun(task, errorMessage(cause), webhook?.deliveryId)),
@@ -1638,8 +1668,6 @@ export const layer = Layer.effect(
           : [raced, permits];
       });
     });
-
-    const serviceScope = yield* Effect.scope;
 
     const releaseFailedDelivery = Effect.fn("ScheduledTaskService.releaseFailedDelivery")(
       function* (deliveryId: string) {

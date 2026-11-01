@@ -420,6 +420,48 @@ describe("folder roots", () => {
         );
       }),
   );
+  it.effect("configures a folder from its chosen, saved, or discovered repositories", () =>
+    Effect.gen(function* () {
+      const folder = join(root, "org");
+      const web = realpathSync(init(join(folder, "web")));
+      const api = realpathSync(init(join(folder, "services", "api")));
+      init(join(web, "nested"));
+      yield* run((service) =>
+        Effect.gen(function* () {
+          const paths = (input: Parameters<typeof service.folderConfiguration>[0]) =>
+            service.folderConfiguration(input).pipe(
+              Effect.map((configuration) => {
+                expect(configuration.root?.mode).toBe("mirror");
+                return configuration.bindings.map((binding) => {
+                  expect(binding.mode).toBe("new-worktree");
+                  expect(binding.startFromOrigin).toBe(false);
+                  return binding.sourcePath;
+                });
+              }),
+            );
+          const options = { root: folder, saved: [], startFromOrigin: false };
+          expect((yield* paths(options)).toSorted()).toEqual([api, web].toSorted());
+          expect(yield* paths({ ...options, repositories: [api] })).toEqual([api]);
+          expect(
+            yield* paths({
+              ...options,
+              saved: [{ path: web, commonDir: join(web, ".git"), mode: "current" }],
+            }),
+          ).toEqual([web]);
+          const manySaved = Array.from({ length: 21 }, (_, index) => ({
+            path: join(folder, `saved-${index}`),
+            commonDir: join(folder, `saved-${index}`, ".git"),
+            mode: "current" as const,
+          }));
+          expect(yield* paths({ ...options, saved: manySaved })).toHaveLength(20);
+          const empty = join(root, "empty");
+          mkdirSync(empty);
+          const failure = yield* Effect.flip(paths({ ...options, root: empty }));
+          expect(failure.message).toContain("holds no Git repositories");
+        }),
+      );
+    }),
+  );
   it.effect("refuses folder selections it could not mirror or that leave the folder", () =>
     Effect.gen(function* () {
       const folder = join(root, "org");

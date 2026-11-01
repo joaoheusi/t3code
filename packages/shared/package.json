@@ -59,6 +59,10 @@
       "types": "./src/git.ts",
       "import": "./src/git.ts"
     },
+    "./workspaceModel": {
+      "types": "./src/workspaceModel.ts",
+      "import": "./src/workspaceModel.ts"
+    },
     "./sourceControl": {
       "types": "./src/sourceControl.ts",
       "import": "./src/sourceControl.ts"

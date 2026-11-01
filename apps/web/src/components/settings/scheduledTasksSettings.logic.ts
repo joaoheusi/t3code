@@ -73,6 +73,8 @@ export interface DraftState {
   readonly workspaceMode: WorkspaceMode;
   readonly baseRef: string;
   readonly startFromOrigin: boolean;
+  /** A folder project's chosen repositories; null follows the project. */
+  readonly repositories: ReadonlyArray<string> | null;
   readonly existingWorktreePath: string;
   readonly modelKey: string;
   readonly runtimeMode: RuntimeMode;
@@ -224,6 +226,10 @@ export function taskToDraft(task: ScheduledTask): DraftState {
       task.workspaceStrategy.type === "worktree"
         ? (task.workspaceStrategy.startFromOrigin ?? false)
         : true,
+    repositories:
+      task.workspaceStrategy.type === "worktree"
+        ? (task.workspaceStrategy.repositories ?? null)
+        : null,
     existingWorktreePath:
       task.workspaceStrategy.type === "existing_worktree"
         ? task.workspaceStrategy.worktreePath

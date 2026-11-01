@@ -1,7 +1,10 @@
 import { useNavigation } from "@react-navigation/native";
+import { REPOSITORY_LIMIT } from "@t3tools/client-runtime/workspaceModel";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
+import { Pressable } from "react-native";
 
+import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
@@ -10,7 +13,9 @@ import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
 import { BranchPickerScreen } from "../threads/NewTaskContextPickerScreens";
 import { ThreadSettingsPickerScreen } from "../threads/ThreadSettingsSheet";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { SettingsSection } from "./components/SettingsSection";
 import { useScheduledTaskEditor } from "./scheduled-task-editor";
+import { useScheduledTaskRepositories } from "./useScheduledTaskRepositories";
 
 function MissingTaskDraft() {
   return (
@@ -101,6 +106,85 @@ export function ScheduledTaskModelPickerRouteScreen() {
       }
       onClose={() => navigation.goBack()}
     />
+  );
+}
+
+export function ScheduledTaskRepositoriesPickerRouteScreen() {
+  const { editor, setEditor } = useScheduledTaskEditor();
+  const projects = useProjects();
+  const project =
+    projects.find(
+      (entry) =>
+        entry.environmentId === editor?.environmentId && entry.id === editor.draft.projectId,
+    ) ?? null;
+  const choice = useScheduledTaskRepositories(project, editor?.draft.repositories ?? null);
+
+  if (!editor) return <MissingTaskDraft />;
+
+  return (
+    <SettingsScreen title="Repositories">
+      <SettingsSection title="Each starts from its default branch">
+        {choice?.error ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={choice.retry}
+            className="min-h-14 justify-center gap-1 px-4 py-3 active:opacity-70"
+          >
+            <Text textRole="body" className="text-foreground">
+              Couldn't load repositories
+            </Text>
+            <Text textRole="footnote" className="text-foreground-muted">
+              {choice.error} Tap to retry.
+            </Text>
+          </Pressable>
+        ) : null}
+        {choice && !choice.loading && !choice.error && choice.options.length === 0 ? (
+          <Text textRole="body" className="px-4 py-3 text-foreground-muted">
+            This folder holds no repositories. Run the task in the project checkout or a specific
+            checkout instead.
+          </Text>
+        ) : null}
+        {choice?.options.map(({ path, label }, index) => {
+          const selected = choice.selected.includes(path);
+          const atLimit = !selected && choice.selected.length >= REPOSITORY_LIMIT;
+          return (
+            <Pressable
+              key={path}
+              accessibilityRole="checkbox"
+              accessibilityLabel={label}
+              accessibilityState={{ checked: selected, disabled: atLimit }}
+              disabled={atLimit}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                const repositories = selected
+                  ? choice.selected.filter((entry) => entry !== path)
+                  : [...choice.selected, path];
+                setEditor((current) =>
+                  current ? { ...current, draft: { ...current.draft, repositories } } : current,
+                );
+              }}
+              className={
+                index === 0
+                  ? "min-h-14 flex-row items-center justify-between gap-3 px-4 py-3 active:opacity-70 disabled:opacity-50"
+                  : "min-h-14 flex-row items-center justify-between gap-3 border-t border-border-subtle px-4 py-3 active:opacity-70 disabled:opacity-50"
+              }
+            >
+              <Text textRole="body" className="min-w-0 flex-1 text-foreground" numberOfLines={1}>
+                {label}
+              </Text>
+              {selected ? (
+                <SymbolView
+                  name="checkmark"
+                  size={16}
+                  tintColorClassName="accent-foreground"
+                  type="monochrome"
+                />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </SettingsSection>
+    </SettingsScreen>
   );
 }
 
