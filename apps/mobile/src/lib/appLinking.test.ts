@@ -10,14 +10,19 @@ import {
 } from "./appLinking";
 
 describe("shouldHandleAppLink", () => {
-  it.each(["t3code://", "t3code:///", "t3code-dev://", "t3code-preview://"])(
-    "ignores scheme-only URL %s",
-    (url) => {
-      expect(shouldHandleAppLink(url, true)).toBe(false);
-    },
-  );
+  it.each([
+    "j4code://",
+    "j4code:///",
+    "t3code://",
+    "t3code:///",
+    "t3code-dev://",
+    "t3code-preview://",
+  ])("ignores scheme-only URL %s", (url) => {
+    expect(shouldHandleAppLink(url, true)).toBe(false);
+  });
 
   it.each([
+    "j4code://threads/env-1/thread-1",
     "t3code://threads/env-1/thread-1",
     "t3code://pair?pairingUrl=x",
     "t3code-dev://settings/usage?tab=limits",

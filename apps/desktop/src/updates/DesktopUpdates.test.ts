@@ -22,6 +22,65 @@ import * as DesktopUpdates from "./DesktopUpdates.ts";
 import { flushCallbacks, makeHarness } from "./updatesTestHarness.ts";
 
 describe("DesktopUpdates", () => {
+  it.effect("accepts only the fork feed by default", () =>
+    Effect.gen(function* () {
+      for (const [owner, enabled] of [
+        ["joaoheusi", true],
+        ["pingdotgg", false],
+      ] as const) {
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const updates = yield* DesktopUpdates.DesktopUpdates;
+            yield* updates.configure;
+            assert.equal((yield* updates.getState).enabled, enabled);
+          }),
+        ).pipe(
+          Effect.provide(
+            makeHarness({
+              updateFeed: `provider: github\nowner: ${owner}\nrepo: t3code\n`,
+              env: { T3CODE_DISABLE_AUTO_UPDATE: undefined, T3CODE_DESKTOP_MOCK_UPDATES: "false" },
+            }).layer,
+          ),
+        );
+      }
+    }),
+  );
+
+  it.effect("downloads after a check releases its reservation without installing", () =>
+    Effect.gen(function* () {
+      const checked = yield* Deferred.make<void>();
+      const finishCheck = yield* Deferred.make<void>();
+      const downloaded = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        env: { J4CODE_AUTO_DOWNLOAD_UPDATES: "true" },
+        checkForUpdates: Deferred.succeed(checked, undefined).pipe(
+          Effect.andThen(Deferred.await(finishCheck)),
+        ),
+        downloadUpdate: Deferred.succeed(downloaded, undefined).pipe(Effect.asVoid),
+      });
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const updates = yield* DesktopUpdates.DesktopUpdates;
+          yield* updates.configure;
+          const subscription = yield* updates.subscribe;
+          const available = yield* Stream.runHead(
+            subscription.changes.pipe(Stream.filter((state) => state.status === "available")),
+          ).pipe(Effect.forkScoped);
+          const checking = yield* updates.check("poll").pipe(Effect.forkScoped);
+          yield* Deferred.await(checked);
+          harness.emit("update-available", { version: "1.2.4" });
+          yield* Fiber.join(available);
+          assert.equal(harness.downloadCount(), 0);
+          yield* Deferred.succeed(finishCheck, undefined);
+          yield* Fiber.join(checking);
+          yield* Deferred.await(downloaded);
+          assert.equal(harness.downloadCount(), 1);
+          assert.equal(harness.quitAndInstalls(), 0);
+        }),
+      ).pipe(Effect.provide(harness.layer));
+    }),
+  );
+
   it.effect("updates Linux .deb installs and leaves other non-AppImage installs off", () =>
     Effect.gen(function* () {
       const linuxState = (packageType: string | undefined) =>
@@ -43,7 +102,7 @@ describe("DesktopUpdates", () => {
 
   it.effect("keeps the disabled reason available after configuration and channel changes", () => {
     const harness = makeHarness({ env: { T3CODE_DISABLE_AUTO_UPDATE: "true" } });
-    const reason = "J4 Code uses manual fork updates. Build and install matching fork artifacts.";
+    const reason = "Updates are disabled by T3CODE_DISABLE_AUTO_UPDATE.";
 
     return Effect.scoped(
       Effect.gen(function* () {

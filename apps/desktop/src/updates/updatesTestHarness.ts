@@ -35,6 +35,7 @@ export interface UpdatesHarnessOptions {
   readonly platform?: NodeJS.Platform;
   readonly packageType?: string | undefined;
   readonly installRecord?: string | undefined;
+  readonly updateFeed?: string;
   readonly appVersion?: string;
   /** Starts from in-memory settings with this track saved, as after a restart. */
   readonly savedChannel?: DesktopAppSettings.DesktopSettings["updateChannel"];
@@ -185,6 +186,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
         NodeServices.layer,
         DesktopConfig.layerTest({
           T3CODE_DISABLE_AUTO_UPDATE: "false",
+          J4CODE_AUTO_DOWNLOAD_UPDATES: "false",
           J4CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
           T3CODE_DESKTOP_MOCK_UPDATES: "true",
           T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",
@@ -241,6 +243,9 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     path.endsWith(DesktopUpdates.DESKTOP_UPDATE_INSTALL_RECORD_FILE);
   const layerFileSystem = FileSystem.layerNoop({
     readFileString: (path) => {
+      if (path.endsWith("app-update.yml") && options.updateFeed !== undefined) {
+        return Effect.succeed(options.updateFeed);
+      }
       const installRecord = isInstallRecord(path)
         ? (installRecords.get(path) ?? previousInstallRecord)
         : undefined;
@@ -280,6 +285,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     Layer.provideMerge(
       DesktopConfig.layerTest({
         T3CODE_DISABLE_AUTO_UPDATE: "false",
+        J4CODE_AUTO_DOWNLOAD_UPDATES: "false",
         J4CODE_HOME: `/tmp/t3-desktop-updates-test-${process.pid}`,
         T3CODE_DESKTOP_MOCK_UPDATES: "true",
         T3CODE_DESKTOP_MOCK_UPDATE_SERVER_PORT: "4141",

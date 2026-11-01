@@ -8,6 +8,7 @@ import {
   type DesktopUpdateState,
 } from "@t3tools/contracts";
 import { errorTag } from "@t3tools/shared/observability";
+import { FORK_IDENTITY } from "@t3tools/shared/forkIdentity";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -273,7 +274,11 @@ function parseAppUpdateYml(raw: string): Effect.Effect<Option.Option<AppUpdateYm
   }
 
   return decodeAppUpdateYmlConfig(entries).pipe(
-    Effect.map((config) => (config.provider ? Option.some(config) : Option.none())),
+    Effect.map((config) =>
+      config.provider === "github" && `${config.owner}/${config.repo}` === FORK_IDENTITY.repository
+        ? Option.some(config)
+        : Option.none(),
+    ),
     Effect.orElseSucceed(() => Option.none<AppUpdateYmlConfig>()),
   );
 }
@@ -330,7 +335,7 @@ function getAutoUpdateDisabledReason(args: {
     return "Automatic updates are only available in packaged production builds.";
   }
   if (args.disabledByEnv) {
-    return "J4 Code uses manual fork updates. Build and install matching fork artifacts.";
+    return "Updates are disabled by T3CODE_DISABLE_AUTO_UPDATE.";
   }
   if (args.platform === "linux" && !args.appImage && !args.isDebPackage) {
     return "Automatic updates on Linux require the AppImage or the .deb package.";
@@ -913,6 +918,18 @@ export const make = Effect.gen(function* () {
             releaseNoteGroups: releaseNotes.length,
             omittedReleaseCount,
           });
+          if (config.autoDownloadUpdates) {
+            yield* Effect.scoped(
+              Effect.gen(function* () {
+                const completions = yield* PubSub.subscribe(finishedUpdateActions);
+                const action = yield* activeUpdateAction;
+                if (Option.isSome(action) && action.value === "check") {
+                  yield* PubSub.take(completions);
+                }
+                yield* downloadAvailableUpdate;
+              }),
+            );
+          }
         }),
       ),
       Effect.catchCause((cause) => {

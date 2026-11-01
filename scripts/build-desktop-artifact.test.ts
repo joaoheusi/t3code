@@ -615,7 +615,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
       assert.isNull(preview.publish);
       assert.isNull(previewChannel.publish);
-      assert.isNull(release.publish);
+      assert.deepEqual(release.publish, [
+        {
+          provider: "github",
+          owner: "joaoheusi",
+          repo: "t3code",
+          releaseType: "release",
+        },
+      ]);
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
