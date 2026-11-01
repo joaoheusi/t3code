@@ -159,13 +159,9 @@ jobs:
           ref: ${{ needs.plan.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
-          sparse-checkout: |
-            /*
-            !/.repos/
-          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
         with:
-          install-args: --filter=@t3tools/mobile...
+          install-args: --filter=@t3tools/mobile... --filter=@t3tools/scripts...
       - name: Expose the pinned package manager to EAS
         run: |
           pnpm_version="$(node --print "require('./package.json').packageManager.split('@').pop()")"
@@ -185,6 +181,7 @@ jobs:
           set -euo pipefail
           test -n "$EXPO_TOKEN" || { echo '::error::Missing EXPO_TOKEN'; exit 1; }
           cd apps/mobile
+          node node_modules/expo/bin/cli config --json > "$RUNNER_TEMP/j4-expo-config.json"
           eas env:pull production --non-interactive
           eas fingerprint:generate --platform ios --environment production --json --non-interactive | sed -n '/^{/,$p' > "$RUNNER_TEMP/j4-fingerprint.json"
           jq -e '[.sources[] | select((.reasons // []) | index("expoAutolinkingIos"))] | length > 0' "$RUNNER_TEMP/j4-fingerprint.json"
