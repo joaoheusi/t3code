@@ -27,6 +27,9 @@ const opusA = createModelSelection(claudeA, "claude-opus-5-5");
 const opusB = createModelSelection(claudeB, "claude-opus-5-5");
 const solA = createModelSelection(codexA, "gpt-6.1-sol");
 const chain = [opusA, opusB, solA];
+const opusAHigh = createModelSelection(claudeA, "claude-opus-5-5", [
+  { id: "effort", value: "high" },
+]);
 
 function limits(usedPercent: number, overrides?: Partial<ServerProviderUsageLimits>) {
   return {
@@ -206,6 +209,7 @@ describe("chain settings helpers", () => {
 
   it("dedupes while preserving order", () => {
     expect(dedupeModelSelectionChain([opusA, opusB, opusA, solA, opusB])).toEqual(chain);
+    expect(dedupeModelSelectionChain([opusAHigh, opusB, opusA])).toEqual([opusAHigh, opusB]);
   });
 
   it("mirrors the chain head into the single default", () => {
@@ -230,6 +234,15 @@ describe("chain settings helpers", () => {
         single: solA,
       }),
     ).toEqual({ defaultModelSelection: solA, defaultModelSelectionChain: [solA, opusA, opusB] });
+    expect(
+      syncDefaultModelSelectionPair({
+        current: { defaultModelSelection: opusA, defaultModelSelectionChain: chain },
+        single: opusAHigh,
+      }),
+    ).toEqual({
+      defaultModelSelection: opusAHigh,
+      defaultModelSelectionChain: [opusAHigh, opusB, solA],
+    });
     expect(
       syncDefaultModelSelectionPair({
         current: { defaultModelSelection: opusA, defaultModelSelectionChain: chain },

@@ -8,7 +8,6 @@ import {
   type ServerSettings,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import { modelSelectionsEqual } from "./model.ts";
 
 const nowMillis = (): number => DateTime.toEpochMillis(DateTime.nowUnsafe());
 
@@ -17,13 +16,18 @@ export type DefaultModelSelectionSettings = Pick<
   "defaultModelSelection" | "defaultModelSelectionChain"
 >;
 
-/** Keeps the first occurrence of each selection, preserving user order. */
+/** Options are ignored: another effort on the same account cannot rescue an exhausted entry. */
+export function isSameChainEntry(left: ModelSelection, right: ModelSelection): boolean {
+  return left.instanceId === right.instanceId && left.model === right.model;
+}
+
+/** Keeps the first occurrence of each entry, preserving user order. */
 export function dedupeModelSelectionChain(
   chain: readonly ModelSelection[],
 ): readonly ModelSelection[] {
   const result: ModelSelection[] = [];
   for (const entry of chain) {
-    if (!result.some((seen) => modelSelectionsEqual(seen, entry))) result.push(entry);
+    if (!result.some((seen) => isSameChainEntry(seen, entry))) result.push(entry);
   }
   return result;
 }
