@@ -9,6 +9,7 @@ import { mapManagedRelayError, mapRemoteEnvironmentError } from "./errors.ts";
 import {
   AVAILABLE_CONNECTION_STATE,
   type ConnectionAttemptError,
+  ConnectionTransientError,
   type SupervisorConnectionState,
 } from "./model.ts";
 import { ManagedRelayRequestFailedError } from "../relay/managedRelay.ts";
@@ -126,6 +127,25 @@ describe("presentConnectionDiagnosis", () => {
       relayStatus: { status: "offline", endpointFailure: "origin_unreachable" },
     });
     expect(origin?.hops.map((hop) => hop.hop)).toEqual(["device", "relay", "tunnel", "server"]);
+  });
+
+  it("does not blame T3 Code when a direct route gets no answer", () => {
+    const failure = mapRemoteEnvironmentError(
+      new RemoteEnvironmentAuthFetchError({ message: "Failed to fetch", cause: new TypeError() }),
+    );
+    const diagnosis = diagnose(backoff(failure), "direct");
+    expect(diagnosis?.headline).toBe("Can't reach Mac mini");
+    expect(diagnosis?.steps.join(" ")).toContain("Tailscale");
+    const dropped = new ConnectionTransientError({
+      reason: "transport",
+      detail: "Mac mini disconnected.",
+      hop: "server",
+      via: "direct",
+      hostAnswered: true,
+    });
+    expect(diagnose(backoff(dropped), "direct")?.headline).toBe(
+      "T3 Code on Mac mini did not answer",
+    );
   });
 
   it("keeps the relay health status out of a failure that has its own cause", () => {

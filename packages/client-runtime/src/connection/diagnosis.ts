@@ -54,6 +54,20 @@ const NOT_ANSWERING: ReadonlySet<ConnectionFailureCause> = new Set([
   "invalid_response",
 ]);
 
+/** No answer came back, so any part of the path can be at fault, this device's network included. */
+function unanswered(failure: ConnectionAttemptError | null): boolean {
+  return (
+    failure?.reason === "network" ||
+    failure?.reason === "transport" ||
+    failure?.reason === "timeout"
+  );
+}
+
+/** Unlike a dropped socket, a direct route that never answered can fail on this device's side. */
+function hostUnreachable(failure: ConnectionAttemptError | null): boolean {
+  return unanswered(failure) && failure?.hostAnswered !== true;
+}
+
 function locate(input: ConnectionDiagnosisInput): Located | null {
   const failure = input.state.lastFailure;
   if (input.state.network === "offline" || input.state.phase === "offline") {
@@ -66,12 +80,8 @@ function locate(input: ConnectionDiagnosisInput): Located | null {
     return { hop: failure.hop, cause: failure.failureCause ?? null };
   }
   if (failure !== null) {
-    const unreachable =
-      failure.reason === "network" ||
-      failure.reason === "timeout" ||
-      failure.reason === "transport";
     const via = failure.via ?? input.via;
-    return { hop: unreachable && via === "relay" ? "tunnel" : "server", cause: null };
+    return { hop: unanswered(failure) && via === "relay" ? "tunnel" : "server", cause: null };
   }
   const status = input.relayStatus;
   if (status?.status !== "offline") return null;
@@ -124,15 +134,14 @@ function headline(host: string, located: Located, failure: ConnectionAttemptErro
         : "This device can't reach T3 Connect";
     case "tunnel":
       // The relay already reached the host when this device fails on its own.
-      return failure?.reason === "network" ||
-        failure?.reason === "transport" ||
-        failure?.reason === "timeout"
+      return unanswered(failure)
         ? `This device can't reach ${host}'s tunnel`
         : `T3 Connect could not reach ${host}'s tunnel`;
     case "server":
-      return failure?.reason === "authentication" || failure?.reason === "permission"
-        ? `T3 Code on ${host} did not accept this device`
-        : `T3 Code on ${host} did not answer`;
+      if (failure?.reason === "authentication" || failure?.reason === "permission") {
+        return `T3 Code on ${host} did not accept this device`;
+      }
+      return hostUnreachable(failure) ? `Can't reach ${host}` : `T3 Code on ${host} did not answer`;
   }
 }
 
@@ -193,19 +202,22 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
             "A VPN, firewall, or ad blocker on this device can block T3 Connect.",
           ];
     case "tunnel":
-      return failure?.reason === "network" ||
-        failure?.reason === "transport" ||
-        failure?.reason === "timeout"
+      return unanswered(failure)
         ? [
             "A VPN, firewall, or DNS filter on this device can block the tunnel.",
             "Try another network, or add a direct route such as a Tailscale address.",
           ]
         : [`Make sure ${host} is awake and online.`, checkHost];
     case "server":
-      return [
-        `Make sure T3 Code is running on ${host}.`,
-        "Retry. If it keeps failing, copy the diagnostics.",
-      ];
+      return hostUnreachable(failure)
+        ? [
+            `Make sure ${host} is awake and T3 Code is running on it.`,
+            `Check this device's network. If you reach ${host} over Tailscale or another VPN, make sure it is connected on this device.`,
+          ]
+        : [
+            `Make sure T3 Code is running on ${host}.`,
+            "Retry. If it keeps failing, copy the diagnostics.",
+          ];
   }
 }
 
@@ -241,10 +253,7 @@ function helpSection(
     case null:
       break;
   }
-  const onThisDevice =
-    failure?.reason === "network" ||
-    failure?.reason === "transport" ||
-    failure?.reason === "timeout";
+  const onThisDevice = unanswered(failure);
   switch (located.hop) {
     case "device":
       return "this-device-cant-reach-t3-connect";
