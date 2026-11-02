@@ -149,6 +149,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
 
   const setChain = (next: readonly ModelSelection[]) => {
     for (const entry of next) {
+      // A saved entry that later became unavailable must not block edits to its siblings.
+      // Mixed chains are exempt: a saved entry here may be new to another environment.
+      if (!mixedChain && chain.some((saved) => isSameChainEntry(saved, entry))) continue;
       const reason = modelDisabledReason(entry.instanceId, entry.model);
       if (reason) {
         toastManager.add({ type: "error", title: "Default model not saved", description: reason });

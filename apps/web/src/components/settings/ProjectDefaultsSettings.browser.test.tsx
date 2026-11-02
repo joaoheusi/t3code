@@ -57,6 +57,9 @@ const providers = [provider(primary), provider(secondary)];
 
 const mocks = vi.hoisted(() => ({
   chain: [] as ModelSelection[],
+  disabledModels: [] as string[],
+  mixedChain: false,
+  pickedModel: null as string | null,
   updateSettings: vi.fn(),
 }));
 
@@ -83,17 +86,22 @@ vi.mock(import("./SettingsScopeContext"), async (original) => ({
 vi.mock(import("./useScopedSettings"), async (original) => ({
   ...(await original()),
   useScopedSettings: (() => settings()) as never,
-  useScopedSettingsMixed: () => false,
+  useScopedSettingsMixed: (keys) => mocks.mixedChain && keys.includes("defaultModelSelectionChain"),
   useScopedSettingSource: (() => "environment") as never,
   useUpdateScopedSettings: () => mocks.updateSettings,
 }));
 vi.mock(import("./useScopedModelAvailability"), () => ({
-  useScopedModelDisabledReason: () => () => null,
+  useScopedModelDisabledReason: () => (_instanceId, model) =>
+    mocks.disabledModels.includes(model) ? "Unavailable" : null,
 }));
-// The real picker's virtualized list has no height in tests; a click re-picks the current model.
+// The real picker's virtualized list has no height in tests; a click picks `pickedModel`,
+// or re-picks the current model.
 vi.mock(import("../chat/ProviderModelPicker"), () => ({
   ProviderModelPicker: (({ activeInstanceId, model, triggerLabel, onInstanceModelChange }) => (
-    <button type="button" onClick={() => onInstanceModelChange(activeInstanceId, model)}>
+    <button
+      type="button"
+      onClick={() => onInstanceModelChange(activeInstanceId, mocks.pickedModel ?? model)}
+    >
       {triggerLabel ?? model}
     </button>
   )) as typeof ProviderModelPickerType,
@@ -111,12 +119,19 @@ vi.mock(import("../../state/environments"), async (original) => ({
   useEnvironmentProviders: () => new Map([[environmentId, providers]]),
 }));
 
-function setup(chain: readonly ModelSelection[]) {
+function setup(
+  chain: readonly ModelSelection[],
+  { disabledModels = [] as string[], mixedChain = false, pickedModel = null as string | null } = {},
+) {
   mocks.chain = [...chain];
+  mocks.disabledModels = disabledModels;
+  mocks.mixedChain = mixedChain;
+  mocks.pickedModel = pickedModel;
   mocks.updateSettings.mockClear();
 }
 
 const head = createModelSelection(primary, "opus", [{ id: "effort", value: "High" }]);
+const retired = createModelSelection(primary, "retired");
 
 describe("ProjectDefaultsSettings fallback models", () => {
   it("saves effort on the fallback entry and leaves the head alone", async () => {
@@ -133,6 +148,51 @@ describe("ProjectDefaultsSettings fallback models", () => {
         createModelSelection(secondary, "opus", [{ id: "effort", value: "High" }]),
       ],
     });
+  });
+
+  it("saves effort on a fallback while a saved sibling is unavailable", async () => {
+    setup([head, createModelSelection(secondary, "opus"), retired], {
+      disabledModels: ["retired"],
+    });
+    await using _screen = await render(<ProjectDefaultsSettings category="general" />);
+
+    await userEvent.click(page.getByRole("button", { name: "Medium" }));
+    await userEvent.click(page.getByRole("menuitemradio", { name: "High" }));
+
+    expect(mocks.updateSettings).toHaveBeenCalledWith({
+      defaultModelSelection: head,
+      defaultModelSelectionChain: [
+        head,
+        createModelSelection(secondary, "opus", [{ id: "effort", value: "High" }]),
+        retired,
+      ],
+    });
+  });
+
+  it.each([
+    {
+      name: "a model new to the chain",
+      chain: [head],
+      options: { disabledModels: ["retired"], pickedModel: "retired" },
+      button: "Add fallback",
+    },
+    {
+      name: "a saved entry when environments hold different chains",
+      chain: [head, retired],
+      options: { disabledModels: ["retired"], mixedChain: true },
+      button: "Mixed",
+    },
+  ])("rejects $name that is unavailable", async ({ chain, options, button }) => {
+    setup(chain, options);
+    await using _screen = await render(<ProjectDefaultsSettings category="general" />);
+    using toast = vi.spyOn(toastManager, "add");
+
+    await userEvent.click(page.getByRole("button", { name: button }));
+
+    expect(mocks.updateSettings).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Default model not saved" }),
+    );
   });
 
   it("rejects a fallback that differs from an existing entry only by effort", async () => {
