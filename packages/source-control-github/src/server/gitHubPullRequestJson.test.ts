@@ -419,6 +419,16 @@ describe("pull request detail decoding", () => {
     },
   );
 
+  it.each([
+    [{}, "blocked"],
+    [{ mergeStateStatus: "BEHIND" }, "behind"],
+    [{ mergeStateStatus: "CLEAN" }, undefined],
+    [{ mergeStateStatus: "UNKNOWN" }, undefined],
+    [{ state: "CLOSED" }, undefined],
+  ])("reads what GitHub still requires before an open merge: %j", (overrides, mergeBlock) => {
+    expect(detailOf([], overrides).mergeBlock).toBe(mergeBlock);
+  });
+
   const detailJson = JSON.stringify({
     comments: [{ id: "c1", body: "second", createdAt: "2026-07-04T00:00:00Z" }],
     reviews: [
@@ -1645,9 +1655,11 @@ describe("pull request watch fingerprints", () => {
       readonly failed: number;
       readonly commentEditedAt: string | null;
       readonly reviews: number;
+      readonly mergeStateStatus?: string;
     }) => ({
       state: "OPEN",
       mergeable: "MERGEABLE",
+      mergeStateStatus: input.mergeStateStatus ?? "CLEAN",
       headRefOid: "abc123",
       comments: { totalCount: 1, nodes: [{ lastEditedAt: input.commentEditedAt }] },
       reviews: { totalCount: input.reviews, nodes: [] },
@@ -1678,11 +1690,14 @@ describe("pull request watch fingerprints", () => {
     const checkFinished = fingerprint({ ...base, running: 1, failed: 1 });
     const summaryEdited = fingerprint({ ...base, commentEditedAt: "2026-10-05T23:47:43Z" });
     const replied = fingerprint({ ...base, reviews: 2 });
+    // The base moving makes a strict-policy PR behind without touching its head or checks.
+    const fellBehind = fingerprint({ ...base, mergeStateStatus: "BEHIND" });
 
     expect(checkFinished.status).not.toBe(before.status);
     expect(checkFinished.remarks).toBe(before.remarks);
     expect(summaryEdited.remarks).not.toBe(before.remarks);
     expect(summaryEdited.status).toBe(before.status);
     expect(replied.remarks).not.toBe(before.remarks);
+    expect(fellBehind.status).not.toBe(before.status);
   });
 });

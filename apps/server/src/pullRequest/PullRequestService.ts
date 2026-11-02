@@ -1801,6 +1801,9 @@ export const make = Effect.gen(function* () {
             ...(changeRequest.autoMergeMethod === undefined
               ? {}
               : { autoMergeMethod: changeRequest.autoMergeMethod }),
+            ...(changeRequest.mergeBlock === undefined
+              ? {}
+              : { mergeBlock: changeRequest.mergeBlock }),
             ...(changeRequest.maintainerCanModify === undefined
               ? {}
               : { maintainerCanModify: changeRequest.maintainerCanModify }),

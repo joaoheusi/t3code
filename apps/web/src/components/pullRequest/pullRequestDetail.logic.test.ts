@@ -1230,6 +1230,7 @@ describe("the compact row's single action slot", () => {
     expect(
       resolveThreadPanelPullRequestAction(openDetail({ checks: [check("action-required")] })),
     ).toBeNull();
+    expect(resolveThreadPanelPullRequestAction(openDetail({ mergeBlock: "blocked" }))).toBeNull();
   });
 
   it("ranks conflicts above everything, then draft, then failing checks", () => {

@@ -48,6 +48,10 @@ describe("pullRequestMergeBlocker", () => {
         "You can't merge this pull request",
       ],
       [{ checks: [check("pending")], autoMergeEnabled: true }, "Auto-merge is on"],
+      // Checks explain a block first; the host's own reason shows once they look fine.
+      [{ checks: [check("pending")], mergeBlock: "blocked" }, "Waiting for CI"],
+      [{ mergeBlock: "blocked" }, "Blocked by branch rules"],
+      [{ mergeBlock: "behind" }, "Branch is behind its base"],
     ];
     for (const [overrides, reason] of cases) {
       expect(pullRequestMergeBlocker(pullRequestDetailMergeState(detail(overrides)))).toBe(reason);
@@ -111,12 +115,22 @@ describe("quickActionMergeKind", () => {
     expect(kind({ ...autoMerge, checks: [check("pending")], autoMergeEnabled: false })).toBe(
       "auto-merge",
     );
+    // GitHub reports a PR with running required checks as blocked; auto-merge waits that out.
+    expect(
+      kind({
+        ...autoMerge,
+        checks: [check("pending")],
+        autoMergeEnabled: false,
+        mergeBlock: "blocked",
+      }),
+    ).toBe("auto-merge");
   });
 
   it("starts nothing it cannot finish", () => {
     // Unknown auto-merge state is not "off": arming twice is a write nobody asked for.
     expect(kind({ ...autoMerge, checks: [check("pending")] })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("pending")], autoMergeEnabled: true })).toBeNull();
+    expect(kind({ mergeBlock: "blocked" })).toBeNull();
     expect(kind({ checks: [check("pending")], autoMergeEnabled: false })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("failure")], autoMergeEnabled: false })).toBeNull();
     expect(

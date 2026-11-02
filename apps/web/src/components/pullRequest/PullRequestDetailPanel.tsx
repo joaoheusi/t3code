@@ -1,6 +1,10 @@
 import { useTaskDestination } from "../../quickActions/useTaskDestination";
 import { projectChangeRequestUrl } from "@t3tools/client-runtime/change-request-links";
 import { normalizeThreadPullRequestKey } from "@t3tools/client-runtime/thread-pull-requests";
+import {
+  pullRequestDetailMergeState,
+  pullRequestMergeBlocker,
+} from "@t3tools/client-runtime/pullRequestActions";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -657,11 +661,6 @@ export function PullRequestDetailPanel({
     stackError: nativeStackQuery.error,
   });
   const stackOwnsMerge = supportsStackActions && nativeStack !== null;
-  const mergeBlockedReason = canMergeSinglePullRequest
-    ? null
-    : nativeStackQuery.error
-      ? "Couldn't check stack membership"
-      : "Checking stack membership…";
   const activityPending = activityQuery.isPending && activity === null;
   const activityError = activity === null ? activityQuery.error : null;
   const refreshDetail = () => {
@@ -1184,6 +1183,13 @@ export function PullRequestDetailPanel({
         canEnableAutoMerge: !stackOwnsMerge && can("enable-auto-merge"),
       })
     : null;
+  const mergeBlockedReason = !canMergeSinglePullRequest
+    ? nativeStackQuery.error
+      ? "Couldn't check stack membership"
+      : "Checking stack membership…"
+    : primaryAction === "merge" && detail
+      ? pullRequestMergeBlocker(pullRequestDetailMergeState(detail))
+      : null;
   const showsDraftToggle =
     detail?.state === "open" &&
     can(detail.isDraft ? "ready" : "draft") &&

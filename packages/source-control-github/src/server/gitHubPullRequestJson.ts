@@ -19,6 +19,7 @@ import type {
   PullRequestMergeMethod,
   PullRequestOmittedFileStat,
   PullRequestMergeability,
+  PullRequestMergeBlock,
   PullRequestReaction,
   PullRequestReactionContent,
   PullRequestReviewCommentDraft,
@@ -356,6 +357,7 @@ export interface GitHubPullRequestDetail extends GitHubPullRequestListItem {
   readonly checks: ReadonlyArray<PullRequestCheck>;
   readonly autoMergeEnabled?: boolean;
   readonly autoMergeMethod?: PullRequestMergeMethod;
+  readonly mergeBlock?: PullRequestMergeBlock;
 }
 
 export interface GitHubWorkflowRunApproval {
@@ -463,6 +465,18 @@ function toMergeability(value: string | null | undefined): PullRequestMergeabili
       return "conflicting";
     default:
       return "unknown";
+  }
+}
+
+/** GitHub reports conflicts, drafts and passing checks elsewhere; only these two add a reason. */
+function toMergeBlock(value: string | null | undefined): PullRequestMergeBlock | undefined {
+  switch (value?.trim().toUpperCase()) {
+    case "BLOCKED":
+      return "blocked";
+    case "BEHIND":
+      return "behind";
+    default:
+      return undefined;
   }
 }
 
@@ -963,6 +977,7 @@ export function toPullRequestWatchFingerprint(
     status: [
       pr.state,
       pr.mergeable,
+      pr.mergeStateStatus,
       pr.headRefOid,
       stateCounts(contexts?.checkRunCountsByState ?? null),
       stateCounts(contexts?.statusContextCountsByState ?? null),
@@ -997,6 +1012,7 @@ export function toPullRequestCore(result: PullRequestCore.Result): GitHubPullReq
   const pr = repository?.pullRequest;
   if (repository == null || pr == null) return null;
   const contexts = nodesOf(pr.commits)[0]?.commit.statusCheckRollup?.contexts;
+  const mergeBlock = pr.state === "OPEN" ? toMergeBlock(pr.mergeStateStatus) : undefined;
   return {
     reviewRequestTeams: nodesOf(pr.reviewRequests).flatMap(
       ({ requestedReviewer }) => toRequestedTeam(requestedReviewer) ?? [],
@@ -1025,6 +1041,7 @@ export function toPullRequestCore(result: PullRequestCore.Result): GitHubPullReq
       statusCheckRollup: toCheckContexts(nodesOf(contexts)),
     }),
     headRepositoryNameWithOwner: trimmed(pr.headRepository?.nameWithOwner),
+    ...(mergeBlock === undefined ? {} : { mergeBlock }),
     maintainerCanModify: pr.maintainerCanModify,
     canEditMaintainerEdits:
       pr.state === "OPEN" &&

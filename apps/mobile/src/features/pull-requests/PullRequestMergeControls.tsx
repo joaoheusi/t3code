@@ -1,5 +1,9 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
+import {
+  pullRequestDetailMergeState,
+  pullRequestMergeBlocker,
+} from "@t3tools/client-runtime/pullRequestActions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import type { PullRequestDetail, PullRequestMergeMethod } from "@t3tools/contracts";
@@ -64,7 +68,12 @@ export function PullRequestMergeControls(props: {
   const reason =
     (!permissions.connected
       ? "Reconnect to merge."
-      : mergeUnavailableReason(pr, permissions.canWrite, terminology)) ??
+      : (mergeUnavailableReason(pr, permissions.canWrite, terminology) ??
+        // Merging past armed auto-merge stays allowed, as on web.
+        pullRequestMergeBlocker({
+          ...pullRequestDetailMergeState(pr),
+          autoMergeEnabled: undefined,
+        }))) ??
     (stack.stack
       ? !stack.supportsStackActions
         ? "This environment can display stacks but cannot merge them."
