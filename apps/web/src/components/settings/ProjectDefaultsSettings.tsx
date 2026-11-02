@@ -5,8 +5,11 @@ import {
   type WorktreeSubmodules,
   managedRuntimeModeDenial,
 } from "@t3tools/contracts";
-import { createModelSelection, modelSelectionsEqual } from "@t3tools/shared/model";
-import { effectiveDefaultModelSelectionChain } from "@t3tools/shared/modelSelectionChain";
+import { createModelSelection } from "@t3tools/shared/model";
+import {
+  effectiveDefaultModelSelectionChain,
+  isSameChainEntry,
+} from "@t3tools/shared/modelSelectionChain";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowDownIcon, ArrowUpIcon, XIcon } from "lucide-react";
@@ -87,6 +90,23 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     selection?.model,
   );
   const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
+  const traitsPickerFor = (value: ModelSelection, onChange: (next: ModelSelection) => void) => {
+    const instance = entries.find((entry) => entry.instanceId === value.instanceId);
+    return instance ? (
+      <TraitsPicker
+        provider={instance.driverKind}
+        models={instance.models}
+        model={value.model}
+        modelOptions={value.options ?? []}
+        allowPromptInjectedEffort={false}
+        planModeEnabled={settings.planModeEnabled}
+        triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
+        onModelOptionsChange={(options) =>
+          onChange(createModelSelection(value.instanceId, value.model, options))
+        }
+      />
+    ) : null;
+  };
   const mixedModel = defaultModelSelectionsAreMixed(
     clientSettings,
     targets.map((candidate) => ({
@@ -102,7 +122,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const chain = effectiveDefaultModelSelectionChain(settings);
   const mixedFallback = useScopedSettingsMixed(["fallbackModelSelection"]);
   const fallbackSelection = settings.fallbackModelSelection ?? selection;
-  const fallbackEntry = entries.find((entry) => entry.instanceId === fallbackSelection?.instanceId);
   const fallbackModelOptions = getCustomModelOptionsByInstance(
     settings,
     providers,
@@ -130,6 +149,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
 
   const setChain = (next: readonly ModelSelection[]) => {
     for (const entry of next) {
+      // A saved entry that later became unavailable must not block edits to its siblings.
+      // Mixed chains are exempt: a saved entry here may be new to another environment.
+      if (!mixedChain && chain.some((saved) => isSameChainEntry(saved, entry))) continue;
       const reason = modelDisabledReason(entry.instanceId, entry.model);
       if (reason) {
         toastManager.add({ type: "error", title: "Default model not saved", description: reason });
@@ -147,14 +169,14 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       setChain([]);
       return;
     }
-    setChain([value, ...chain.slice(1).filter((entry) => !modelSelectionsEqual(entry, value))]);
+    setChain([value, ...chain.slice(1).filter((entry) => !isSameChainEntry(entry, value))]);
   };
 
   const addFallback = (value: ModelSelection) => {
     // With no saved chain the picker above shows the automatic pick; pin it
     // as the head so the new entry lands behind it instead of replacing it.
     const base = chain.length === 0 && selection ? [selection] : chain;
-    if (base.some((entry) => modelSelectionsEqual(entry, value))) {
+    if (base.some((entry) => isSameChainEntry(entry, value))) {
       toastManager.add({
         type: "error",
         title: "Fallback not added",
@@ -166,9 +188,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   };
 
   const replaceChainEntry = (index: number, value: ModelSelection) => {
-    if (
-      chain.some((entry, entryIndex) => entryIndex !== index && modelSelectionsEqual(entry, value))
-    ) {
+    if (chain.some((entry, entryIndex) => entryIndex !== index && isSameChainEntry(entry, value))) {
       toastManager.add({
         type: "error",
         title: "Fallback not saved",
@@ -241,20 +261,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 setModel(createModelSelection(instanceId, model))
               }
             />
-            {!mixedModel && !mixedChain && !effortDisabledReason ? (
-              <TraitsPicker
-                provider={activeEntry.driverKind}
-                models={activeEntry.models}
-                model={selection.model}
-                modelOptions={selection.options ?? []}
-                allowPromptInjectedEffort={false}
-                planModeEnabled={settings.planModeEnabled}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onModelOptionsChange={(options) =>
-                  setModel(createModelSelection(selection.instanceId, selection.model, options))
-                }
-              />
-            ) : null}
+            {!mixedModel && !mixedChain && !effortDisabledReason
+              ? traitsPickerFor(selection, setModel)
+              : null}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">
@@ -287,7 +296,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               return (
                 <div
                   key={`${entry.instanceId}:${entry.model}:${index}`}
-                  className="flex items-center gap-1"
+                  className="flex min-w-0 flex-wrap items-center justify-end gap-1"
                 >
                   <ProviderModelPicker
                     environmentId={representative?.environmentId ?? null}
@@ -308,6 +317,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                       replaceChainEntry(index, createModelSelection(instanceId, model))
                     }
                   />
+                  {modelDisabledReason(entry.instanceId, entry.model)
+                    ? null
+                    : traitsPickerFor(entry, (next) => replaceChainEntry(index, next))}
                   <Button
                     size="icon-micro"
                     variant="ghost-muted"
@@ -471,26 +483,11 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 updateSettings({ fallbackModelSelection: createModelSelection(instanceId, model) });
               }}
             />
-            {settings.fallbackModelSelection !== null && fallbackEntry && !mixedFallback ? (
-              <TraitsPicker
-                provider={fallbackEntry.driverKind}
-                models={fallbackEntry.models}
-                model={fallbackSelection.model}
-                modelOptions={fallbackSelection.options ?? []}
-                allowPromptInjectedEffort={false}
-                planModeEnabled={settings.planModeEnabled}
-                triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
-                onModelOptionsChange={(options) =>
-                  updateSettings({
-                    fallbackModelSelection: createModelSelection(
-                      fallbackSelection.instanceId,
-                      fallbackSelection.model,
-                      options,
-                    ),
-                  })
-                }
-              />
-            ) : null}
+            {settings.fallbackModelSelection !== null && !mixedFallback
+              ? traitsPickerFor(fallbackSelection, (next) =>
+                  updateSettings({ fallbackModelSelection: next }),
+                )
+              : null}
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">No providers available</span>
