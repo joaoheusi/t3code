@@ -186,6 +186,14 @@ const APP_SCHEME = /^t3code(?:-[a-z]+)?:$/;
 const FORK_APP_SCHEMES = new Set(
   Object.values(FORK_IDENTITY.desktop).map((identity) => `${identity.scheme}:`),
 );
+
+const isAppLinkProtocol = (protocol: string): boolean =>
+  APP_SCHEME.test(protocol) || FORK_APP_SCHEMES.has(protocol);
+
+/** True when the value carries an upstream or fork app-link scheme, whatever its path. */
+export function hasAppLinkScheme(value: string): boolean {
+  return URL.canParse(value) && isAppLinkProtocol(new URL(value).protocol);
+}
 const THREAD_PATH = /^\/([^/]+)\/([^/]+)\/?$/;
 
 export function promptLinkAppPath(
@@ -194,7 +202,7 @@ export function promptLinkAppPath(
 ): string | null {
   if (!URL.canParse(value)) return null;
   const url = new URL(value);
-  if (APP_SCHEME.test(url.protocol) || FORK_APP_SCHEMES.has(url.protocol)) {
+  if (isAppLinkProtocol(url.protocol)) {
     if (url.host === "new" && (url.pathname === "" || url.pathname === "/")) {
       return `/new${url.search}`;
     }

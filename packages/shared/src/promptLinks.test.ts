@@ -4,6 +4,7 @@ import {
   buildNewThreadLink,
   parseNewThreadLink,
   parseThreadLinkPrompt,
+  hasAppLinkScheme,
   promptLinkAppPath,
   promptLinkDeepLink,
   sanitizeLinkedPrompt,
@@ -117,6 +118,10 @@ describe("link round trips", () => {
     expect(promptLinkAppPath("https://app.t3.codes/settings/general")).toBeNull();
     expect(promptLinkAppPath("https://evil.test/new?prompt=hi")).toBeNull();
     expect(promptLinkAppPath("t3code://app/index.html")).toBeNull();
+    expect(hasAppLinkScheme("T3CODE://pair?token=spent")).toBe(true);
+    expect(hasAppLinkScheme("j4code://new?prompt=hi")).toBe(true);
+    expect(hasAppLinkScheme("https://app.t3.codes/new?prompt=hi")).toBe(false);
+    expect(hasAppLinkScheme("--no-sandbox")).toBe(false);
   });
   it("hands an in-app path to the installed fork and accepts an explicit mobile scheme", () => {
     expect(promptLinkDeepLink("/new?prompt=hi", "t3code")).toBe("t3code://new?prompt=hi");

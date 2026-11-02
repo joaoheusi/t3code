@@ -9,10 +9,13 @@ import * as Scope from "effect/Scope";
 
 import type * as Electron from "electron";
 
+import * as HostProcess from "@t3tools/shared/HostProcess";
+
 import * as DesktopEnvironment from "./DesktopEnvironment.ts";
 import { makeComponentLogger } from "./DesktopObservability.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
+import { hasAppLinkScheme } from "@t3tools/shared/promptLinks";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopState from "./DesktopState.ts";
@@ -223,9 +226,11 @@ export const make = DesktopLifecycle.of({
         yield* electronApp.exit(75);
         return;
       }
+      // Startup already acted on the app link that launched it; passing it on replays it.
+      const args = yield* HostProcess.Arguments;
       yield* electronApp.relaunch({
-        execPath: process.execPath,
-        args: process.argv.slice(1),
+        execPath: yield* HostProcess.ExecutablePath,
+        args: args.slice(1).filter((arg) => !hasAppLinkScheme(arg)),
       });
       yield* electronApp.exit(0);
     }).pipe(
