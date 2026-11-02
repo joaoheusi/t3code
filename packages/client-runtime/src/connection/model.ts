@@ -100,6 +100,8 @@ const ConnectionFailureFields = {
   via: Schema.optionalKey(Schema.Literals(["relay", "direct"])),
   failureCause: Schema.optionalKey(ConnectionFailureCause),
   httpStatus: Schema.optionalKey(Schema.Number),
+  /** The host answered on this route before it failed, so the path to it worked. */
+  hostAnswered: Schema.optionalKey(Schema.Boolean),
 };
 
 export class ConnectionTransientError extends Schema.TaggedError<ConnectionTransientError>()(

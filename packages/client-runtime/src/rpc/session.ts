@@ -207,6 +207,7 @@ export const make = Effect.fn("RpcSessionFactory.make")(function* (
                   ? `${connection.label} stopped responding for ${PING_TIMEOUT_SECONDS}s. ${UNRESPONSIVE_HOST_HINT}`
                   : `${connection.label} disconnected.`,
               ...socketFailureLocation(via),
+              ...(wasConnected ? { hostAnswered: true } : {}),
             }),
           ),
         ),

@@ -63,6 +63,11 @@ function unanswered(failure: ConnectionAttemptError | null): boolean {
   );
 }
 
+/** Unlike a dropped socket, a direct route that never answered can fail on this device's side. */
+function hostUnreachable(failure: ConnectionAttemptError | null): boolean {
+  return unanswered(failure) && failure?.hostAnswered !== true;
+}
+
 function locate(input: ConnectionDiagnosisInput): Located | null {
   const failure = input.state.lastFailure;
   if (input.state.network === "offline" || input.state.phase === "offline") {
@@ -136,8 +141,7 @@ function headline(host: string, located: Located, failure: ConnectionAttemptErro
       if (failure?.reason === "authentication" || failure?.reason === "permission") {
         return `T3 Code on ${host} did not accept this device`;
       }
-      // A direct route has no relay to show the host answering, so do not blame it.
-      return unanswered(failure) ? `Can't reach ${host}` : `T3 Code on ${host} did not answer`;
+      return hostUnreachable(failure) ? `Can't reach ${host}` : `T3 Code on ${host} did not answer`;
   }
 }
 
@@ -205,7 +209,7 @@ function steps(host: string, located: Located, failure: ConnectionAttemptError |
           ]
         : [`Make sure ${host} is awake and online.`, checkHost];
     case "server":
-      return unanswered(failure)
+      return hostUnreachable(failure)
         ? [
             `Make sure ${host} is awake and T3 Code is running on it.`,
             `Check this device's network. If you reach ${host} over Tailscale or another VPN, make sure it is connected on this device.`,

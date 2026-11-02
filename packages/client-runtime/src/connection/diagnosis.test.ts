@@ -9,6 +9,7 @@ import { mapManagedRelayError, mapRemoteEnvironmentError } from "./errors.ts";
 import {
   AVAILABLE_CONNECTION_STATE,
   type ConnectionAttemptError,
+  ConnectionTransientError,
   type SupervisorConnectionState,
 } from "./model.ts";
 import { ManagedRelayRequestFailedError } from "../relay/managedRelay.ts";
@@ -135,6 +136,16 @@ describe("presentConnectionDiagnosis", () => {
     const diagnosis = diagnose(backoff(failure), "direct");
     expect(diagnosis?.headline).toBe("Can't reach Mac mini");
     expect(diagnosis?.steps.join(" ")).toContain("Tailscale");
+    const dropped = new ConnectionTransientError({
+      reason: "transport",
+      detail: "Mac mini disconnected.",
+      hop: "server",
+      via: "direct",
+      hostAnswered: true,
+    });
+    expect(diagnose(backoff(dropped), "direct")?.headline).toBe(
+      "T3 Code on Mac mini did not answer",
+    );
   });
 
   it("keeps the relay health status out of a failure that has its own cause", () => {
