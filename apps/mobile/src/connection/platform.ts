@@ -18,7 +18,7 @@ import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 import Constants from "expo-constants";
 import * as Network from "expo-network";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import { authClientMetadata } from "../lib/authClientMetadata";
 import * as Runtime from "../lib/runtime";
@@ -82,6 +82,11 @@ const layerConnectivity = Connectivity.layer({
   ),
 });
 
+// iOS reports a path update when a VPN such as Tailscale drops or returns, and
+// the type can stay the same. Android also reports signal changes, so it
+// compares types.
+const everyPathUpdateIsChange = Platform.OS === "ios";
+
 /** Wake connections on network path changes; online/offline misses Wi-Fi-to-cellular moves. */
 const networkPathChanges = Stream.callback<"network-changed">((queue) =>
   Effect.acquireRelease(
@@ -90,7 +95,11 @@ const networkPathChanges = Stream.callback<"network-changed">((queue) =>
       let previous: Network.NetworkStateType | undefined;
       const record = (state: Network.NetworkState) => {
         const type = state.isConnected === true ? state.type : undefined;
-        if (previous !== undefined && type !== undefined && type !== previous) {
+        if (
+          previous !== undefined &&
+          type !== undefined &&
+          (everyPathUpdateIsChange || type !== previous)
+        ) {
           Queue.offerUnsafe(queue, "network-changed");
         }
         previous = type ?? previous;

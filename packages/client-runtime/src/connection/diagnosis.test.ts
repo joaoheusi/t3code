@@ -128,6 +128,15 @@ describe("presentConnectionDiagnosis", () => {
     expect(origin?.hops.map((hop) => hop.hop)).toEqual(["device", "relay", "tunnel", "server"]);
   });
 
+  it("does not blame T3 Code when a direct route gets no answer", () => {
+    const failure = mapRemoteEnvironmentError(
+      new RemoteEnvironmentAuthFetchError({ message: "Failed to fetch", cause: new TypeError() }),
+    );
+    const diagnosis = diagnose(backoff(failure), "direct");
+    expect(diagnosis?.headline).toBe("Can't reach Mac mini");
+    expect(diagnosis?.steps.join(" ")).toContain("Tailscale");
+  });
+
   it("keeps the relay health status out of a failure that has its own cause", () => {
     const failure = mapRemoteEnvironmentError(
       new RemoteEnvironmentAuthFetchError({ message: "Failed to fetch", cause: new TypeError() }),
