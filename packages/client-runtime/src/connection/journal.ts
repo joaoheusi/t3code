@@ -24,6 +24,14 @@ export interface MemoryConnectionJournal extends ConnectionJournalService {
   readonly entries: (environmentId: EnvironmentId) => ReadonlyArray<ConnectionJournalEntry>;
 }
 
+const MAX_FIELD_LENGTH = 500;
+
+function capField(value: ConnectionJournalField): ConnectionJournalField {
+  return typeof value === "string" && value.length > MAX_FIELD_LENGTH
+    ? `${value.slice(0, MAX_FIELD_LENGTH)}…`
+    : value;
+}
+
 export function makeMemory(capacity = 300): MemoryConnectionJournal {
   const byEnvironment = new Map<EnvironmentId, Array<ConnectionJournalEntry>>();
   return {
@@ -33,7 +41,12 @@ export function makeMemory(capacity = 300): MemoryConnectionJournal {
         entries = [];
         byEnvironment.set(environmentId, entries);
       }
-      entries.push(entry);
+      entries.push({
+        ...entry,
+        fields: Object.fromEntries(
+          Object.entries(entry.fields).map(([key, value]) => [key, capField(value)]),
+        ),
+      });
       if (entries.length > capacity) entries.splice(0, entries.length - capacity);
     },
     entries: (environmentId) => byEnvironment.get(environmentId) ?? [],
