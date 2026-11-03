@@ -8,7 +8,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -43,7 +43,7 @@ export const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const vcsStatus = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
   const git = yield* GitManager.GitManager;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
 
   const syncRepository = Effect.fn("WorkspaceRepositorySync.syncRepository")(function* (
     threadId: ThreadId,
@@ -78,7 +78,7 @@ export const make = Effect.gen(function* () {
       (existing.bindingId !== undefined || existing.source === "stack-dismissed")
     )
       return;
-    const uuid = yield* crypto.randomUUIDv4();
+    const uuid = yield* random.uuidV4();
     yield* orchestrator.dispatch({
       type: "thread.pull-request.link",
       commandId: CommandId.make(`server:workspace-pull-request:${threadId}:${uuid}`),
