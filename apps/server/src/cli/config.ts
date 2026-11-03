@@ -80,6 +80,12 @@ const tailscaleServeFlag = Flag.Boolean("tailscale-serve").pipe(
   ),
   Flag.optional,
 );
+const tailscaleFunnelFlag = Flag.Boolean("tailscale-funnel").pipe(
+  Flag.withDescription(
+    "Like --tailscale-serve, and also expose this backend to the public internet with Tailscale Funnel.",
+  ),
+  Flag.optional,
+);
 const tailscaleServePortFlag = Flag.Int("tailscale-serve-port").pipe(
   Flag.withSchema(PortSchema),
   Flag.withDescription("HTTPS port for Tailscale Serve when --tailscale-serve is enabled."),
@@ -167,6 +173,10 @@ const EnvServerConfig = Config.all({
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
+  tailscaleFunnelEnabled: Config.Boolean("T3CODE_TAILSCALE_FUNNEL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   tailscaleServePort: Config.Port("T3CODE_TAILSCALE_SERVE_PORT").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
@@ -206,6 +216,7 @@ export interface CliServerFlags {
   readonly autoBootstrapProjectFromCwd: Option.Option<boolean>;
   readonly logWebSocketEvents: Option.Option<boolean>;
   readonly tailscaleServeEnabled: Option.Option<boolean>;
+  readonly tailscaleFunnelEnabled: Option.Option<boolean>;
   readonly tailscaleServePort: Option.Option<number>;
   readonly lan: Option.Option<boolean>;
 }
@@ -241,6 +252,7 @@ export const sharedServerCommandFlags = {
   autoBootstrapProjectFromCwd: autoBootstrapProjectFromCwdFlag,
   logWebSocketEvents: logWebSocketEventsFlag,
   tailscaleServeEnabled: tailscaleServeFlag,
+  tailscaleFunnelEnabled: tailscaleFunnelFlag,
   tailscaleServePort: tailscaleServePortFlag,
   lan: lanFlag,
 } as const;
@@ -285,6 +297,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     autoBootstrapProjectFromCwd: flags.autoBootstrapProjectFromCwd ?? Option.none(),
     logWebSocketEvents: flags.logWebSocketEvents ?? Option.none(),
     tailscaleServeEnabled: flags.tailscaleServeEnabled ?? Option.none(),
+    tailscaleFunnelEnabled: flags.tailscaleFunnelEnabled ?? Option.none(),
     tailscaleServePort: flags.tailscaleServePort ?? Option.none(),
     lan: flags.lan ?? Option.none(),
   } satisfies CliServerFlags;
@@ -398,14 +411,23 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     ),
     () => Boolean(devUrl),
   );
-  const tailscaleServeEnabled = Option.getOrElse(
+  const tailscaleFunnelEnabled = Option.getOrElse(
     resolveOptionPrecedence(
-      normalizedFlags.tailscaleServeEnabled,
-      Option.fromUndefinedOr(env.tailscaleServeEnabled),
-      Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+      normalizedFlags.tailscaleFunnelEnabled,
+      Option.fromUndefinedOr(env.tailscaleFunnelEnabled),
     ),
     () => false,
   );
+  const tailscaleServeEnabled =
+    tailscaleFunnelEnabled ||
+    Option.getOrElse(
+      resolveOptionPrecedence(
+        normalizedFlags.tailscaleServeEnabled,
+        Option.fromUndefinedOr(env.tailscaleServeEnabled),
+        Option.fromUndefinedOr(bootstrap?.tailscaleServeEnabled),
+      ),
+      () => false,
+    );
   const tailscaleServePort = Option.getOrElse(
     resolveOptionPrecedence(
       normalizedFlags.tailscaleServePort,
@@ -518,6 +540,7 @@ export const resolveServerConfig = Effect.fn("config.resolveServerConfig")(funct
     autoBootstrapProjectFromCwd,
     logWebSocketEvents,
     tailscaleServeEnabled,
+    ...(tailscaleFunnelEnabled ? { tailscaleFunnelEnabled } : {}),
     tailscaleServePort,
   };
 
@@ -542,6 +565,7 @@ export const resolveCliAuthConfig = (
       autoBootstrapProjectFromCwd: Option.none(),
       logWebSocketEvents: Option.none(),
       tailscaleServeEnabled: Option.none(),
+      tailscaleFunnelEnabled: Option.none(),
       tailscaleServePort: Option.none(),
       lan: Option.none(),
     },

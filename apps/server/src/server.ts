@@ -903,10 +903,12 @@ const layerMakeServer = Layer.unwrap(
 
               const localPort = address.port;
               const localHost = loopbackUrlHostForAddress(address);
+              const funnel = config.tailscaleFunnelEnabled === true;
               return yield* ensureTailscaleServe({
                 localPort,
                 servePort: config.tailscaleServePort,
                 localHost,
+                funnel,
               }).pipe(
                 Effect.as({
                   localPort,
@@ -917,6 +919,7 @@ const layerMakeServer = Layer.unwrap(
                   Effect.logInfo("Tailscale Serve configured", {
                     localPort,
                     servePort: config.tailscaleServePort,
+                    funnel,
                   }),
                 ),
                 Effect.catch((cause) =>

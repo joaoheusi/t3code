@@ -31,7 +31,7 @@ const tailscaleCommandForPlatform = (platform: NodeJS.Platform): "tailscale" | "
 
 const TailscaleCommandContext = {
   executable: Schema.Literals(["tailscale", "tailscale.exe"]),
-  subcommand: Schema.Literals(["status", "serve", "debug"]),
+  subcommand: Schema.Literals(["status", "serve", "funnel", "debug"]),
   argumentCount: Schema.Number,
 };
 
@@ -392,7 +392,7 @@ const runTailscaleCommand = Effect.fn("tailscale.runTailscaleCommand")(function*
   const executable = tailscaleCommandForPlatform(hostPlatform);
   const commandContext = {
     executable,
-    subcommand: "serve" as const,
+    subcommand: args[0] === "funnel" ? ("funnel" as const) : ("serve" as const),
     argumentCount: args.length,
   };
   const timeout = Duration.fromInputUnsafe(timeoutInput);
@@ -441,10 +441,17 @@ export const ensureTailscaleServe = (input: {
   readonly localPort: number;
   readonly servePort?: number;
   readonly localHost?: string;
+  /** Also expose the route to the public internet; `serve` alone resets Funnel off. */
+  readonly funnel?: boolean;
 }): Effect.Effect<void, TailscaleCommandError, ChildProcessSpawner.ChildProcessSpawner> => {
   const servePort = input.servePort ?? DEFAULT_TAILSCALE_SERVE_PORT;
   const localHost = input.localHost ?? "127.0.0.1";
-  const args = ["serve", "--bg", `--https=${servePort}`, `http://${localHost}:${input.localPort}`];
+  const args = [
+    input.funnel === true ? "funnel" : "serve",
+    "--bg",
+    `--https=${servePort}`,
+    `http://${localHost}:${input.localPort}`,
+  ];
   return runTailscaleCommand(args, TAILSCALE_SERVE_TIMEOUT);
 };
 

@@ -105,6 +105,7 @@ export class ServerConfig extends Context.Service<
     readonly autoBootstrapProjectFromCwd: boolean;
     readonly logWebSocketEvents: boolean;
     readonly tailscaleServeEnabled: boolean;
+    readonly tailscaleFunnelEnabled?: boolean | undefined;
     readonly tailscaleServePort: number;
   }
 >()("t3/config/ServerConfig") {
