@@ -87,6 +87,8 @@ it.each(["merge", "enable-auto-merge"] as const)(
         pullRequestKey="owner/repo/7"
         primaryAction={primaryAction}
         mergeBlockedReason={mergeBlockedReason}
+        hostUrl="https://github.com/owner/repo/pull/7"
+        openOnHostText="Open on GitHub"
         autoMergeArmed={false}
         armedAutoMergeLabel="Auto-merge enabled"
         pendingAutoMergeLabel="Auto-merge (squash)"

@@ -52,6 +52,23 @@ describe("resolvePullRequestDetailChecks", () => {
     expect(resolvePullRequestDetailChecks(refreshed, checks, true)).toBe(refreshed);
   });
 
+  it("takes the host's merge block from newer checks, clearing a stale one", () => {
+    const blocked = detail({ observedAt: 1_000, mergeBlock: "blocked" });
+    const cleared = resolvePullRequestDetailChecks(
+      blocked,
+      { state: "open", checks: [], observedAt: 2_000 },
+      false,
+    );
+    expect(cleared).not.toHaveProperty("mergeBlock");
+    expect(
+      resolvePullRequestDetailChecks(
+        detail({ observedAt: 1_000 }),
+        { state: "open", checks: [], observedAt: 2_000, mergeBlock: "behind" },
+        false,
+      )?.mergeBlock,
+    ).toBe("behind");
+  });
+
   it("keeps merged details settled while applying newer checks", () => {
     const merged = detail({ state: "merged", observedAt: 1_000 });
     const checks = [{ name: "build", status: "success" as const, url: null, description: null }];

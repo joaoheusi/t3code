@@ -55,7 +55,12 @@ export const PullRequestMergeability = Schema.Literals(["mergeable", "conflictin
 export type PullRequestMergeability = typeof PullRequestMergeability.Type;
 
 /** Why the host refuses a merge beyond conflicts and drafts: unmet branch rules, or a stale base. */
-export const PullRequestMergeBlock = Schema.Literals(["blocked", "behind"]);
+export const PullRequestMergeBlock = Schema.Literals([
+  "review-required",
+  "changes-requested",
+  "blocked",
+  "behind",
+]);
 export type PullRequestMergeBlock = typeof PullRequestMergeBlock.Type;
 
 export const PullRequestMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
@@ -605,6 +610,8 @@ export const PullRequestChecks = Schema.Struct({
   observedAt: Schema.optional(Schema.Finite),
   state: PullRequestState,
   checks: Schema.Array(PullRequestCheck),
+  /** Rides along because the host's verdict moves with the checks, faster than the detail. */
+  mergeBlock: Schema.optional(PullRequestMergeBlock),
 });
 export type PullRequestChecks = typeof PullRequestChecks.Type;
 

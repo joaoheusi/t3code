@@ -164,9 +164,34 @@ export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): str
   if (pullRequest.checksState === "failing") return "CI failing";
   if (pullRequest.checksState === "pending") return "Waiting for CI";
   if (pullRequest.canMerge === false) return "You can't merge this pull request";
-  if (pullRequest.mergeBlock === "behind") return "Branch is behind its base";
-  if (pullRequest.mergeBlock === "blocked") return "Blocked by branch rules";
-  return null;
+  switch (pullRequest.mergeBlock) {
+    case "review-required":
+      return "Needs an approving review";
+    case "changes-requested":
+      return "Changes requested";
+    case "behind":
+      return "Branch is out of date. Update it first";
+    case "blocked":
+      return "Blocked by branch rules";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Why a merge started by hand from a detail view would be refused. Unlike the batch menus, it may
+ * click past armed auto-merge, and where the host marks no check required it leaves checks to the
+ * host, which merges past failing optional ones.
+ */
+export function pullRequestDirectMergeBlocker(detail: PullRequestDetail): string | null {
+  const state = pullRequestDetailMergeState(detail);
+  return pullRequestMergeBlocker({
+    ...state,
+    autoMergeEnabled: undefined,
+    checksState: detail.checks.some((check) => check.required !== undefined)
+      ? state.checksState
+      : null,
+  });
 }
 
 /** How the merge quick action starts a PR: merge it now, or arm auto-merge while CI runs. */

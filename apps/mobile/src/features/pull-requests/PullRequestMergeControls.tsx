@@ -1,9 +1,6 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import {
-  pullRequestDetailMergeState,
-  pullRequestMergeBlocker,
-} from "@t3tools/client-runtime/pullRequestActions";
+import { pullRequestDirectMergeBlocker } from "@t3tools/client-runtime/pullRequestActions";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import type { PullRequestDetail, PullRequestMergeMethod } from "@t3tools/contracts";
@@ -29,6 +26,11 @@ import { pullRequestTarget, type PullRequestParams } from "./usePullRequestDiff"
 import { usePullRequestPermissions } from "./usePullRequestPermissions";
 import { PullRequestGlyph } from "./pullRequestGlyphs";
 import type { PullRequestStackState } from "./usePullRequestStack";
+
+function directMergeReason(pr: PullRequestDetail) {
+  const blocker = pullRequestDirectMergeBlocker(pr);
+  return blocker === null ? null : `${blocker}.`;
+}
 
 export function PullRequestMergeControls(props: {
   readonly pr: PullRequestDetail;
@@ -68,12 +70,7 @@ export function PullRequestMergeControls(props: {
   const reason =
     (!permissions.connected
       ? "Reconnect to merge."
-      : (mergeUnavailableReason(pr, permissions.canWrite, terminology) ??
-        // Merging past armed auto-merge stays allowed, as on web.
-        pullRequestMergeBlocker({
-          ...pullRequestDetailMergeState(pr),
-          autoMergeEnabled: undefined,
-        }))) ??
+      : (mergeUnavailableReason(pr, permissions.canWrite, terminology) ?? directMergeReason(pr))) ??
     (stack.stack
       ? !stack.supportsStackActions
         ? "This environment can display stacks but cannot merge them."

@@ -4,7 +4,14 @@ import type {
   PullRequestMergeMethod,
   PullRequestUpdateMethod,
 } from "@t3tools/contracts";
-import { CheckIcon, ChevronDownIcon, FolderGit2Icon, GitBranchIcon, PlayIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ExternalLinkIcon,
+  FolderGit2Icon,
+  GitBranchIcon,
+  PlayIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import { AnimatedWidth } from "~/components/AnimatedWidth";
@@ -21,6 +28,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "../ui/menu";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { resolvePullRequestPrimaryControl } from "./pullRequestDetail.logic";
 import { PullRequestGlyph } from "./pullRequestIcons";
@@ -192,6 +200,8 @@ export function PullRequestPrimaryAction({
   pullRequestKey,
   primaryAction,
   mergeBlockedReason,
+  hostUrl,
+  openOnHostText,
   autoMergeArmed,
   armedAutoMergeLabel,
   pendingAutoMergeLabel,
@@ -205,6 +215,8 @@ export function PullRequestPrimaryAction({
   pullRequestKey: string;
   primaryAction: ReturnType<typeof resolvePullRequestPrimaryControl> | null;
   mergeBlockedReason: string | null;
+  hostUrl: string;
+  openOnHostText: string;
   autoMergeArmed: boolean;
   armedAutoMergeLabel: string;
   pendingAutoMergeLabel: string;
@@ -327,6 +339,39 @@ export function PullRequestPrimaryAction({
             {armedAutoMergeLabel}: the host will merge this on its own once its requirements are met
           </TooltipPopup>
         </Tooltip>
+      ) : primaryAction === "merge" && mergeBlockedReason !== null ? (
+        // A popover, not a tooltip: a tap opens it on touch, and it holds the way forward.
+        <Popover>
+          <PopoverTrigger
+            openOnHover
+            delay={0}
+            closeDelay={120}
+            render={
+              <Button
+                size="xs"
+                variant="default"
+                aria-disabled
+                aria-label={selectedMergeMethodLabel}
+                aria-description={mergeBlockedReason}
+              />
+            }
+          >
+            <PullRequestGlyph.merged aria-hidden className="size-3.5" />
+            <span className="@max-[30rem]/pr-header:hidden">{selectedMergeMethodLabel}</span>
+          </PopoverTrigger>
+          <PopoverPopup align="end" side="bottom" className="max-w-72" padding="compact">
+            <p className="text-xs text-foreground">{mergeBlockedReason}</p>
+            <Button
+              size="xs"
+              variant="outline"
+              className="mt-2"
+              render={<a href={hostUrl} target="_blank" rel="noopener noreferrer" />}
+            >
+              <ExternalLinkIcon aria-hidden className="size-3" />
+              {openOnHostText}
+            </Button>
+          </PopoverPopup>
+        </Popover>
       ) : primaryAction === "merge" ? (
         <Tooltip>
           <TooltipTrigger
@@ -336,11 +381,10 @@ export function PullRequestPrimaryAction({
                   size="xs"
                   variant="default"
                   disabled={actionPending}
-                  aria-disabled={mergeBlockedReason !== null || undefined}
-                  aria-description={mergeBlockedReason ?? undefined}
-                  {...(mergeBlockedReason === null
-                    ? inlineConfirm.props("merge", () => void perform("merge", selectedMergeMethod))
-                    : {})}
+                  {...inlineConfirm.props(
+                    "merge",
+                    () => void perform("merge", selectedMergeMethod),
+                  )}
                   aria-label={
                     pendingAction === "merge"
                       ? "Merging..."
@@ -373,12 +417,11 @@ export function PullRequestPrimaryAction({
             }
           />
           <TooltipPopup side="top">
-            {mergeBlockedReason ??
-              (pendingAction === "merge"
-                ? "Merging..."
-                : inlineConfirm.isArmed("merge")
-                  ? "Confirm merge?"
-                  : selectedMergeMethodLabel)}
+            {pendingAction === "merge"
+              ? "Merging..."
+              : inlineConfirm.isArmed("merge")
+                ? "Confirm merge?"
+                : selectedMergeMethodLabel}
           </TooltipPopup>
         </Tooltip>
       ) : (primaryAction === "merged" || primaryAction === "closed") &&

@@ -421,7 +421,12 @@ describe("pull request detail decoding", () => {
 
   it.each([
     [{}, "blocked"],
+    [{ reviewDecision: "REVIEW_REQUIRED" }, "review-required"],
+    [{ reviewDecision: "CHANGES_REQUESTED" }, "changes-requested"],
+    [{ reviewDecision: "APPROVED" }, "blocked"],
     [{ mergeStateStatus: "BEHIND" }, "behind"],
+    [{ mergeStateStatus: "UNSTABLE" }, undefined],
+    [{ mergeStateStatus: "DIRTY" }, undefined],
     [{ mergeStateStatus: "CLEAN" }, undefined],
     [{ mergeStateStatus: "UNKNOWN" }, undefined],
     [{ state: "CLOSED" }, undefined],

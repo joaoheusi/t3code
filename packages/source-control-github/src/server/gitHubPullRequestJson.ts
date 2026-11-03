@@ -468,11 +468,16 @@ function toMergeability(value: string | null | undefined): PullRequestMergeabili
   }
 }
 
-/** GitHub reports conflicts, drafts and passing checks elsewhere; only these two add a reason. */
-function toMergeBlock(value: string | null | undefined): PullRequestMergeBlock | undefined {
-  switch (value?.trim().toUpperCase()) {
-    case "BLOCKED":
-      return "blocked";
+/** GitHub reports conflicts, drafts and passing checks elsewhere; only these add a reason. */
+function toMergeBlock(
+  status: string | null | undefined,
+  reviewDecision: string | null | undefined,
+): PullRequestMergeBlock | undefined {
+  switch (status?.trim().toUpperCase()) {
+    case "BLOCKED": {
+      const review = toReviewDecision(reviewDecision);
+      return review === "review-required" || review === "changes-requested" ? review : "blocked";
+    }
     case "BEHIND":
       return "behind";
     default:
@@ -1012,7 +1017,8 @@ export function toPullRequestCore(result: PullRequestCore.Result): GitHubPullReq
   const pr = repository?.pullRequest;
   if (repository == null || pr == null) return null;
   const contexts = nodesOf(pr.commits)[0]?.commit.statusCheckRollup?.contexts;
-  const mergeBlock = pr.state === "OPEN" ? toMergeBlock(pr.mergeStateStatus) : undefined;
+  const mergeBlock =
+    pr.state === "OPEN" ? toMergeBlock(pr.mergeStateStatus, pr.reviewDecision) : undefined;
   return {
     reviewRequestTeams: nodesOf(pr.reviewRequests).flatMap(
       ({ requestedReviewer }) => toRequestedTeam(requestedReviewer) ?? [],

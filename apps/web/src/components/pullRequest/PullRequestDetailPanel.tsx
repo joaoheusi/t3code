@@ -1,10 +1,7 @@
 import { useTaskDestination } from "../../quickActions/useTaskDestination";
 import { projectChangeRequestUrl } from "@t3tools/client-runtime/change-request-links";
 import { normalizeThreadPullRequestKey } from "@t3tools/client-runtime/thread-pull-requests";
-import {
-  pullRequestDetailMergeState,
-  pullRequestMergeBlocker,
-} from "@t3tools/client-runtime/pullRequestActions";
+import { pullRequestDirectMergeBlocker } from "@t3tools/client-runtime/pullRequestActions";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -228,6 +225,7 @@ const HANDOFF_TASK_KINDS: Partial<Record<string, PullRequestTaskKind>> = {
 function PullRequestBaseFreshnessWarning({
   baseBranch,
   freshness,
+  updateRequired,
   pending,
   onUpdate,
   agentDisabled,
@@ -241,6 +239,8 @@ function PullRequestBaseFreshnessWarning({
     readonly behindBy: number | null;
     readonly methods: ReadonlyArray<PullRequestUpdateMethod>;
   };
+  /** The host refuses the merge until the branch is updated. */
+  readonly updateRequired: boolean;
   readonly pending: boolean;
   readonly onUpdate: (method: PullRequestUpdateMethod) => void;
   readonly agentDisabled: boolean;
@@ -279,7 +279,11 @@ function PullRequestBaseFreshnessWarning({
       </PopoverTrigger>
       <PopoverPopup align="start" side="bottom" className="max-w-80" padding="compact">
         <p className="text-xs text-foreground">{summary}</p>
-        <p className="mt-0.5 text-xs text-muted-foreground">Changes can be cleanly merged.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {updateRequired
+            ? "Branch rules require updating it before merging."
+            : "Changes can be cleanly merged."}
+        </p>
         {freshness.methods.length > 0 ? (
           <span className="mt-2 flex flex-wrap items-center gap-1.5">
             {freshness.methods.map((method) => (
@@ -1183,12 +1187,13 @@ export function PullRequestDetailPanel({
         canEnableAutoMerge: !stackOwnsMerge && can("enable-auto-merge"),
       })
     : null;
+  const directMergeBlocker = detail ? pullRequestDirectMergeBlocker(detail) : null;
   const mergeBlockedReason = !canMergeSinglePullRequest
     ? nativeStackQuery.error
       ? "Couldn't check stack membership"
       : "Checking stack membership…"
-    : primaryAction === "merge" && detail
-      ? pullRequestMergeBlocker(pullRequestDetailMergeState(detail))
+    : primaryAction === "merge"
+      ? directMergeBlocker
       : null;
   const showsDraftToggle =
     detail?.state === "open" &&
@@ -1208,6 +1213,7 @@ export function PullRequestDetailPanel({
     canMergeSinglePullRequest &&
     detail?.state === "open" &&
     (primaryAction === "enable-auto-merge" || primaryAction === "auto-merge-armed") &&
+    directMergeBlocker === null &&
     can("merge") &&
     !detail.isDraft &&
     !conflicting &&
@@ -1369,6 +1375,8 @@ export function PullRequestDetailPanel({
               ) : null}
               <PullRequestPrimaryAction
                 mergeBlockedReason={mergeBlockedReason}
+                hostUrl={detail.url}
+                openOnHostText={openOnHostText}
                 pullRequestKey={pullRequestKey}
                 primaryAction={primaryAction}
                 autoMergeArmed={autoMergeArmed}
@@ -1483,6 +1491,7 @@ export function PullRequestDetailPanel({
                       <PullRequestBaseFreshnessWarning
                         baseBranch={detail.baseBranch}
                         freshness={freshness}
+                        updateRequired={detail.mergeBlock === "behind"}
                         pending={actionPending}
                         onUpdate={(method) => void perform("update-branch", undefined, method)}
                         agentDisabled={
@@ -1623,6 +1632,7 @@ export function PullRequestDetailPanel({
                     <PullRequestBaseFreshnessWarning
                       baseBranch={detail.baseBranch}
                       freshness={freshness}
+                      updateRequired={detail.mergeBlock === "behind"}
                       pending={actionPending}
                       onUpdate={(method) => void perform("update-branch", undefined, method)}
                       agentDisabled={

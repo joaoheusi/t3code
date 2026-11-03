@@ -3112,6 +3112,7 @@ export const make = Effect.gen(function* () {
               yield* Cache.set(checksCache, key, {
                 state: value.state,
                 checks: value.checks,
+                ...(value.mergeBlock === undefined ? {} : { mergeBlock: value.mergeBlock }),
                 observedAt: value.observedAt,
               });
             }

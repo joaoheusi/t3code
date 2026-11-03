@@ -1,5 +1,6 @@
 import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { resolvePullRequestDetailChecks } from "@t3tools/client-runtime/pull-request-checks";
+import { pullRequestDirectMergeBlocker } from "@t3tools/client-runtime/pullRequestActions";
 import {
   capitalizeTerm,
   sourceControlClients,
@@ -191,6 +192,14 @@ export function ThreadDetailsPrRow({
   const conflicting = isPullRequestConflicting(detail);
   const checksState = detail === null ? "none" : classifyPullRequestChecks(detail.checks);
   const checksRollup = detail === null ? null : pullRequestChecksState(detail.checks);
+  // The checks line already says when CI is the hold-up.
+  const hostMergeBlocker =
+    detail?.state === "open" &&
+    detail.mergeBlock !== undefined &&
+    checksState !== "pending" &&
+    checksState !== "failing"
+      ? pullRequestDirectMergeBlocker(detail)
+      : null;
   const selectedMergeMethod = resolvePullRequestMergeMethod(
     allowedPullRequestMergeMethods(detail),
     null,
@@ -310,6 +319,12 @@ export function ThreadDetailsPrRow({
                 <div className="min-w-0 truncate text-foreground/75">
                   {describePullRequestChecks(detail.checks)}
                 </div>
+              </div>
+            ) : null}
+            {hostMergeBlocker ? (
+              <div className="flex min-w-0 items-start gap-2 text-warning-foreground">
+                <TriangleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
+                <div className="min-w-0 flex-1 wrap-break-word">{hostMergeBlocker}</div>
               </div>
             ) : null}
             {detail.isDraft && conflicting ? (
