@@ -21,6 +21,7 @@ import {
   pendingThreadCreationOutcomesAtom,
   selectThreadCreationDetail,
 } from "./pending-thread-creation";
+import { serverEnvironment } from "./server";
 import { environmentShell } from "./shell";
 import { threadCreationGatedDetailAtom } from "./thread-creation-gated-detail";
 import { threadOutboxManager } from "./thread-outbox";
@@ -40,6 +41,7 @@ export const threadEnvironment = createThreadEnvironmentAtoms(
 export const environmentThreadShells = createEnvironmentThreadShellAtoms({
   catalogValueAtom: environmentCatalog.catalogValueAtom,
   snapshotAtom: threadEnvironment.snapshotAtom,
+  hiddenThreadTagsAtom: serverEnvironment.hiddenThreadTagsAtom,
 });
 const remoteEnvironmentThreads = createEnvironmentThreadStateAtoms(connectionAtomRuntime);
 const detailAtoms = Atom.family((environmentId: EnvironmentId) =>

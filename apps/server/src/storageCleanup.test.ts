@@ -1,4 +1,5 @@
 import { CommandId } from "@t3tools/contracts";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off -- Retention tests use the native path implementation.
 import * as NodePath from "node:path";
 import { storageCleanupPathRetained } from "./storageCleanup.ts";
@@ -666,7 +667,7 @@ const pausedMeasurementFixture = (storageCleanup?: StorageCleanupSettings) =>
   });
 const cleanupTestLayer = GitVcsDriver.layer.pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "storage-cleanup-" })),
-  Layer.provideMerge(NodeServices.layer),
+  Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
 );
 const runCleanupTest = <A, E>(
   effect: Effect.Effect<
