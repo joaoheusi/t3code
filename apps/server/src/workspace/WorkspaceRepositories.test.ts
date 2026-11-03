@@ -6,6 +6,7 @@ import * as NodeChildProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId } from "@t3tools/contracts";
 import * as Config from "../config.ts";
@@ -76,7 +77,7 @@ const run = <A, E>(
     Effect.provide(
       Repositories.layer.pipe(
         Layer.provide(Config.layerTest(root, join(root, "home"))),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
       ),
     ),
   );
