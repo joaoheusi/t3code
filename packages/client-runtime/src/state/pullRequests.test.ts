@@ -1016,15 +1016,22 @@ it.effect.each(["closed", "draft", "permission", "stack", "method"] as const)(
     Effect.scoped(
       Effect.gen(function* () {
         const calls: string[] = [];
+        // The detail answers only once the stack read has started, so the two must overlap.
+        const stackStarted = yield* Deferred.make<void>();
         const client = {
           [WS_METHODS.pullRequestsDetail]: () =>
-            Effect.succeed({
-              state: reason === "closed" ? "closed" : "open",
-              isDraft: reason === "draft",
-              capabilities: { actions: ["merge"], stackActions: true },
-              viewerPermissions: { actions: reason === "permission" ? [] : ["merge"] },
-            }),
-          [WS_METHODS.pullRequestsStack]: () => Effect.succeed(reason === "stack" ? {} : null),
+            Deferred.await(stackStarted).pipe(
+              Effect.as({
+                state: reason === "closed" ? "closed" : "open",
+                isDraft: reason === "draft",
+                capabilities: { actions: ["merge"], stackActions: true },
+                viewerPermissions: { actions: reason === "permission" ? [] : ["merge"] },
+              }),
+            ),
+          [WS_METHODS.pullRequestsStack]: () =>
+            Deferred.succeed(stackStarted, undefined).pipe(
+              Effect.as(reason === "stack" ? {} : null),
+            ),
           [WS_METHODS.pullRequestsRunAction]: (input: { action: string }) =>
             Effect.sync(() => calls.push(input.action)),
         } as unknown as WsRpcProtocolClient;

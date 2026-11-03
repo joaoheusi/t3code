@@ -497,6 +497,11 @@ export const make = Effect.gen(function* () {
     const previous = options?.localOnly ? yield* getCachedStatus(cwd) : null;
     const local = yield* refreshLocalStatusCore(cwd);
     if (options?.localOnly) {
+      // Only a branch change writes the remote part; a plain read must not queue behind a fetch.
+      if (previous?.local?.value.refName === local.refName && previous.remote) {
+        const parts = yield* getStatusParts(cwd);
+        return mergeGitStatusParts(parts.local, parts.remote);
+      }
       return yield* withRemoteWriteLock(
         cwd,
         Effect.gen(function* () {

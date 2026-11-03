@@ -306,7 +306,14 @@ export function createPullRequestEnvironmentAtoms<R, E>(
     ) {
       const { projectId, host, repository, number } = actionInput;
       const reference = { projectId, host, repository, number, allowStale: false };
-      const detail = yield* routedRequest(WS_METHODS.pullRequestsDetail, reference);
+      // The stack read rides along, so a stacked host pays one round trip instead of two.
+      const [detail, stackRead] = yield* Effect.all(
+        [
+          routedRequest(WS_METHODS.pullRequestsDetail, reference),
+          Effect.exit(routedRequest(WS_METHODS.pullRequestsStack, reference)),
+        ],
+        { concurrency: "unbounded" },
+      );
       if (
         detail.state !== "open" ||
         detail.isDraft ||
@@ -319,7 +326,7 @@ export function createPullRequestEnvironmentAtoms<R, E>(
         });
       }
       if (detail.capabilities.stackActions) {
-        const stack = yield* routedRequest(WS_METHODS.pullRequestsStack, reference);
+        const stack = yield* stackRead;
         if (stack !== null) {
           return yield* new PullRequestOperationError({
             operation: "runAction",
