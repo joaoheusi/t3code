@@ -317,6 +317,23 @@ describe("tailscale", () => {
     });
   });
 
+  it.effect("starts the route with funnel only when asked, since serve turns Funnel off", () => {
+    const calls: Array<ReadonlyArray<string>> = [];
+    const layer = layerMockSpawner((_command, args) => {
+      calls.push(args);
+      return {};
+    });
+
+    return Effect.gen(function* () {
+      yield* ensureTailscaleServe({ localPort: 4773 }).pipe(Effect.provide(layer));
+      yield* ensureTailscaleServe({ localPort: 4773, funnel: true }).pipe(Effect.provide(layer));
+      assert.deepEqual(calls, [
+        ["serve", "--bg", "--https=443", "http://127.0.0.1:4773"],
+        ["funnel", "--bg", "--https=443", "http://127.0.0.1:4773"],
+      ]);
+    });
+  });
+
   // regression: #21609 - without forceKillAfter a timed-out probe only gets
   // SIGTERM, so a group member that ignores it outlives the call.
   it.effect("escalates timed-out probes to SIGKILL", () => {

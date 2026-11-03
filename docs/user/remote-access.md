@@ -192,6 +192,11 @@ default-port mapping with:
 tailscale serve --https=443 --set-path=/ off
 ```
 
+To also reach the server from outside your tailnet, such as from a hosted
+agent, start it with `--tailscale-funnel` (or `T3CODE_TAILSCALE_FUNNEL=1`)
+instead. This exposes the same address to the public internet through
+Tailscale Funnel, and the server turns Funnel back on each time it starts.
+
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
 
