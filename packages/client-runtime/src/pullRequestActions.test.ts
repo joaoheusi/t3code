@@ -146,6 +146,15 @@ describe("quickActionMergeKind", () => {
     expect(kind({ ...autoMerge, checks: [check("pending")] })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("pending")], autoMergeEnabled: true })).toBeNull();
     expect(kind({ mergeBlock: "blocked" })).toBeNull();
+    // Armed on a behind branch, auto-merge would wait forever for someone to update it.
+    expect(
+      kind({
+        ...autoMerge,
+        checks: [check("pending")],
+        autoMergeEnabled: false,
+        mergeBlock: "behind",
+      }),
+    ).toBeNull();
     expect(kind({ checks: [check("pending")], autoMergeEnabled: false })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("failure")], autoMergeEnabled: false })).toBeNull();
     expect(

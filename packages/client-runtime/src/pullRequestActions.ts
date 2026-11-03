@@ -200,7 +200,7 @@ export type QuickActionMergeKind = "merge" | "auto-merge";
 /**
  * Merge when nothing blocks it. While only required checks are still running, arm the host's
  * auto-merge instead, so the PR merges when they pass; the host's own block is what auto-merge
- * waits out. Null when neither can start.
+ * waits out, unless the branch is behind. Null when neither can start.
  */
 export function quickActionMergeKind(
   pullRequest: PullRequestMergeState,
@@ -213,7 +213,8 @@ export function quickActionMergeKind(
       ...pullRequest,
       checksState: null,
       canMerge: undefined,
-      mergeBlock: undefined,
+      // Auto-merge waits out branch rules but never updates a branch that fell behind.
+      mergeBlock: pullRequest.mergeBlock === "behind" ? "behind" : undefined,
     }) === null
     ? "auto-merge"
     : null;
