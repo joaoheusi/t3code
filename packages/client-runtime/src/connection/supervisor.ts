@@ -982,7 +982,10 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
 
     const connectedAt = yield* Clock.currentTimeMillis;
     const connectedRoute = (yield* leaseRouteKind(active.lease)) ?? "unknown";
-    yield* note("connected", () => ({ route: connectedRoute }));
+    yield* note("connected", () => ({
+      route: connectedRoute,
+      url: active.lease.prepared.httpBaseUrl,
+    }));
     yield* SubscriptionRef.set(prepared, Option.some(active.lease.prepared));
     yield* SubscriptionRef.set(session, Option.some(active.lease.session));
     if (options?.learnRoutes !== undefined) {
@@ -1012,7 +1015,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           attemptSpan: active.attemptSpan,
         })),
       ),
-    ).pipe(exitUnlessInterrupted);
+    ).pipe(
+      exitUnlessInterrupted,
+      Effect.onInterrupt(() =>
+        note("ended", (now) => ({ connectedMs: now - connectedAt, interrupted: true })),
+      ),
+    );
     const connectedForMs = (yield* Clock.currentTimeMillis) - connectedAt;
     if (Exit.isSuccess(connectedExit)) {
       // Success means the supervisor chose to end a live socket, for example a silent one.
