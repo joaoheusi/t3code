@@ -30,6 +30,7 @@ import * as RpcSession from "../rpc/session.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { NETWORK_BLOCKING_HINT } from "../errors/network.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import { ConnectionJournal, type ConnectionJournalField } from "./journal.ts";
 import {
   connectionRouteId,
   connectionRouteKind,
@@ -215,6 +216,40 @@ function connectingState(
   };
 }
 
+function signalJournalFields(signal: SupervisorSignal): Record<string, ConnectionJournalField> {
+  switch (signal._tag) {
+    case "NetworkChanged":
+      return { tag: signal._tag, network: signal.network };
+    case "Wakeup":
+      return { tag: signal._tag, reason: signal.reason };
+    case "BetterRouteAvailable":
+      return { tag: signal._tag, route: signal.routeId };
+    default:
+      return { tag: signal._tag };
+  }
+}
+
+function stateJournalFields(
+  state: SupervisorConnectionState,
+  now: number,
+): Record<string, ConnectionJournalField> {
+  const failure = state.lastFailure;
+  return {
+    phase: state.phase,
+    ...(state.stage === null ? {} : { stage: state.stage }),
+    attempt: state.attempt,
+    network: state.network,
+    ...(state.retryAt === null ? {} : { retryInMs: state.retryAt - now }),
+    ...(failure === null
+      ? {}
+      : {
+          failure: failure.reason,
+          ...(failure.hop === undefined ? {} : { hop: failure.hop }),
+          detail: failure.detail,
+        }),
+  };
+}
+
 function failureFromExit<A>(
   target: ConnectionTarget,
   exit: Exit.Exit<A, TracedAttemptFailure>,
@@ -283,6 +318,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const journal = yield* ConnectionJournal;
+  const note = (event: string, fields: (now: number) => Record<string, ConnectionJournalField>) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.map((at) => journal.record(target.environmentId, { at, event, fields: fields(at) })),
+    );
   const initialIntent: SupervisorIntent = {
     desired: options?.initiallyDesired ?? false,
     network: yield* connectivity.status,
@@ -414,10 +454,12 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
   const setState = Effect.fn("EnvironmentSupervisor.setState")(function* (
     next: SupervisorConnectionState,
   ) {
+    yield* note("state", (now) => stateJournalFields(next, now));
     yield* SubscriptionRef.set(state, next);
   });
 
   const signal = Effect.fn("EnvironmentSupervisor.signal")(function* (next: SupervisorSignal) {
+    yield* note("signal", () => signalJournalFields(next));
     yield* Queue.offer(signals, next);
   });
 
@@ -939,6 +981,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
     }
 
     const connectedAt = yield* Clock.currentTimeMillis;
+    const connectedRoute = (yield* leaseRouteKind(active.lease)) ?? "unknown";
+    yield* note("connected", () => ({
+      route: connectedRoute,
+      url: active.lease.prepared.httpBaseUrl,
+    }));
     yield* SubscriptionRef.set(prepared, Option.some(active.lease.prepared));
     yield* SubscriptionRef.set(session, Option.some(active.lease.session));
     if (options?.learnRoutes !== undefined) {
@@ -968,9 +1015,16 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
           attemptSpan: active.attemptSpan,
         })),
       ),
-    ).pipe(exitUnlessInterrupted);
+    ).pipe(
+      exitUnlessInterrupted,
+      Effect.onInterrupt(() =>
+        note("ended", (now) => ({ connectedMs: now - connectedAt, interrupted: true })),
+      ),
+    );
     const connectedForMs = (yield* Clock.currentTimeMillis) - connectedAt;
     if (Exit.isSuccess(connectedExit)) {
+      // Success means the supervisor chose to end a live socket, for example a silent one.
+      yield* note("ended", () => ({ connectedMs: connectedForMs, replace: connectedExit.value }));
       return {
         _tag: "Interrupted",
         established: true,
@@ -985,6 +1039,11 @@ export const make = Effect.fn("EnvironmentSupervisor.make")(function* (
       connectedForMs >= BACKOFF_RESET_AFTER_MS,
     );
     if (outcome._tag === "Failure") {
+      yield* note("lost", () => ({
+        connectedMs: connectedForMs,
+        failure: outcome.failure.error.reason,
+        detail: outcome.failure.error.detail,
+      }));
       yield* Effect.void.pipe(
         Effect.withSpan("EnvironmentSupervisor.connectionLost", {
           root: true,

@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/platform";
 import {
   ConnectionBlockedError,
+  ConnectionJournal,
   ConnectionTransientError,
   Connectivity,
   Wakeups,
@@ -28,6 +29,7 @@ import { clearThreadOutboxEnvironment } from "../state/thread-outbox-removal";
 import { clearComposerDraftsEnvironment } from "../state/use-composer-drafts";
 import { clearThreadComposerErrorsForEnvironment } from "../state/thread-composer-error";
 import { mobileApplicationActiveWakeup } from "./app-state-wakeups";
+import { connectionJournal } from "./journal";
 import * as ConnectionStorage from "./storage";
 
 function networkStatus(state: Network.NetworkState): "unknown" | "offline" | "online" {
@@ -280,11 +282,17 @@ const layerEnvironmentOwnedDataCleanup = Layer.succeed(
   }),
 );
 
+const layerConnectionJournal = Layer.succeed(
+  ConnectionJournal.ConnectionJournal,
+  connectionJournal,
+);
+
 type ConnectionPlatformLayerSource =
   | typeof layerProvidedConnectionStorage
   | typeof Runtime.layer
   | typeof layerConnectivity
   | typeof layerWakeups
+  | typeof layerConnectionJournal
   | typeof layerProvidedCapabilities
   | typeof layerPlatformConnectionSource
   | typeof layerEnvironmentOwnedDataCleanup;
@@ -298,6 +306,7 @@ export const layer: Layer.Layer<
   Runtime.layer,
   layerConnectivity,
   layerWakeups,
+  layerConnectionJournal,
   layerProvidedCapabilities,
   layerPlatformConnectionSource,
   layerEnvironmentOwnedDataCleanup,

@@ -65,6 +65,7 @@ import {
 import * as RpcSession from "../rpc/session.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import * as ConnectionJournal from "./journal.ts";
 import { watchDiscoveredCompatibility } from "./layer.ts";
 import * as RelayEnvironmentDiscovery from "../relay/discovery.ts";
 import type { RelayEnvironmentStatusResponse } from "@t3tools/contracts/relay";
@@ -448,6 +449,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
   });
 
   const layerCache = Layer.succeed(Persistence.EnvironmentCacheStore, cacheStore);
+  const journal = ConnectionJournal.makeMemory();
   const layer = EnvironmentRegistry.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -463,6 +465,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
           ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.never }),
         ),
         Layer.succeed(ConnectionDriver.ConnectionDriver, driver),
+        Layer.succeed(ConnectionJournal.ConnectionJournal, journal),
         layerCache,
         Layer.succeed(Persistence.EnvironmentOwnedDataCleanup, ownedDataCleanup),
       ),
@@ -471,6 +474,7 @@ const makeHarness = Effect.fn("TestEnvironmentRegistry.makeHarness")(function* (
 
   return {
     layer,
+    journal,
     storedTargets,
     shellCache,
     cacheClears,
@@ -615,6 +619,7 @@ describe("EnvironmentRegistry", () => {
         yield* Fiber.join(start);
 
         expect(yield* Ref.get(loadCount)).toBe(2);
+        expect(harness.journal.entries(TARGET.environmentId)).not.toHaveLength(0);
       }).pipe(Effect.provide(harness.layer), Effect.scoped);
     }),
   );

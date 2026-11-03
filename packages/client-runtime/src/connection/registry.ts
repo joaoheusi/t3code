@@ -38,6 +38,7 @@ import * as Persistence from "../platform/persistence.ts";
 import * as EnvironmentSupervisor from "./supervisor.ts";
 import * as ConnectionDriver from "./driver.ts";
 import * as ConnectionWakeups from "./wakeups.ts";
+import { ConnectionJournal } from "./journal.ts";
 import {
   PullRequestRoutingPermissions,
   pullRequestRoutingConnectionKey,
@@ -219,6 +220,7 @@ export const make = Effect.gen(function* () {
   const connectivity = yield* Connectivity.Connectivity;
   const driver = yield* ConnectionDriver.ConnectionDriver;
   const wakeups = yield* ConnectionWakeups.ConnectionWakeups;
+  const journal = yield* ConnectionJournal;
   const ssh = yield* ClientCapabilities.SshEnvironmentGateway;
   const persistedTargets = yield* storage.list;
   const disabledEnvironmentIds = new Set(yield* storage.listDisabled);
@@ -372,6 +374,7 @@ export const make = Effect.gen(function* () {
             Effect.provideService(Connectivity.Connectivity, connectivity),
             Effect.provideService(ConnectionDriver.ConnectionDriver, driver),
             Effect.provideService(ConnectionWakeups.ConnectionWakeups, wakeups),
+            Effect.provideService(ConnectionJournal, journal),
             Scope.provide(scope),
             Effect.onError(() => Scope.close(scope, Exit.void)),
           );

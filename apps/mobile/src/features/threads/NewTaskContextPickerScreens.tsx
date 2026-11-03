@@ -55,6 +55,7 @@ import {
   useConnectionDiagnosis,
 } from "../connection/ConnectionDiagnosisDetails";
 import { environmentStatusText } from "../connection/environmentStatusText";
+import { ConnectionLogButton } from "../connection/ConnectionLogButton";
 
 const BRANCH_SEARCH_DEBOUNCE_MS = 150;
 
@@ -137,6 +138,7 @@ function EnvironmentPickerRow(props: {
               onPress={() => onReconnectEnvironment(props.environmentId)}
             />
           ) : null}
+          <ConnectionLogButton environmentId={props.environmentId} hostLabel={props.title} />
         </View>
       ) : null}
     </View>

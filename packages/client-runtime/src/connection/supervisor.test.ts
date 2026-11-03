@@ -2,10 +2,12 @@ import { AuthStandardClientScopes, EnvironmentId, type ServerConfig } from "@t3t
 import { describe, expect, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as TestClock from "effect/testing/TestClock";
@@ -20,6 +22,7 @@ import { fetchEnvironmentSessionState } from "../state/session.ts";
 import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
+import * as ConnectionJournal from "./journal.ts";
 import { BearerConnectionProfile } from "./catalog.ts";
 import {
   BearerConnectionTarget,
@@ -499,9 +502,15 @@ describe("EnvironmentSupervisor", () => {
   it.effect("treats an involuntary session close as transient and reconnects", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
+      const journal = ConnectionJournal.makeMemory();
+      const supervisorScope = yield* Scope.make();
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
-      }).pipe(Effect.provide(harness.dependencies));
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(ConnectionJournal.ConnectionJournal, journal),
+        Scope.provide(supervisorScope),
+      );
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.closeLatestSession();
@@ -519,6 +528,21 @@ describe("EnvironmentSupervisor", () => {
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(Option.isSome(yield* SubscriptionRef.get(supervisor.prepared))).toBe(true);
+      const journaled = journal.entries(TARGET_ENTRY.target.environmentId);
+      expect(journaled.find((entry) => entry.event === "lost")?.fields).toMatchObject({
+        failure: "transport",
+        detail: "Session closed.",
+      });
+      expect(
+        journaled.find((entry) => entry.event === "state" && entry.fields.phase === "backoff")
+          ?.fields.retryInMs,
+      ).toBeGreaterThan(0);
+
+      yield* Scope.close(supervisorScope, Exit.void);
+      expect(journal.entries(TARGET_ENTRY.target.environmentId).at(-1)).toMatchObject({
+        event: "ended",
+        fields: { interrupted: true },
+      });
     }).pipe(Effect.provide(TestClock.layer())),
   );
 

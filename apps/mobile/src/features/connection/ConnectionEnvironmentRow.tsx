@@ -22,6 +22,7 @@ import { serverEnvironment } from "../../state/server";
 import { environmentPresentations } from "../../state/presentation";
 import { ConnectionDiagnosisDetails, useConnectionDiagnosis } from "./ConnectionDiagnosisDetails";
 import { ConnectionFormField } from "./ConnectionFormField";
+import { ConnectionLogButton } from "./ConnectionLogButton";
 import { ConnectionStatusDot } from "./ConnectionStatusDot";
 import { environmentStatusText } from "./environmentStatusText";
 
@@ -208,6 +209,10 @@ export function ConnectionEnvironmentRow(props: {
               diagnosis={diagnosis}
             />
           ) : null}
+          <ConnectionLogButton
+            environmentId={props.environment.environmentId}
+            hostLabel={props.environment.environmentLabel}
+          />
           {props.environment.isRelayManaged ? (
             <Text className="text-sm text-foreground-muted">
               Managed by T3 Connect. Tunnel details update automatically.
