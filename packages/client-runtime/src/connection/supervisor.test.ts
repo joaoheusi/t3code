@@ -20,6 +20,7 @@ import { fetchEnvironmentSessionState } from "../state/session.ts";
 import type { ConnectionCatalogEntry, ConnectionRoute } from "./catalog.ts";
 import * as Connectivity from "./connectivity.ts";
 import * as ConnectionDriver from "./driver.ts";
+import * as ConnectionJournal from "./journal.ts";
 import { BearerConnectionProfile } from "./catalog.ts";
 import {
   BearerConnectionTarget,
@@ -499,9 +500,13 @@ describe("EnvironmentSupervisor", () => {
   it.effect("treats an involuntary session close as transient and reconnects", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
+      const journal = ConnectionJournal.makeMemory();
       const supervisor = yield* EnvironmentSupervisor.make(TARGET_ENTRY, {
         initiallyDesired: true,
-      }).pipe(Effect.provide(harness.dependencies));
+      }).pipe(
+        Effect.provide(harness.dependencies),
+        Effect.provideService(ConnectionJournal.ConnectionJournal, journal),
+      );
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       yield* harness.closeLatestSession();
@@ -519,6 +524,15 @@ describe("EnvironmentSupervisor", () => {
 
       expect(yield* Ref.get(harness.sessionCount)).toBe(2);
       expect(Option.isSome(yield* SubscriptionRef.get(supervisor.prepared))).toBe(true);
+      const journaled = journal.entries(TARGET_ENTRY.target.environmentId);
+      expect(journaled.find((entry) => entry.event === "lost")?.fields).toMatchObject({
+        failure: "transport",
+        detail: "Session closed.",
+      });
+      expect(
+        journaled.find((entry) => entry.event === "state" && entry.fields.phase === "backoff")
+          ?.fields.retryInMs,
+      ).toBeGreaterThan(0);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
