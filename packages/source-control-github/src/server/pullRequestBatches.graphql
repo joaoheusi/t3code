@@ -89,6 +89,7 @@ query PullRequestWatchFingerprint($owner: String!, $name: String!, $number: Int!
     pullRequest(number: $number) {
       state
       mergeable
+      mergeStateStatus
       headRefOid
       comments(first: 100, orderBy: { field: UPDATED_AT, direction: DESC }) {
         totalCount

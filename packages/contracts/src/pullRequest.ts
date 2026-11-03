@@ -54,6 +54,15 @@ export type PullRequestChecksState = typeof PullRequestChecksState.Type;
 export const PullRequestMergeability = Schema.Literals(["mergeable", "conflicting", "unknown"]);
 export type PullRequestMergeability = typeof PullRequestMergeability.Type;
 
+/** Why the host refuses a merge beyond conflicts and drafts: unmet branch rules, or a stale base. */
+export const PullRequestMergeBlock = Schema.Literals([
+  "review-required",
+  "changes-requested",
+  "blocked",
+  "behind",
+]);
+export type PullRequestMergeBlock = typeof PullRequestMergeBlock.Type;
+
 export const PullRequestMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
 export type PullRequestMergeMethod = typeof PullRequestMergeMethod.Type;
 
@@ -590,6 +599,8 @@ export const PullRequestDetail = Schema.Struct({
   /** Absent means the host does not report auto-merge state, not that it is off. */
   autoMergeEnabled: Schema.optional(Schema.Boolean),
   autoMergeMethod: Schema.optional(PullRequestMergeMethod),
+  /** Absent when nothing blocks the merge or the host does not say. */
+  mergeBlock: Schema.optional(PullRequestMergeBlock),
   workflowApprovalsRequired: Schema.optional(NonNegativeInt),
   maintainerCanModify: Schema.optional(Schema.Boolean),
 });
@@ -599,6 +610,8 @@ export const PullRequestChecks = Schema.Struct({
   observedAt: Schema.optional(Schema.Finite),
   state: PullRequestState,
   checks: Schema.Array(PullRequestCheck),
+  /** Rides along because the host's verdict moves with the checks, faster than the detail. */
+  mergeBlock: Schema.optional(PullRequestMergeBlock),
 });
 export type PullRequestChecks = typeof PullRequestChecks.Type;
 

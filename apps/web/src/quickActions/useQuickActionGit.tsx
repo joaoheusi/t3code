@@ -310,7 +310,11 @@ export function useQuickActionGit(
 
         const checkStatus = async (): Promise<PreparedGitAction> => {
           assertWriteAccess();
-          const fresh = await loadStatus({ environmentId, input: { cwd: target.cwd } });
+          // Local only: the remote part is already streamed, and a full refresh waits on fetches.
+          const fresh = await loadStatus({
+            environmentId,
+            input: { cwd: target.cwd, localOnly: true },
+          });
           if (fresh._tag === "Failure") throw squashAtomCommandFailure(fresh);
           assertWriteAccess();
           const current = resolveQuickActionGit(

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   pullRequestDetailMergeState,
+  pullRequestDirectMergeBlocker,
   pullRequestMergeBlocker,
   pullRequestSnapshotMergeState,
   quickActionMergeActionInput,
@@ -48,6 +49,12 @@ describe("pullRequestMergeBlocker", () => {
         "You can't merge this pull request",
       ],
       [{ checks: [check("pending")], autoMergeEnabled: true }, "Auto-merge is on"],
+      // Checks explain a block first; the host's own reason shows once they look fine.
+      [{ checks: [check("pending")], mergeBlock: "blocked" }, "Waiting for CI"],
+      [{ mergeBlock: "blocked" }, "Blocked by branch rules"],
+      [{ mergeBlock: "behind" }, "Branch is out of date. Update it first"],
+      [{ mergeBlock: "review-required" }, "Needs an approving review"],
+      [{ mergeBlock: "changes-requested" }, "Changes requested"],
     ];
     for (const [overrides, reason] of cases) {
       expect(pullRequestMergeBlocker(pullRequestDetailMergeState(detail(overrides)))).toBe(reason);
@@ -62,6 +69,18 @@ describe("pullRequestMergeBlocker", () => {
     expect(blocker([check("success", true), check("failure", true)])).toBe("CI failing");
     // A host that marks no check keeps every check as a gate.
     expect(blocker([check("failure")])).toBe("CI failing");
+  });
+
+  it("lets a hand-started merge pass armed auto-merge and checks the host leaves unmarked", () => {
+    expect(pullRequestDirectMergeBlocker(detail({ autoMergeEnabled: true }))).toBeNull();
+    // GitHub Enterprise and GitLab mark no check required, and merge past failing optional ones.
+    expect(pullRequestDirectMergeBlocker(detail({ checks: [check("failure")] }))).toBeNull();
+    expect(pullRequestDirectMergeBlocker(detail({ checks: [check("pending", true)] }))).toBe(
+      "Waiting for CI",
+    );
+    expect(
+      pullRequestDirectMergeBlocker(detail({ checks: [check("failure")], mergeBlock: "blocked" })),
+    ).toBe("Blocked by branch rules");
   });
 
   it("never blocks on a snapshot's all-checks state", () => {
@@ -111,12 +130,31 @@ describe("quickActionMergeKind", () => {
     expect(kind({ ...autoMerge, checks: [check("pending")], autoMergeEnabled: false })).toBe(
       "auto-merge",
     );
+    // GitHub reports a PR with running required checks as blocked; auto-merge waits that out.
+    expect(
+      kind({
+        ...autoMerge,
+        checks: [check("pending")],
+        autoMergeEnabled: false,
+        mergeBlock: "blocked",
+      }),
+    ).toBe("auto-merge");
   });
 
   it("starts nothing it cannot finish", () => {
     // Unknown auto-merge state is not "off": arming twice is a write nobody asked for.
     expect(kind({ ...autoMerge, checks: [check("pending")] })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("pending")], autoMergeEnabled: true })).toBeNull();
+    expect(kind({ mergeBlock: "blocked" })).toBeNull();
+    // Armed on a behind branch, auto-merge would wait forever for someone to update it.
+    expect(
+      kind({
+        ...autoMerge,
+        checks: [check("pending")],
+        autoMergeEnabled: false,
+        mergeBlock: "behind",
+      }),
+    ).toBeNull();
     expect(kind({ checks: [check("pending")], autoMergeEnabled: false })).toBeNull();
     expect(kind({ ...autoMerge, checks: [check("failure")], autoMergeEnabled: false })).toBeNull();
     expect(

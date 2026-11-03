@@ -14,7 +14,13 @@ export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, st
 /** The slice of a detail that decides which actions it offers. */
 export type PullRequestActionableDetail = Pick<
   PullRequestDetail,
-  "state" | "isDraft" | "mergeability" | "capabilities" | "viewerPermissions" | "mergeCapabilities"
+  | "state"
+  | "isDraft"
+  | "mergeability"
+  | "mergeBlock"
+  | "capabilities"
+  | "viewerPermissions"
+  | "mergeCapabilities"
 >;
 
 /**
@@ -72,8 +78,8 @@ export type ThreadPanelPullRequestAction = "resolve" | "ready" | "fix" | "merge"
 /**
  * Which single action the thread panel's compact pull request row offers, ranked by what
  * unblocks the merge next: conflicts stop everything, a draft is not up for review yet, failing
- * checks want fixing, and only a clean open pull request earns Merge. While checks run the slot
- * stays empty — the row shows their progress instead of an action that would race them.
+ * checks want fixing, and only a clean open pull request earns Merge. While checks run, or the
+ * host still blocks the merge, the slot stays empty instead of offering a merge it would refuse.
  */
 export function resolveThreadPanelPullRequestAction(
   detail: (PullRequestActionableDetail & Pick<PullRequestDetail, "checks">) | null,
@@ -85,7 +91,7 @@ export function resolveThreadPanelPullRequestAction(
   }
   const checks = classifyPullRequestChecks(detail.checks);
   if (checks === "failing") return "fix";
-  if (checks === "pending") return null;
+  if (checks === "pending" || detail.mergeBlock !== undefined) return null;
   return canPerformPullRequestAction(detail, "merge") &&
     allowedPullRequestMergeMethods(detail).length > 0
     ? "merge"
@@ -116,6 +122,8 @@ export interface PullRequestMergeState {
   readonly checksState?: PullRequestChecksState | null | undefined;
   /** Whether the host lets this account merge with at least one allowed method. */
   readonly canMerge?: boolean | undefined;
+  /** What the host still requires beyond conflicts, drafts and checks. */
+  readonly mergeBlock?: PullRequestDetail["mergeBlock"] | undefined;
   /** Absent where the host does not say, which is not the same as off. */
   readonly autoMergeEnabled?: boolean | undefined;
   /** Whether the host lets this account arm auto-merge with at least one allowed method. */
@@ -130,6 +138,7 @@ export function pullRequestDetailMergeState(detail: PullRequestDetail): PullRequ
     mergeability: detail.mergeability,
     checksState: classifyMergeGatingChecks(detail.checks),
     canMerge: canPerformPullRequestAction(detail, "merge") && hasMethod,
+    mergeBlock: detail.mergeBlock,
     autoMergeEnabled: detail.autoMergeEnabled,
     canEnableAutoMerge: canPerformPullRequestAction(detail, "enable-auto-merge") && hasMethod,
   };
@@ -155,7 +164,34 @@ export function pullRequestMergeBlocker(pullRequest: PullRequestMergeState): str
   if (pullRequest.checksState === "failing") return "CI failing";
   if (pullRequest.checksState === "pending") return "Waiting for CI";
   if (pullRequest.canMerge === false) return "You can't merge this pull request";
-  return null;
+  switch (pullRequest.mergeBlock) {
+    case "review-required":
+      return "Needs an approving review";
+    case "changes-requested":
+      return "Changes requested";
+    case "behind":
+      return "Branch is out of date. Update it first";
+    case "blocked":
+      return "Blocked by branch rules";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Why a merge started by hand from a detail view would be refused. Unlike the batch menus, it may
+ * click past armed auto-merge, and where the host marks no check required it leaves checks to the
+ * host, which merges past failing optional ones.
+ */
+export function pullRequestDirectMergeBlocker(detail: PullRequestDetail): string | null {
+  const state = pullRequestDetailMergeState(detail);
+  return pullRequestMergeBlocker({
+    ...state,
+    autoMergeEnabled: undefined,
+    checksState: detail.checks.some((check) => check.required !== undefined)
+      ? state.checksState
+      : null,
+  });
 }
 
 /** How the merge quick action starts a PR: merge it now, or arm auto-merge while CI runs. */
@@ -163,7 +199,8 @@ export type QuickActionMergeKind = "merge" | "auto-merge";
 
 /**
  * Merge when nothing blocks it. While only required checks are still running, arm the host's
- * auto-merge instead, so the PR merges when they pass. Null when neither can start.
+ * auto-merge instead, so the PR merges when they pass; the host's own block is what auto-merge
+ * waits out, unless the branch is behind. Null when neither can start.
  */
 export function quickActionMergeKind(
   pullRequest: PullRequestMergeState,
@@ -172,7 +209,13 @@ export function quickActionMergeKind(
   return pullRequest.checksState === "pending" &&
     pullRequest.autoMergeEnabled === false &&
     pullRequest.canEnableAutoMerge === true &&
-    pullRequestMergeBlocker({ ...pullRequest, checksState: null, canMerge: undefined }) === null
+    pullRequestMergeBlocker({
+      ...pullRequest,
+      checksState: null,
+      canMerge: undefined,
+      // Auto-merge waits out branch rules but never updates a branch that fell behind.
+      mergeBlock: pullRequest.mergeBlock === "behind" ? "behind" : undefined,
+    }) === null
     ? "auto-merge"
     : null;
 }

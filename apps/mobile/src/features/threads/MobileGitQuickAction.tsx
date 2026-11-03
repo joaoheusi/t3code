@@ -128,9 +128,10 @@ export function MobileGitQuickAction(props: {
   ): Promise<PreparedGitAction> => {
     const destination = { environmentId: target.environmentId, cwd: repository.cwd };
     assertWrite();
+    // Local only: the remote part is already streamed, and a full refresh waits on fetches.
     const result = await loadStatus({
       environmentId: target.environmentId,
-      input: { cwd: repository.cwd },
+      input: { cwd: repository.cwd, localOnly: true },
     });
     if (result._tag === "Failure") throw squashAtomCommandFailure(result);
     assertWrite();

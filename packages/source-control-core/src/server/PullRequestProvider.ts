@@ -20,6 +20,7 @@ import type {
   PullRequestMergeCapabilities,
   PullRequestMergeMethod,
   PullRequestMergeability,
+  PullRequestMergeBlock,
   PullRequestOmittedFileStat,
   PullRequestReaction,
   PullRequestReactionContent,
@@ -202,6 +203,7 @@ export interface ProviderChangeRequestDetail extends ProviderChangeRequest {
   readonly behindBy?: number;
   readonly autoMergeEnabled?: boolean;
   readonly autoMergeMethod?: PullRequestMergeMethod;
+  readonly mergeBlock?: PullRequestMergeBlock;
   readonly workflowApprovalsRequired?: number;
 }
 
@@ -358,7 +360,10 @@ export interface PullRequestProviderApi {
 
   readonly getChangeRequestChecks?: (
     input: ProviderRepositoryRef & { readonly number: number },
-  ) => Effect.Effect<Pick<PullRequestChecks, "state" | "checks">, PullRequestProviderError>;
+  ) => Effect.Effect<
+    Pick<PullRequestChecks, "state" | "checks" | "mergeBlock">,
+    PullRequestProviderError
+  >;
 
   readonly getChangeRequest: (
     input: ProviderRepositoryRef & { readonly number: number },
