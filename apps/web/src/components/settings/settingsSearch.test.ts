@@ -15,6 +15,7 @@ import {
   movedSettingsPath,
   searchSettings,
   SETTINGS_NAV_GROUPS,
+  SETTINGS_SECTION_LABELS,
   SETTINGS_SEARCH_ITEMS,
   sourceControlHostSearchItems,
   sourceControlHostSettingsSearchId,
@@ -71,6 +72,16 @@ describe("searchSettings", () => {
         scope: "environment-defaults",
       });
     }
+  });
+
+  it("lists every settings page in the nav except detail and gated pages", () => {
+    const navPaths = SETTINGS_NAV_GROUPS.flatMap((group) => group.paths);
+    const unlisted = new Set(["/settings/diagnostics", "/settings/secrets"]);
+    expect(navPaths.toSorted()).toEqual(
+      Object.keys(SETTINGS_SECTION_LABELS)
+        .filter((path) => !unlisted.has(path))
+        .toSorted(),
+    );
   });
 
   it("hides the Secrets page from nav and search while the secrets feature is disabled", () => {
