@@ -1,7 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import { Platform } from "react-native";
 
-import { AndroidScreenHeader } from "../../components/ui/AndroidScreenHeader";
+import { AppBar } from "../../components/ui/AppBar";
 import type { AppSymbolName } from "../../components/ui/AppSymbol";
 import { Button as MaterialButton } from "../../components/ui/Button";
 import { NativeHeaderToolbar } from "../../native/NativeHeaderToolbar";
@@ -31,7 +31,7 @@ export function ForkScreenHeader(props: {
     return (
       <>
         <NativeStackScreenOptions options={{ headerShown: false }} />
-        <AndroidScreenHeader
+        <AppBar
           title={props.title}
           hideBottomBorder
           onBack={props.cancel?.onPress ?? (() => navigation.goBack())}
