@@ -1,3 +1,4 @@
+import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 
 // Keep config parsing independent of local env files and build credentials.
@@ -34,4 +35,10 @@ it.each([
   expect(config.extra?.eas.projectId).toBe("33717343-6d0f-44ca-9221-5b8d98737ac5");
   expect(config.updates?.url).toBe("https://u.expo.dev/33717343-6d0f-44ca-9221-5b8d98737ac5");
   expect(config.ios?.appleTeamId).toBe("SC7RQ3BWQ6");
+  // The fork's team and production identifier are not listed at app.t3.codes, so only
+  // the Android intent filter is asserted; upstream also checks its site association.
+  const host = new URL(DEFAULT_HOSTED_APP_URL).host;
+  expect(config.android?.intentFilters?.[0]?.data).toEqual([
+    { scheme: "https", host, pathPrefix: "/threads/" },
+  ]);
 });

@@ -1,4 +1,4 @@
-import { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
@@ -6,6 +6,8 @@ import { page } from "vite-plus/test/browser";
 import { render } from "../../test/render";
 import { openCommandPalette } from "../commandPaletteBus";
 import { useCommandPaletteStore } from "../commandPaletteStore";
+import { makeThreadFixture } from "../test-fixtures";
+import type { Project, Thread } from "../types";
 import { CommandPalette } from "./CommandPalette";
 
 const denied = EnvironmentId.make("denied");
@@ -50,9 +52,21 @@ vi.mock(import("../state/environments"), async (original) => {
   };
 });
 
-function setup() {
+const entities = vi.hoisted(() => ({
+  projects: [] as ReadonlyArray<Project>,
+  threads: [] as ReadonlyArray<Thread>,
+}));
+vi.mock("../state/entities", async (original) => ({
+  ...(await original<typeof import("../state/entities")>()),
+  useProjects: () => entities.projects,
+  useVisibleThreadShells: () => entities.threads,
+}));
+
+function setup(seed: { projects?: ReadonlyArray<Project>; threads?: ReadonlyArray<Thread> } = {}) {
   state.environments = false;
   useCommandPaletteStore.setState(useCommandPaletteStore.getInitialState(), true);
+  entities.projects = seed.projects ?? [];
+  entities.threads = seed.threads ?? [];
 }
 
 describe("CommandPalette open intents", () => {
@@ -86,5 +100,51 @@ describe("CommandPalette open intents", () => {
     await expect
       .element(page.getByRole("option", { name: "New scheduled task" }))
       .toBeInTheDocument();
+  });
+
+  it("opens a searched project's latest listed thread, not a newer subagent", async () => {
+    const environmentId = EnvironmentId.make("local");
+    const projectId = ProjectId.make("acme");
+    const parentId = ThreadId.make("parent");
+    setup({
+      projects: [
+        {
+          id: projectId,
+          environmentId,
+          title: "Acme",
+          workspaceRoot: "/work/acme",
+          repositoryIdentity: null,
+          defaultModelSelection: null,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+          scripts: [],
+        },
+      ],
+      threads: [
+        makeThreadFixture({
+          id: parentId,
+          environmentId,
+          projectId,
+          latestUserMessageAt: "2026-03-02T00:00:00.000Z",
+        }),
+        makeThreadFixture({
+          id: ThreadId.make("subagent"),
+          environmentId,
+          projectId,
+          updatedAt: "2026-03-03T00:00:00.000Z",
+          lineage: {
+            rootThreadId: parentId,
+            parentThreadId: parentId,
+            relationshipToParent: "subagent",
+          },
+        }),
+      ],
+    });
+    await using screen = await render(<CommandPalette>{null}</CommandPalette>);
+
+    openCommandPalette({ query: "Acme" });
+    await page.getByRole("option", { name: /Acme/ }).first().click();
+
+    await vi.waitFor(() => expect(screen.router?.state.location.pathname).toBe("/local/parent"));
   });
 });
