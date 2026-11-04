@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 84 }, (_, index) => index + 1),
+        Array.from({ length: 85 }, (_, index) => index + 1),
       );
     }),
   );
@@ -56,6 +56,7 @@ layer("055_OrchestrationV2", (it) => {
         [82, "ProjectionProjectsPinArchive"],
         [83, "RepairBooleanSettledOverride"],
         [84, "DropOrchestrationEventCorrelationIndex"],
+        [85, "DelegatedRecoveryIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -106,6 +107,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 82, name: "ProjectionProjectsPinArchive" },
         { migration_id: 83, name: "RepairBooleanSettledOverride" },
         { migration_id: 84, name: "DropOrchestrationEventCorrelationIndex" },
+        { migration_id: 85, name: "DelegatedRecoveryIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -206,6 +208,7 @@ layer("055_OrchestrationV2", (it) => {
         [82, "ProjectionProjectsPinArchive"],
         [83, "RepairBooleanSettledOverride"],
         [84, "DropOrchestrationEventCorrelationIndex"],
+        [85, "DelegatedRecoveryIndexes"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;
