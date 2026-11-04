@@ -35,7 +35,6 @@ export function resolveUserMessageIntentBadge(
           "This message was originally queued, then promoted to steer the agent while its turn was still running.",
         tone: "steer",
       };
-    case "queued_turn":
     case "turn_start":
     case undefined:
       return null;
