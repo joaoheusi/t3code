@@ -125,6 +125,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/chat",
       "/settings/diffs",
       "/settings/keybindings",
+      "/settings/quick-actions",
       "/settings/snap-shot",
     ],
   },
