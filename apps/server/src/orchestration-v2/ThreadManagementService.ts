@@ -173,6 +173,11 @@ export interface ThreadManagementWaitInput {
    * completion delivery will wake it again, as a delegated task's result does.
    */
   readonly untilDelegatedWorkSettled?: boolean;
+  /**
+   * Also stop when the thread has a pending question or approval: its run
+   * cannot end until someone answers, and it stays `running` meanwhile.
+   */
+  readonly stopOnPendingRequest?: boolean;
 }
 
 export interface ThreadManagementWaitResult {
@@ -181,6 +186,8 @@ export interface ThreadManagementWaitResult {
   readonly timedOut: boolean;
   /** With `untilDelegatedWorkSettled`, once settled: the run with the thread's final answer. */
   readonly resultRun?: OrchestrationV2Run;
+  /** With `stopOnPendingRequest`: the wait stopped for a pending request, with the run unfinished. */
+  readonly needsInput?: boolean;
 }
 
 export interface ThreadManagementInterruptInput {
@@ -959,21 +966,30 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(loadError));
       return pending ? undefined : progress.resultRun;
     });
+    const stopOnPendingRequest = input.stopOnPendingRequest === true;
+    const hasPendingRequest = getProjectThreadRecords(input, ["runtimeRequests"]).pipe(
+      Effect.map(({ runtimeRequests }) =>
+        runtimeRequests.some((request) => request.status === "pending"),
+      ),
+    );
     const evaluate = Effect.fn("orchestrationV2.threadManagement.evaluate")(function* (
       runs: ReadonlyArray<OrchestrationV2Run>,
     ) {
       const current = yield* outcome(runs);
-      if (!current.settled || !untilDelegatedWorkSettled) {
-        return { ...current, resultRun: undefined };
+      if (current.settled && !untilDelegatedWorkSettled) {
+        return { ...current, resultRun: undefined, needsInput: false };
       }
-      const resultRun = yield* delegatedWorkResult;
-      return { ...current, settled: resultRun !== undefined, resultRun };
+      const resultRun = current.settled ? yield* delegatedWorkResult : undefined;
+      if (resultRun !== undefined) return { ...current, resultRun, needsInput: false };
+      const needsInput = stopOnPendingRequest && (yield* hasPendingRequest);
+      return { ...current, settled: needsInput, resultRun: undefined, needsInput };
     });
     const settledResult = (current: Effect.Success<ReturnType<typeof evaluate>>) => ({
       threadId: input.threadId,
       run: current.run,
       timedOut: !current.settled,
       ...(current.resultRun === undefined ? {} : { resultRun: current.resultRun }),
+      ...(current.needsInput ? { needsInput: true } : {}),
     });
     const initial = yield* evaluate(target.runs);
     if (initial.settled) return settledResult(initial);
@@ -991,6 +1007,7 @@ const make = Effect.gen(function* () {
             ...(untilDelegatedWorkSettled
               ? (["subagent.updated", "provider-thread.updated"] as const)
               : []),
+            ...(stopOnPendingRequest ? (["runtime-request.updated"] as const) : []),
           ] as const
         ).map((eventType) =>
           orchestrator.streamStoredEventsFrom({

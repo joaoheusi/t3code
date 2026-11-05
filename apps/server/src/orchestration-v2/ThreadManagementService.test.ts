@@ -357,6 +357,87 @@ it.effect("waitForThread can wait past an ended run for the thread's delegated w
   }),
 );
 
+it.effect("waitForThread stops for a question only when asked to", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:thread-management:wait-question");
+    const threadId = ThreadId.make("thread:thread-management:wait-question");
+    const runId = RunId.make("run:thread-management:wait-question");
+    const subscribed = yield* Deferred.make<void>();
+    const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+    let runtimeRequests: ReadonlyArray<{ readonly status: string }> = [];
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+      Layer.provide(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadEventSequence: () => Effect.succeed(0),
+          restartContinuationPending: () => Effect.succeed(false),
+          streamStoredEventsFrom: (input) =>
+            input?.eventType === "runtime-request.updated"
+              ? Stream.fromEffect(Deferred.succeed(subscribed, undefined)).pipe(
+                  Stream.drain,
+                  Stream.concat(Stream.fromQueue(events)),
+                )
+              : Stream.never,
+          getThreadRecords: () =>
+            Effect.sync(
+              () =>
+                ({
+                  thread: { id: threadId, projectId, deletedAt: null },
+                  runs: [
+                    {
+                      id: runId,
+                      ordinal: 1,
+                      status: "running",
+                      startedAt: DateTime.makeUnsafe(0),
+                      completedAt: null,
+                    },
+                  ],
+                  runtimeRequests,
+                }) as unknown as OrchestrationV2ThreadProjection,
+            ),
+        }),
+      ),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(layerReceiptsTest),
+    );
+    const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+      Effect.provide(layerTest),
+    );
+    const input = { projectId, threadId, runId, timeoutMs: 60 * 60 * 1_000 };
+
+    const fiber = yield* service
+      .waitForThread({ ...input, stopOnPendingRequest: true })
+      .pipe(Effect.forkChild);
+    // A wait that returns early fails below instead of hanging here.
+    yield* Effect.raceFirst(Deferred.await(subscribed), Fiber.await(fiber));
+    runtimeRequests = [{ status: "pending" }];
+    yield* Queue.offer(events, {
+      sequence: 1,
+      event: { threadId, type: "runtime-request.updated", payload: {} },
+    } as unknown as OrchestrationV2StoredEvent);
+    expect(yield* Fiber.join(fiber)).toMatchObject({
+      timedOut: false,
+      needsInput: true,
+      run: { id: runId, status: "running" },
+    });
+
+    // A question already open when the wait starts stops it at once.
+    expect(yield* service.waitForThread({ ...input, stopOnPendingRequest: true })).toMatchObject({
+      timedOut: false,
+      needsInput: true,
+    });
+
+    // Other callers still wait for the run: settling must not fire on a question.
+    const plain = yield* service
+      .waitForThread({ ...input, timeoutMs: 1_000 })
+      .pipe(Effect.forkChild);
+    yield* TestClock.adjust("1 second");
+    const waited = yield* Fiber.join(plain);
+    expect(waited.timedOut).toBe(true);
+    expect(waited).not.toHaveProperty("needsInput");
+  }),
+);
+
 it.effect("waitForThread settles delegated work on a thread rolled back past its only run", () =>
   Effect.gen(function* () {
     const projectId = ProjectId.make("project:thread-management:wait-rolled-back");

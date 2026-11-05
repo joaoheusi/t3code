@@ -205,7 +205,7 @@ const make = Effect.gen(function* () {
         },
       );
       remaining -= chunk;
-      if (!result.timedOut || remaining <= 0) return result;
+      if (!result.timedOut || result.needsInput === true || remaining <= 0) return result;
       // Later pieces wait for the run the first one picked, not a newer one.
       runId = result.runId ?? undefined;
     }

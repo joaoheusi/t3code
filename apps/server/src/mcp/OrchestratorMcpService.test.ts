@@ -388,6 +388,8 @@ describe("OrchestratorMcpService", () => {
           nodes: [],
           turnItems: [],
         }) as unknown as OrchestrationV2ThreadProjection;
+      let stopsOnRequest = false;
+      let serviceReportsNeedsInput = false;
       const layerDependencies = Layer.mergeAll(
         NodeServices.layer,
         NodeCrypto.layer,
@@ -396,12 +398,15 @@ describe("OrchestratorMcpService", () => {
             Effect.succeed(threadId === parentThreadId ? parentProjection() : childProjection()),
           getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
           getProjectThreadRecords: () => Effect.succeed(childProjection()),
-          waitForThread: () =>
-            Effect.succeed({
+          waitForThread: (input) => {
+            stopsOnRequest = input.stopOnPendingRequest === true;
+            return Effect.succeed({
               threadId: childThreadId,
               run: childRun() as unknown as OrchestrationV2ThreadProjection["runs"][number],
-              timedOut: !finished,
-            }),
+              timedOut: !finished && !serviceReportsNeedsInput,
+              ...(serviceReportsNeedsInput ? { needsInput: true } : {}),
+            });
+          },
           dispatch: () => Effect.succeed({} as never),
         }),
         ServerSettings.layerTest(),
@@ -440,7 +445,32 @@ describe("OrchestratorMcpService", () => {
         pendingRequest = true;
         const asking = yield* service.waitForThread(scope, { threadId: childThreadId });
         assert.isTrue(asking.timedOut);
+        assert.isTrue(asking.needsInput);
+        assert.isDefined(asking.note);
         assert.notProperty(asking, "next");
+        assert.isTrue(stopsOnRequest);
+
+        // An early stop is not a timeout, so only the service's flag can report it.
+        serviceReportsNeedsInput = true;
+        const stoppedEarly = yield* service.waitForThread(scope, { threadId: childThreadId });
+        serviceReportsNeedsInput = false;
+        assert.isFalse(stoppedEarly.timedOut);
+        assert.isTrue(stoppedEarly.needsInput);
+        assert.isDefined(stoppedEarly.note);
+
+        // A CLI or a linked environment re-waits in a loop, so it must keep waiting.
+        const outside = yield* service.waitForThread(
+          {
+            ...scope,
+            thread: undefined,
+            client: { sessionId: "mcp-next", label: "Peer", access: "full-access" },
+          },
+          { threadId: childThreadId },
+        );
+        assert.isFalse(stopsOnRequest);
+        assert.isTrue(outside.needsInput);
+        // A linked environment passes this result on to the agent that asked.
+        assert.isDefined(outside.note);
         pendingRequest = false;
 
         finished = true;

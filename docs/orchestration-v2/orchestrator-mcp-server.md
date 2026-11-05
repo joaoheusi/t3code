@@ -458,6 +458,12 @@ Waits for a selected run to become `completed`, `failed`, `cancelled`,
 time; an idle thread returns immediately. A timeout reports the latest durable
 status and does not cancel work.
 
+For an agent in a thread, a pending question or approval on the target thread
+also ends the wait, with `needsInput`, a `note` on what to do, and the run still
+active: nothing else would wake the agent while the run waits on that answer. Other callers (the CLI,
+a linked environment's follower) re-wait in a loop, so they keep waiting and only
+see `needsInput` on a timeout.
+
 ### `t3_thread_interrupt`
 
 Interrupts a selected active run through the normal V2 `run.interrupt` command.
