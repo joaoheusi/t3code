@@ -3168,6 +3168,9 @@ const make = Effect.gen(function* () {
             Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
           ),
           ...(input.untilDelegatedWorkSettled === true ? { untilDelegatedWorkSettled: true } : {}),
+          // Only an agent acts on it. A CLI or a linked environment waits in a loop,
+          // which would spin on a question that stays open.
+          ...(parent === undefined ? {} : { stopOnPendingRequest: true }),
         })
         .pipe(Effect.mapError(threadManagementFailure));
       const status = result.run === null ? "idle" : runOutcome(result.run);
@@ -3185,19 +3188,22 @@ const make = Effect.gen(function* () {
             task.childThreadId === input.threadId &&
             task.completionDelivery?.state !== "disposed",
         );
-      // A child waiting on a question or approval needs an answer, not a wake.
-      const childRequests = ownedTask
-        ? (yield* threadManagement
+      const needsInput =
+        result.needsInput === true ||
+        (result.timedOut &&
+          (yield* threadManagement
             .getThreadRecords(input.threadId, ["runtimeRequests"])
-            .pipe(Effect.mapError(threadManagementFailure))).runtimeRequests
-        : [];
-      const wakesCaller =
-        ownedTask && !childRequests.some((request) => request.status === "pending");
+            .pipe(Effect.mapError(threadManagementFailure))).runtimeRequests.some(
+            (request) => request.status === "pending",
+          ));
+      // A child waiting on a question or approval needs an answer, not a wake.
+      const wakesCaller = ownedTask && !needsInput;
       return {
         threadId: input.threadId,
         runId: result.run?.id ?? null,
         status,
         timedOut: result.timedOut,
+        ...(needsInput ? { needsInput: true } : {}),
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined
           ? {}

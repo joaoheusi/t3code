@@ -57,6 +57,8 @@ interface Seen {
   readonly clones: ReadonlyArray<SourceControlCloneRepositoryInput>;
   /** Commands dispatched and delegated-task stops, as `<type> <threadId>`. */
   readonly stops: ReadonlyArray<string>;
+  /** Set by a test: what B's threads report as open questions. */
+  readonly runtimeRequests?: ReadonlyArray<{ readonly status: string }>;
 }
 const nothingSeen: Seen = {
   sends: [],
@@ -86,8 +88,11 @@ const boxThreads = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) => {
   const shellOf = (threadId: ThreadId): Effect.Effect<OrchestrationV2ThreadShell | null> =>
     threadId === boxThread ? linked : Effect.succeed(threadId === usersThread ? users : null);
   const projectionOf = (threadId: ThreadId) =>
-    shellOf(threadId).pipe(
-      Effect.map((thread) => ({ thread, runs: [run("running")], runtimeRequests: [] }) as never),
+    Effect.all([shellOf(threadId), Ref.get(seen)]).pipe(
+      Effect.map(
+        ([thread, { runtimeRequests = [] }]) =>
+          ({ thread, runs: [run("running")], runtimeRequests }) as never,
+      ),
     );
   return Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: shellOf,
@@ -426,6 +431,34 @@ it.effect("an agent here works on a linked environment's threads within its own 
         `thread.stop ${boxThread}`,
         `delegated-tasks.stop ${boxThread}`,
       ]);
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("ends a forwarded wait at the first piece that reports an open question", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const seen = yield* Ref.make<Seen>({
+        ...nothingSeen,
+        runtimeRequests: [{ status: "pending" }],
+      });
+      const linkSession = yield* Ref.make("");
+      const b = yield* serveBox(seen, linkSession);
+      const a = yield* makeLaptop;
+      yield* linkTo(a.links, b, "auto");
+      yield* Ref.set(linkSession, (yield* b.linkedSessions)[0]!.sessionId);
+
+      const waited = yield* a.call("thread:laptop-full", "t3_thread_wait", {
+        environmentId: box.environmentId,
+        threadId: boxThread,
+        timeoutMs: 600_000,
+      });
+
+      expect(waited.structuredContent).toMatchObject({ timedOut: true, needsInput: true });
+      const { waits } = yield* Ref.get(seen);
+      expect(waits).toHaveLength(1);
+      // A linked environment's follower re-waits in a loop, so B must not stop early for it.
+      expect(waits[0]).not.toHaveProperty("stopOnPendingRequest");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

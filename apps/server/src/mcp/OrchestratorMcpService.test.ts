@@ -388,6 +388,7 @@ describe("OrchestratorMcpService", () => {
           nodes: [],
           turnItems: [],
         }) as unknown as OrchestrationV2ThreadProjection;
+      let stopsOnRequest = false;
       const layerDependencies = Layer.mergeAll(
         NodeServices.layer,
         NodeCrypto.layer,
@@ -396,12 +397,14 @@ describe("OrchestratorMcpService", () => {
             Effect.succeed(threadId === parentThreadId ? parentProjection() : childProjection()),
           getThreadShell: (threadId) => Effect.succeed(liveThreadShell(threadId)),
           getProjectThreadRecords: () => Effect.succeed(childProjection()),
-          waitForThread: () =>
-            Effect.succeed({
+          waitForThread: (input) => {
+            stopsOnRequest = input.stopOnPendingRequest === true;
+            return Effect.succeed({
               threadId: childThreadId,
               run: childRun() as unknown as OrchestrationV2ThreadProjection["runs"][number],
               timedOut: !finished,
-            }),
+            });
+          },
           dispatch: () => Effect.succeed({} as never),
         }),
         ServerSettings.layerTest(),
@@ -440,7 +443,21 @@ describe("OrchestratorMcpService", () => {
         pendingRequest = true;
         const asking = yield* service.waitForThread(scope, { threadId: childThreadId });
         assert.isTrue(asking.timedOut);
+        assert.isTrue(asking.needsInput);
         assert.notProperty(asking, "next");
+        assert.isTrue(stopsOnRequest);
+
+        // A CLI or a linked environment re-waits in a loop, so it must keep waiting.
+        const outside = yield* service.waitForThread(
+          {
+            ...scope,
+            thread: undefined,
+            client: { sessionId: "mcp-next", label: "Peer", access: "full-access" },
+          },
+          { threadId: childThreadId },
+        );
+        assert.isFalse(stopsOnRequest);
+        assert.isTrue(outside.needsInput);
         pendingRequest = false;
 
         finished = true;
