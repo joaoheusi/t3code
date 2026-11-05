@@ -5,6 +5,7 @@ import {
   MessageId,
   type ModelSelection,
   NodeId,
+  ORCHESTRATOR_MCP_NEEDS_INPUT_NOTE,
   ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   TurnItemId,
   type OrchestrationV2Run,
@@ -3203,7 +3204,7 @@ const make = Effect.gen(function* () {
         runId: result.run?.id ?? null,
         status,
         timedOut: result.timedOut,
-        ...(needsInput ? { needsInput: true } : {}),
+        ...(needsInput ? { needsInput: true, note: ORCHESTRATOR_MCP_NEEDS_INPUT_NOTE } : {}),
         ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
         ...(result.resultRun === undefined
           ? {}

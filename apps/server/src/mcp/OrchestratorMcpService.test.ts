@@ -444,6 +444,7 @@ describe("OrchestratorMcpService", () => {
         const asking = yield* service.waitForThread(scope, { threadId: childThreadId });
         assert.isTrue(asking.timedOut);
         assert.isTrue(asking.needsInput);
+        assert.isDefined(asking.note);
         assert.notProperty(asking, "next");
         assert.isTrue(stopsOnRequest);
 
