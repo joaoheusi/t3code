@@ -794,7 +794,24 @@ describe("MuseAdapterV2", () => {
     Effect.gen(function* () {
       const fake = yield* makeFakeMuse();
       const harness = yield* makeHarness(fake);
-      const { nativeId } = yield* startConversation(harness, fake);
+      const first = yield* startConversation(harness, fake);
+      yield* fake.emit("item/started", {
+        turnId: first.nativeId,
+        item: {
+          itemId: "sub-1",
+          kind: "subagent",
+          turnId: first.nativeId,
+          revision: 1,
+          status: "inProgress",
+        },
+      });
+      yield* harness.takeEvent("turn_item.updated", (event) => event.turnItem.type === "subagent");
+      assert.isTrue(yield* harness.runtime.hasPendingBackgroundWork!);
+      yield* fake.emit("turn/completed", { turnId: first.nativeId, terminal: "completed" });
+      assert.strictEqual((yield* harness.takeEvent("turn.terminal")).status, "completed");
+      assert.isTrue(yield* harness.runtime.hasPendingBackgroundWork!);
+
+      const { nativeId } = yield* startConversation(harness, fake, 2);
       yield* fake.emit("turn/completed", {
         turnId: nativeId,
         terminal: "failed",
@@ -817,6 +834,14 @@ describe("MuseAdapterV2", () => {
         ).length,
         1,
       );
+      assert.isFalse(yield* harness.runtime.hasPendingBackgroundWork!);
+      const settledChild = harness.allEvents.findLast(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "subagent",
+      );
+      assert.strictEqual(
+        settledChild?.type === "turn_item.updated" ? settledChild.turnItem.status : undefined,
+        "failed",
+      );
 
       const resumed = yield* harness.runtime
         .resumeThread({ providerThread: harness.providerThread })
@@ -836,7 +861,7 @@ describe("MuseAdapterV2", () => {
         fresh.nativeThreadRef?.nativeId,
         harness.providerThread.nativeThreadRef?.nativeId,
       );
-      yield* harness.runtime.startTurn(yield* turnInput(fresh, 2));
+      yield* harness.runtime.startTurn(yield* turnInput(fresh, 3));
       const started = yield* fake.takeCall("turn/start");
       yield* fake.emit("turn/completed", { turnId: started.commandId, terminal: "completed" });
       assert.strictEqual((yield* harness.takeEvent("turn.terminal")).status, "completed");

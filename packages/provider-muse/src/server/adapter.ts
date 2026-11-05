@@ -1517,6 +1517,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               undefined,
               MUSE_TOOL_SCHEMA_TOO_DEEP_CODE,
             );
+            yield* settleObservedChildren("failed");
             if (retiredId !== undefined) retiredNativeSessions.add(retiredId);
             thread = undefined;
             nativeSessionId = undefined;
