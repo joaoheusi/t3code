@@ -389,6 +389,7 @@ describe("OrchestratorMcpService", () => {
           turnItems: [],
         }) as unknown as OrchestrationV2ThreadProjection;
       let stopsOnRequest = false;
+      let serviceReportsNeedsInput = false;
       const layerDependencies = Layer.mergeAll(
         NodeServices.layer,
         NodeCrypto.layer,
@@ -402,7 +403,8 @@ describe("OrchestratorMcpService", () => {
             return Effect.succeed({
               threadId: childThreadId,
               run: childRun() as unknown as OrchestrationV2ThreadProjection["runs"][number],
-              timedOut: !finished,
+              timedOut: !finished && !serviceReportsNeedsInput,
+              ...(serviceReportsNeedsInput ? { needsInput: true } : {}),
             });
           },
           dispatch: () => Effect.succeed({} as never),
@@ -448,6 +450,14 @@ describe("OrchestratorMcpService", () => {
         assert.notProperty(asking, "next");
         assert.isTrue(stopsOnRequest);
 
+        // An early stop is not a timeout, so only the service's flag can report it.
+        serviceReportsNeedsInput = true;
+        const stoppedEarly = yield* service.waitForThread(scope, { threadId: childThreadId });
+        serviceReportsNeedsInput = false;
+        assert.isFalse(stoppedEarly.timedOut);
+        assert.isTrue(stoppedEarly.needsInput);
+        assert.isDefined(stoppedEarly.note);
+
         // A CLI or a linked environment re-waits in a loop, so it must keep waiting.
         const outside = yield* service.waitForThread(
           {
@@ -459,6 +469,8 @@ describe("OrchestratorMcpService", () => {
         );
         assert.isFalse(stopsOnRequest);
         assert.isTrue(outside.needsInput);
+        // A linked environment passes this result on to the agent that asked.
+        assert.isDefined(outside.note);
         pendingRequest = false;
 
         finished = true;

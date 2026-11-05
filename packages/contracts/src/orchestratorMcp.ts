@@ -201,7 +201,7 @@ export const ORCHESTRATOR_MCP_RUNNING_TASK_NEXT =
   "Completion wakes this thread, so end your turn. Do not wait on it or poll it.";
 const OrchestratorMcpRunningTaskNext = Schema.Literal(ORCHESTRATOR_MCP_RUNNING_TASK_NEXT);
 export const ORCHESTRATOR_MCP_NEEDS_INPUT_NOTE =
-  "The thread stopped to ask. Answer with `t3_pending_request` or tell the user. Waiting again returns at once.";
+  "The thread stopped to ask and cannot finish until someone answers. Answer with `t3_pending_request` or tell the user. Do not wait again until then.";
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   taskId: NodeId,
