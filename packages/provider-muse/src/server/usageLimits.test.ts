@@ -1,7 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 
 import type { MuseSubscriptionUsage } from "./protocol.ts";
-import { isMuseUsageLimitFailure, museUsageLimitResetAt } from "./usageLimits.ts";
+import {
+  isMuseToolSchemaTooDeepFailure,
+  isMuseUsageLimitFailure,
+  museSubscriptionUsageUpdate,
+  museUsageLimitResetAt,
+  museUsageWindows,
+} from "./usageLimits.ts";
 
 const usage = {
   observedAtMs: 1791447762610,
@@ -43,6 +49,50 @@ describe("Muse usage limit failures", () => {
     expect(museUsageLimitResetAt(usage, nowMs, { quota })).toBe("2026-10-08T13:19:17.000Z");
     const weeklyOut = { ...usage, weekly: { ...usage.weekly, usedPercent: 100 } };
     expect(museUsageLimitResetAt(weeklyOut, nowMs, { quota })).toBe("2026-10-12T00:00:00.000Z");
+  });
+
+  it("recognizes only Meta's over-deep tool schema refusal", () => {
+    expect(
+      isMuseToolSchemaTooDeepFailure(
+        "API error 400 [request_id=req-1]: JSON schema exceeds the maximum nesting depth of 10 levels (invalid_request_error)",
+      ),
+    ).toBe(true);
+    expect(isMuseToolSchemaTooDeepFailure("API error 400: Invalid JSON schema")).toBe(false);
+    expect(isMuseToolSchemaTooDeepFailure(undefined)).toBe(false);
+  });
+
+  it("maps subscription usage to clamped session and weekly windows", () => {
+    const over = { ...usage, window: { ...usage.window, usedPercent: 103 } };
+    expect(museSubscriptionUsageUpdate(over)).toEqual({
+      checkedAt: "2026-10-08T08:22:42.610Z",
+      windows: [
+        {
+          id: "session",
+          kind: "session",
+          label: "Session",
+          usedPercent: 100,
+          resetsAt: "2026-10-08T13:19:17.000Z",
+          windowDurationMins: 300,
+        },
+        {
+          id: "weekly",
+          kind: "weekly",
+          label: "Weekly",
+          usedPercent: 5,
+          resetsAt: "2026-10-12T00:00:00.000Z",
+          windowDurationMins: 10080,
+        },
+      ],
+    });
+    expect(
+      museUsageWindows({
+        window: { usedPercent: 9, resetsAtMs: 0 },
+        weekly: { usedPercent: 43, resetsAtMs: Number.NaN },
+      }),
+    ).toEqual([
+      { id: "session", kind: "session", label: "Session", usedPercent: 9 },
+      { id: "weekly", kind: "weekly", label: "Weekly", usedPercent: 43, windowDurationMins: 10080 },
+    ]);
   });
 
   it("has no reset time unless a report shows a used-up window that resets later", () => {

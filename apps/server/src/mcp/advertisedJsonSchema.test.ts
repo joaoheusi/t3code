@@ -27,7 +27,7 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
     type: "object",
     properties: {
       threadId: { type: "string" },
-      beforeRunId: { anyOf: [{ type: "string" }, { type: "null" }] },
+      beforeRunId: { type: ["string", "null"] },
       limit: { type: "integer" },
       every: { type: "object", properties: { ms: { type: "integer" } }, required: ["ms"] },
       target: {
@@ -41,5 +41,37 @@ it("drops JSON noise, merges tagged unions, and keeps null where it is required"
       },
     },
     required: ["beforeRunId", "every"],
+  });
+});
+
+it("merges tagged unions whose tag enums hold several disjoint values", () => {
+  const tool = Tool.make("example", {
+    parameters: Schema.Struct({
+      filter: Schema.Union([
+        Schema.Struct({
+          op: Schema.Literals(["equals", "startsWith"]),
+          value: Schema.String,
+        }),
+        Schema.Struct({ op: Schema.Literal("in"), value: Schema.Array(Schema.String) }),
+        Schema.Struct({ op: Schema.Literal("exists") }),
+      ]),
+      setting: Schema.Union([Schema.String, Schema.Boolean]),
+    }),
+  });
+
+  expect(advertisedJsonSchema(tool)).toEqual({
+    type: "object",
+    properties: {
+      filter: {
+        type: "object",
+        properties: {
+          op: { type: "string", enum: ["equals", "startsWith", "in", "exists"] },
+          value: { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+        },
+        required: ["op"],
+      },
+      setting: { type: ["string", "boolean"] },
+    },
+    required: ["filter", "setting"],
   });
 });
