@@ -9,7 +9,7 @@ import { vi } from "vite-plus/test";
 import { writeFakeCli } from "@t3tools/provider-testing/fakeCli";
 import type { MuseSdkHost } from "./sdk.ts";
 import { COMPACT_SLASH_COMMAND } from "@t3tools/provider-core/server/snapshotProbe";
-import { checkMuseProviderStatus } from "./status.ts";
+import { checkMuseProviderStatus, checkMuseUsageLimits } from "./status.ts";
 
 const settings = Schema.decodeSync(MuseSettings);
 const makeHost = (catalog: Record<string, unknown>) => {
@@ -107,6 +107,65 @@ it.layer(NodeServices.layer)("Muse status", (it) => {
         expect(host.connection.request).toHaveBeenCalledWith("model/list", {});
         expect(host.connection.command).not.toHaveBeenCalled();
         expect(host.close).toHaveBeenCalledOnce();
+      }),
+    ),
+  );
+
+  it.effect("reads subscription limits from muse usage --json", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const binaryPath = yield* fakeCli(
+          `process.stdout.write(JSON.stringify({schemaVersion:1,allowance:{tier:"Muse Code Power Usage",window:{usedPercent:9,resetsAtMs:1793910086000},weekly:{usedPercent:43,resetsAtMs:1794182400000},asOfMs:1793893825400,source:"mint"},reason:null,hint:null}));`,
+        );
+        const limits = yield* checkMuseUsageLimits(settings({ enabled: true, binaryPath }));
+        expect(limits.unavailable).toBeUndefined();
+        expect(limits.checkedAt).toBe("2026-11-05T15:50:25.400Z");
+        expect(limits.windows).toEqual([
+          {
+            id: "session",
+            kind: "session",
+            label: "Session",
+            usedPercent: 9,
+            resetsAt: "2026-11-05T20:21:26.000Z",
+          },
+          {
+            id: "weekly",
+            kind: "weekly",
+            label: "Weekly",
+            usedPercent: 43,
+            resetsAt: "2026-11-09T00:00:00.000Z",
+            windowDurationMins: 10080,
+          },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("reports limits unavailable without an allowance or a working CLI", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const signedOut = yield* fakeCli(
+          `process.stdout.write(JSON.stringify({schemaVersion:1,allowance:null,reason:"signed_out",hint:"Run muse login"}));`,
+        );
+        const noAllowance = yield* checkMuseUsageLimits(
+          settings({ enabled: true, binaryPath: signedOut }),
+        );
+        expect(noAllowance.windows).toEqual([]);
+        expect(noAllowance.unavailable).toEqual({
+          reason: "probeFailed",
+          message: "Run muse login",
+        });
+
+        const broken = yield* fakeCli("process.exit(3);");
+        const failed = yield* checkMuseUsageLimits(settings({ enabled: true, binaryPath: broken }));
+        expect(failed.windows).toEqual([]);
+        expect(failed.unavailable?.reason).toBe("probeFailed");
+
+        const garbage = yield* fakeCli('process.stdout.write("not json");');
+        const unreadable = yield* checkMuseUsageLimits(
+          settings({ enabled: true, binaryPath: garbage }),
+        );
+        expect(unreadable.unavailable?.reason).toBe("probeFailed");
       }),
     ),
   );

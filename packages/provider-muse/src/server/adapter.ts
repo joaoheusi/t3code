@@ -61,7 +61,14 @@ import {
   museApprovalOptions,
   type MuseItem,
 } from "./protocol.ts";
-import { isMuseUsageLimitFailure, museUsageLimitResetAt } from "./usageLimits.ts";
+import {
+  isMuseToolSchemaTooDeepFailure,
+  isMuseUsageLimitFailure,
+  MUSE_TOOL_SCHEMA_TOO_DEEP_CODE,
+  MUSE_TOOL_SCHEMA_TOO_DEEP_MESSAGE,
+  museSubscriptionUsageUpdate,
+  museUsageLimitResetAt,
+} from "./usageLimits.ts";
 import {
   createMuseSdkHostEffect,
   museApprovalMode,
@@ -90,6 +97,7 @@ import {
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
+import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import { museItemStatus, museToolPresentation } from "./itemPresentation.ts";
 
 const MUSE_PROVIDER = ProviderDriverKind.make("muse");
@@ -201,6 +209,7 @@ export interface MuseAdapterV2Options {
       request: ProviderContinuationRequests.ProviderContinuationRequest,
     ) => Effect.Effect<void>;
   };
+  readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
 }
 
 interface ActiveTurn {
@@ -333,6 +342,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       // Only idle host failures can be retried on this runtime.
       let relaunchable = false;
       let nativeSessionId: string | undefined;
+      // A session that loaded an over-deep tool schema fails every later model call, even after resume.
+      const retiredNativeSessions = new Set<string>();
       let thread: OrchestrationV2ProviderThread | undefined;
       let active: ActiveTurn | undefined;
       let lastProviderTurn: OrchestrationV2ProviderTurn | undefined;
@@ -958,6 +969,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         detail?: string,
         disposition: "reusable" | "broken" = "reusable",
         quota?: { readonly resetsAtMs: number },
+        failureCode?: string,
       ) {
         if (active !== turn || seenTerminals.has(turn.nativeId)) return;
         seenTerminals.add(turn.nativeId);
@@ -997,11 +1009,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
             disposition === "reusable" && (quota !== undefined || isMuseUsageLimitFailure(detail));
           const failure = makeProviderFailure({
             class:
-              disposition === "broken"
-                ? "transport_error"
-                : usageLimited
-                  ? "usage_limit"
-                  : "provider_error",
+              failureCode !== undefined
+                ? "provider_error"
+                : disposition === "broken"
+                  ? "transport_error"
+                  : usageLimited
+                    ? "usage_limit"
+                    : "provider_error",
+            ...(failureCode !== undefined ? { code: failureCode, retryable: false } : {}),
             message: detail ?? "Muse turn failed.",
             ...(usageLimited
               ? {
@@ -1313,6 +1328,8 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         // usage/changed is account-wide and carries no session ID.
         if (method === "usage/changed") {
           latestSubscriptionUsage = yield* decode(MuseSubscriptionUsage, params);
+          if (options.onUsageLimits)
+            yield* options.onUsageLimits(museSubscriptionUsageUpdate(latestSubscriptionUsage));
           return;
         }
         if (params.sessionId !== nativeSessionId) return;
@@ -1485,13 +1502,27 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                     ? "interrupted"
                     : "cancelled"
                   : "failed";
+            const detail = result.error?.message ?? result.reason;
+            const schemaTooDeep = status === "failed" && isMuseToolSchemaTooDeepFailure(detail);
+            if (!schemaTooDeep) {
+              yield* finish(turn, status, detail, "reusable", result.error?.quota);
+              break;
+            }
+            const retiredId = nativeSessionId;
             yield* finish(
               turn,
               status,
-              result.error?.message ?? result.reason,
-              "reusable",
-              result.error?.quota,
+              MUSE_TOOL_SCHEMA_TOO_DEEP_MESSAGE,
+              "broken",
+              undefined,
+              MUSE_TOOL_SCHEMA_TOO_DEEP_CODE,
             );
+            yield* settleObservedChildren("failed");
+            if (retiredId !== undefined) retiredNativeSessions.add(retiredId);
+            thread = undefined;
+            nativeSessionId = undefined;
+            // The host is healthy; only the retired native session is unusable.
+            yield* updateSession("ready", null);
             break;
           }
           case "approval/requested":
@@ -1832,6 +1863,13 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         if (thread) return yield* protocolError("Open a new host to attach another Muse session");
         let missingNativeSession = false;
         return yield* Effect.gen(function* () {
+          if (requestedId !== undefined && retiredNativeSessions.has(requestedId)) {
+            // Report like a missing session so the orchestrator recovers in a fresh one.
+            missingNativeSession = true;
+            return yield* protocolError(
+              "Muse native session retired after an over-deep tool schema failure",
+            );
+          }
           nativeSessionId = requestedId ?? host.connection.mintCommandId();
           const mcpSession = yield* mcpSessions.read(args.threadId);
           if (mcpSession && !host.initializeResult.grantedCapabilities.includes("sessionMcp"))

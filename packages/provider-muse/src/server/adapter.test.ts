@@ -208,7 +208,7 @@ const makeHarness = Effect.fnUntraced(function* (
   policy = runtimePolicy,
   overrides: Pick<
     MuseAdapterV2Options,
-    "createHost" | "nativeEventLogger" | "modelCatalog" | "continuationRequests"
+    "createHost" | "nativeEventLogger" | "modelCatalog" | "continuationRequests" | "onUsageLimits"
   > = {},
 ) {
   let hostCount = 0;
@@ -743,6 +743,128 @@ describe("MuseAdapterV2", () => {
       assert.strictEqual(terminal.failure?.class, "usage_limit");
       assert.isUndefined(terminal.failure?.resetAt);
       assert.strictEqual(fake.closeCount(), 0);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("publishes subscription usage windows on usage/changed", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const published = yield* Deferred.make<unknown>();
+      const harness = yield* makeHarness(
+        fake,
+        INSTANCE_ID,
+        undefined,
+        undefined,
+        undefined,
+        runtimePolicy,
+        {
+          onUsageLimits: (update) => Deferred.succeed(published, update),
+        },
+      );
+      yield* fake.emitHostWide("usage/changed", {
+        ...SUBSCRIPTION_USAGE,
+        window: { ...SUBSCRIPTION_USAGE.window, usedPercent: 103 },
+      });
+      assert.deepStrictEqual(yield* Deferred.await(published), {
+        checkedAt: "2026-10-08T08:22:42.610Z",
+        windows: [
+          {
+            id: "session",
+            kind: "session",
+            label: "Session",
+            usedPercent: 100,
+            resetsAt: "2026-10-08T13:19:17.000Z",
+            windowDurationMins: 300,
+          },
+          {
+            id: "weekly",
+            kind: "weekly",
+            label: "Weekly",
+            usedPercent: 5,
+            resetsAt: "2026-10-12T00:00:00.000Z",
+            windowDurationMins: 10080,
+          },
+        ],
+      });
+      void harness;
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("retires a native session poisoned by an over-deep tool schema", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      const first = yield* startConversation(harness, fake);
+      yield* fake.emit("item/started", {
+        turnId: first.nativeId,
+        item: {
+          itemId: "sub-1",
+          kind: "subagent",
+          turnId: first.nativeId,
+          revision: 1,
+          status: "inProgress",
+        },
+      });
+      yield* harness.takeEvent("turn_item.updated", (event) => event.turnItem.type === "subagent");
+      assert.isTrue(yield* harness.runtime.hasPendingBackgroundWork!);
+      yield* fake.emit("turn/completed", { turnId: first.nativeId, terminal: "completed" });
+      assert.strictEqual((yield* harness.takeEvent("turn.terminal")).status, "completed");
+      assert.isTrue(yield* harness.runtime.hasPendingBackgroundWork!);
+
+      const { nativeId } = yield* startConversation(harness, fake, 2);
+      yield* fake.emit("turn/completed", {
+        turnId: nativeId,
+        terminal: "failed",
+        error: {
+          message:
+            "API error 400 [request_id=req-1]: JSON schema exceeds the maximum nesting depth of 10 levels (invalid_request_error)",
+        },
+      });
+      const terminal = yield* harness.takeEvent("turn.terminal");
+      assert.strictEqual(terminal.status, "failed");
+      assert.strictEqual(terminal.threadDisposition, "broken");
+      assert.strictEqual(terminal.failure?.class, "provider_error");
+      assert.strictEqual(terminal.failure?.code, "tool_schema_too_deep");
+      assert.strictEqual(terminal.failure?.retryable, false);
+      assert.match(terminal.failure?.message ?? "", /fresh session/);
+      assert.strictEqual(fake.closeCount(), 0);
+      assert.strictEqual(
+        harness.allEvents.filter(
+          (event) => event.type === "turn_item.updated" && event.turnItem.type === "error",
+        ).length,
+        1,
+      );
+      assert.isFalse(yield* harness.runtime.hasPendingBackgroundWork!);
+      const settledChild = harness.allEvents.findLast(
+        (event) => event.type === "turn_item.updated" && event.turnItem.type === "subagent",
+      );
+      assert.strictEqual(
+        settledChild?.type === "turn_item.updated" ? settledChild.turnItem.status : undefined,
+        "failed",
+      );
+
+      const resumed = yield* harness.runtime
+        .resumeThread({ providerThread: harness.providerThread })
+        .pipe(Effect.exit);
+      assert.strictEqual(resumed._tag, "Failure");
+      assert.isFalse(fake.calls.some((call) => call.method === "session/resume"));
+      assert.strictEqual(fake.closeCount(), 0);
+
+      const fresh = yield* harness.runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection(),
+        runtimePolicy,
+        existingProviderThread: { ...harness.providerThread, nativeThreadRef: null },
+      });
+      assert.strictEqual(fresh.id, harness.providerThread.id);
+      assert.notStrictEqual(
+        fresh.nativeThreadRef?.nativeId,
+        harness.providerThread.nativeThreadRef?.nativeId,
+      );
+      yield* harness.runtime.startTurn(yield* turnInput(fresh, 3));
+      const started = yield* fake.takeCall("turn/start");
+      yield* fake.emit("turn/completed", { turnId: started.commandId, terminal: "completed" });
+      assert.strictEqual((yield* harness.takeEvent("turn.terminal")).status, "completed");
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 

@@ -144,7 +144,7 @@ export const ScheduledTaskWebhookFilter = Schema.Union([
   Schema.Struct({ path: WebhookFilterPath, op: Schema.Literal("exists") }),
 ]).annotate({
   description:
-    "Path: `headers.x-event` or `body.action`. String compare. Objects pass only 'exists'. A `[]` segment matches any array item. `notEquals` passes only if no item equals.",
+    "Path: `headers.x-event` or `body.action`. String compare. Objects pass only 'exists'. A `[]` segment matches any array item. `notEquals` passes only if no item equals. `equals`, `notEquals`, and `startsWith` need a string `value`; `in` needs a non-empty string array `value`; `exists` takes no `value`.",
 });
 export type ScheduledTaskWebhookFilter = typeof ScheduledTaskWebhookFilter.Type;
 export type ScheduledTaskWebhookFilterOp = ScheduledTaskWebhookFilter["op"];

@@ -17,7 +17,11 @@ import { ProviderDriverError } from "@t3tools/provider-core/server/errors";
 import { makeMuseAdapterV2 } from "./adapter.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
-import { checkMuseProviderStatus, makePendingMuseProvider } from "./status.ts";
+import {
+  checkMuseProviderStatus,
+  checkMuseUsageLimits,
+  makePendingMuseProvider,
+} from "./status.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import { enrichMuseSnapshot, latestMuseVersion, museMaintenance } from "./maintenance.ts";
@@ -129,6 +133,23 @@ export const MuseDriver: ProviderDriver<
         : undefined;
       return latestVersion !== undefined ? { ...capabilities, latestVersion } : capabilities;
     });
+    const checkUsageLimits = checkMuseUsageLimits(effectiveConfig, processEnvironment, cwd).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    const checkProvider = Effect.all(
+      {
+        provider: checkMuseProviderStatus(effectiveConfig, processEnvironment, cwd),
+        usageLimits: checkUsageLimits,
+      },
+      { concurrency: "unbounded" },
+    ).pipe(
+      Effect.map(({ provider, usageLimits }) => stampIdentity({ ...provider, usageLimits })),
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
     const snapshot = yield* makeManagedServerProvider<ProviderSnapshotSettings<MuseSettings>>({
       // Status refresh respects update checks; explicit updates use the resolver below.
       resolveMaintenance: (options) =>
@@ -145,12 +166,8 @@ export const MuseDriver: ProviderDriver<
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
       initialSnapshot: (settings) =>
         makePendingMuseProvider(settings.provider).pipe(Effect.map(stampIdentity)),
-      checkProvider: checkMuseProviderStatus(effectiveConfig, processEnvironment, cwd).pipe(
-        Effect.map(stampIdentity),
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-        Effect.provideService(Path.Path, path),
-      ),
+      checkProvider,
+      checkUsageLimits,
       enrichSnapshot: ({ settings, snapshot: currentSnapshot, publishSnapshot }) =>
         resolveMaintenance().pipe(
           Effect.flatMap((maintenanceCapabilities) =>
@@ -184,6 +201,7 @@ export const MuseDriver: ProviderDriver<
       modelCatalog,
       ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       continuationRequests,
+      onUsageLimits: (update) => snapshot.applyUsageLimits(update),
     });
     const textGeneration = yield* makeMuseTextGeneration(effectiveConfig, {
       environment: processEnvironment,

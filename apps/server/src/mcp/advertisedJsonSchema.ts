@@ -21,10 +21,10 @@ const SAFE_INTEGER_BOUNDS: Record<string, number> = {
   minimum: Number.MIN_SAFE_INTEGER,
 };
 
-const tagOf = (branch: JsonObject, key: string): Json => {
+const tagOf = (branch: JsonObject, key: string): ReadonlyArray<Json> | undefined => {
   const property = Predicate.isObject(branch.properties) ? branch.properties[key] : undefined;
-  return Predicate.isObject(property) && Array.isArray(property.enum) && property.enum.length === 1
-    ? property.enum[0]
+  return Predicate.isObject(property) && Array.isArray(property.enum) && property.enum.length > 0
+    ? property.enum
     : undefined;
 };
 
@@ -39,12 +39,15 @@ const mergeTaggedObjects = (branches: ReadonlyArray<Json>): JsonObject | undefin
   );
   if (objects.length !== branches.length) return undefined;
   const tag = Object.keys(objects[0]!.properties).find((key) => {
-    const values = objects.map((object) => tagOf(object, key));
-    return values.every((value) => value !== undefined) && new Set(values).size === values.length;
+    const values = objects.flatMap((object) => tagOf(object, key) ?? [undefined]);
+    return (
+      objects.every((object) => tagOf(object, key) !== undefined) &&
+      new Set(values.map((value) => JSON.stringify(value))).size === values.length
+    );
   });
   if (tag === undefined) return undefined;
   const properties: JsonObject = {
-    [tag]: { type: "string", enum: objects.map((object) => tagOf(object, tag)) },
+    [tag]: { type: "string", enum: objects.flatMap((object) => tagOf(object, tag) ?? []) },
   };
   for (const object of objects) {
     for (const [name, property] of Object.entries(object.properties)) {
@@ -65,6 +68,20 @@ const mergeTaggedObjects = (branches: ReadonlyArray<Json>): JsonObject | undefin
     (name) => name !== tag && others.every((required) => required.includes(name)),
   );
   return { type: "object", properties, required: [tag, ...requiredByAll] };
+};
+
+/** Bare `{type}` branches collapse to one type list; some model APIs cap schema nesting depth. */
+const mergeTypeBranches = (branches: ReadonlyArray<Json>): JsonObject | undefined => {
+  const types: string[] = [];
+  for (const branch of branches) {
+    if (!Predicate.isObject(branch) || Object.keys(branch).length !== 1) return undefined;
+    const list = Array.isArray(branch.type) ? branch.type : [branch.type];
+    for (const type of list) {
+      if (typeof type !== "string") return undefined;
+      if (!types.includes(type)) types.push(type);
+    }
+  }
+  return types.length > 0 ? { type: types.length === 1 ? types[0]! : types } : undefined;
 };
 
 const compact = (schema: Json, optional: boolean): Json => {
@@ -90,16 +107,18 @@ const compact = (schema: Json, optional: boolean): Json => {
       .flatMap((branch) => (isBareAnyOf(branch) ? branch.anyOf : [branch]))
       .filter((branch) => !(optional && isNullSchema(branch)) && !isJsonStringSchema(branch));
     const { anyOf: _anyOf, ...rest } = result;
-    const only = branches.length === 1 ? branches[0] : mergeTaggedObjects(branches);
+    const only =
+      branches.length === 1
+        ? branches[0]
+        : (mergeTypeBranches(branches) ?? mergeTaggedObjects(branches));
     result = Predicate.isObject(only) ? { ...only, ...rest } : { ...rest, anyOf: branches };
   }
   return result;
 };
 
 /**
- * The input schema T3 advertises for a tool. Drops JSON noise that every thread pays for:
- * `additionalProperties: true`, safe-integer bounds, nested `anyOf`, JSON-string fallbacks, and
- * the `null` branch of optional properties. A tagged union of objects becomes one object.
+ * The input schema T3 advertises for a tool: the full schema minus noise every thread pays for.
+ * Unions flatten (tagged objects merge, bare types list) to stay under model API nesting caps.
  * Decoding still uses the full schema, so each tag's own required fields still apply.
  */
 export const advertisedJsonSchema = (tool: Tool.Any) =>
