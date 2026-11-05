@@ -33,7 +33,7 @@ const ACTIVE_RUN_STATUSES: ReadonlySet<OrchestrationV2Run["status"]> = new Set([
 
 /** Preview the next send's handoff without adding anything to durable history. */
 export function resolvePendingHandoff(
-  projection: ThreadStructure | null | undefined,
+  projection: Pick<ThreadStructure, "runs" | "visibleTurnItems"> | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
 ): HandoffEndpoints | null {
