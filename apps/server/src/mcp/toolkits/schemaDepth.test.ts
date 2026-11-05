@@ -59,3 +59,17 @@ it("keeps every advertised MCP tool schema under provider nesting limits", () =>
   }
   expect(tooDeep).toEqual([]);
 });
+
+// The flattened filters union cannot encode per-op `value` rules, so its description states them.
+it("keeps schedule_task filter value rules visible after flattening", () => {
+  const tool = OrchestratorToolkit.tools.schedule_task;
+  const schema = advertisedJsonSchema(tool) as {
+    properties: {
+      schedule: { properties: { filters: { items: { description?: string } } } };
+    };
+  };
+  const description = schema.properties.schedule.properties.filters.items.description ?? "";
+  expect(description).toContain("need a string `value`");
+  expect(description).toContain("non-empty string array `value`");
+  expect(description).toContain("`exists` takes no `value`");
+});
