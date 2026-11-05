@@ -711,10 +711,7 @@ function AdaptiveWorkspaceLayoutContent(
     ? null
     : workspacePage
       ? contentTargetWidth
-      : Math.max(
-          0,
-          viewportWidth - navigationRailWidth - contentEndGap,
-        );
+      : Math.max(0, viewportWidth - navigationRailWidth - contentEndGap);
   const [listPaneSizing, setListPaneSizing] = useState({
     viewportWidth,
     workspacePage,
