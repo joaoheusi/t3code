@@ -310,7 +310,7 @@ const SETTINGS_SCREENS = {
   }),
   SettingsScheduledTaskRepositories: createNativeStackScreen({
     screen: ScheduledTaskRepositoriesPickerRouteScreen,
-    options: { ...SETTINGS_PAGE_OPTIONS, title: "Repositories" },
+    options: settingsPage("Repositories"),
   }),
   SettingsScheduledTaskModel: createNativeStackScreen({
     screen: ScheduledTaskModelPickerRouteScreen,
