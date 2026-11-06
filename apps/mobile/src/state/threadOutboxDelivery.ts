@@ -452,6 +452,7 @@ export async function restoreRejectedQueuedMessage(
       ...(queuedMessage.modelSelection ? { modelSelection: queuedMessage.modelSelection } : {}),
       ...(queuedMessage.runtimeMode ? { runtimeMode: queuedMessage.runtimeMode } : {}),
       ...(queuedMessage.interactionMode ? { interactionMode: queuedMessage.interactionMode } : {}),
+      ...(queuedMessage.freshContext ? { freshContext: true } : {}),
       ...(queuedMessage.creation
         ? {
             ...(queuedMessage.creation.repositorySelection
@@ -939,6 +940,7 @@ export function createThreadOutboxDelivery(): {
         interactionMode: sendSettings.interactionMode,
         createdAt: queuedMessage.createdAt,
         dispatchMode: queuedMessage.dispatchMode ?? "start",
+        ...(queuedMessage.freshContext ? { freshContext: true } : {}),
       },
     });
     if (AsyncResult.isFailure(deliveryResult) && !hasAccess()) return true;

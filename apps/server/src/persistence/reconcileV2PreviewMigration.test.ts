@@ -65,6 +65,7 @@ describe("V2 preview upgrade", () => {
         [83, "RepairBooleanSettledOverride"],
         [84, "DropOrchestrationEventCorrelationIndex"],
         [85, "DelegatedRecoveryIndexes"],
+        [86, "ScheduledTaskThreadMode"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -173,6 +174,7 @@ describe("V2 preview upgrade", () => {
         [83, "RepairBooleanSettledOverride"],
         [84, "DropOrchestrationEventCorrelationIndex"],
         [85, "DelegatedRecoveryIndexes"],
+        [86, "ScheduledTaskThreadMode"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
