@@ -89,6 +89,7 @@ import Migration0082 from "./Migrations/082_ProjectionProjectsPinArchive.ts";
 import Migration0083 from "./Migrations/083_RepairBooleanSettledOverride.ts";
 import Migration0084 from "./Migrations/084_DropOrchestrationEventCorrelationIndex.ts";
 import Migration0085 from "./Migrations/085_DelegatedRecoveryIndexes.ts";
+import Migration0086 from "./Migrations/086_ScheduledTaskThreadMode.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -189,6 +190,8 @@ export const migrationEntries = [
   [84, "DropOrchestrationEventCorrelationIndex", Migration0084],
   // Upstream 79, appended after the fork's recorded ids.
   [85, "DelegatedRecoveryIndexes", Migration0085],
+  // Upstream 80, appended after the fork's recorded ids.
+  [86, "ScheduledTaskThreadMode", Migration0086],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
