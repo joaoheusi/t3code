@@ -12,6 +12,7 @@ import {
 import { AsyncResult, Atom } from "effect/reactivity";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomMount, useAtomValue } from "@effect/atom-react";
+import { mobilePreferencesAtom } from "../../state/preferences";
 import { parseThreadKey, threadKey } from "@t3tools/client-runtime/state/entities";
 import { createThreadVisitTracker } from "@t3tools/client-runtime/state/thread-visits";
 import { useChildThreadInputs, useThreadReportedModelSelection } from "../../state/entities";
@@ -209,6 +210,7 @@ import type { ThreadContentPresentation } from "./threadContentPresentation";
 import { resolveThreadFeedSubmissionAnchor } from "./thread-feed-live-follow";
 import { useOpenLinkedThread } from "./useOpenLinkedThread";
 import { useGlobalVoiceInput } from "../voice-input/VoiceInputProvider";
+import type { OrchestrationV2ProviderSession } from "@t3tools/contracts";
 
 export interface ThreadDetailScreenProps {
   readonly header?: React.ReactNode;
@@ -241,6 +243,7 @@ export interface ThreadDetailScreenProps {
   readonly activeWorkStartedAt: string | null;
   readonly runlessWorkActive?: boolean;
   readonly providerSubagentStatus?: ProviderSubagentStatus | null;
+  readonly extensionStatuses?: NonNullable<OrchestrationV2ProviderSession["extensionStatuses"]>;
   readonly isCompacting: boolean;
   readonly creationState:
     | {
@@ -482,6 +485,10 @@ function ThreadDetailBody(
     threadId: props.selectedThread.id,
   });
   const composerError = useAtomValue(threadComposerErrorsAtom)[selectedThreadKey]?.message ?? null;
+  const preferences = useAtomValue(mobilePreferencesAtom);
+  const toolCallVisibility = AsyncResult.isSuccess(preferences)
+    ? (preferences.value.toolCallVisibility ?? "showAll")
+    : "showAll";
   const queuedCount = useThreadQueuedCount(props.selectedThreadDetailRef);
   const turnSubagents = useThreadTurnSubagents(props.selectedThreadDetailRef);
   const agentsSegment = resolveSubagentPillSegment(turnSubagents);
@@ -732,6 +739,13 @@ function ThreadDetailBody(
   const pendingBackgroundWork = presentPendingBackgroundWork(
     props.selectedThread.pendingBackgroundTasks,
   );
+  const extensionStatus = props.extensionStatuses?.length
+    ? {
+        label: `Pi · ${props.extensionStatuses.map((status) => status.text).join(" · ")}`,
+        onPress: () =>
+          Dialog.alert("Pi", props.extensionStatuses?.map((status) => status.text).join("\n\n")),
+      }
+    : null;
   const floatingStatus = ((): FloatingWorkingStatus | null => {
     const connectionStatus = connectionFloatingStatus({
       connectionError: connectionRetrying ? retryConnectionError : props.connectionError,
@@ -860,6 +874,9 @@ function ThreadDetailBody(
         label: goal.title,
         accessibilityLabel: `${goal.title}: ${goal.objective}`,
       };
+    }
+    if (extensionStatus !== null && contentPresentationKind === "ready") {
+      return { kind: "extension", ...extensionStatus };
     }
     return null;
   })();
@@ -1476,6 +1493,7 @@ function ThreadDetailBody(
           >
             <WorkspaceMutationIdProvider threadRef={props.selectedThreadDetailRef}>
               <ThreadFeed
+                toolCallVisibility={toolCallVisibility}
                 environmentId={props.environmentId}
                 threadId={props.selectedThread.id}
                 detailRef={props.selectedThreadDetailRef}
@@ -1597,6 +1615,16 @@ function ThreadDetailBody(
                   <FloatingWorkingControl
                     colorScheme={isDarkMode ? "dark" : "light"}
                     status={floatingStatus}
+                    extensionStatus={
+                      floatingStatus !== null &&
+                      (floatingStatus.kind === "working" ||
+                        floatingStatus.kind === "compacting" ||
+                        floatingStatus.kind === "background" ||
+                        floatingStatus.kind === "goal" ||
+                        floatingStatus.kind === "lifecycle")
+                        ? extensionStatus
+                        : null
+                    }
                     lift={floatingControlLift}
                     devicePreview={
                       devicePreviews.length > 0
