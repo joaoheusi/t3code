@@ -111,6 +111,7 @@ import {
   ScheduledTaskModelPickerRouteScreen,
   ScheduledTaskBranchPickerRouteScreen,
   ScheduledTaskRepositoriesPickerRouteScreen,
+  ScheduledTaskThreadPickerRouteScreen,
 } from "./features/settings/ScheduledTaskPickerScreens";
 import { SettingsKeyboardRouteScreen } from "./features/settings/SettingsKeyboardRouteScreen";
 import { SettingsLegalRouteScreen } from "./features/settings/SettingsLegalRouteScreen";
@@ -311,6 +312,10 @@ const SETTINGS_SCREENS = {
   SettingsScheduledTaskRepositories: createNativeStackScreen({
     screen: ScheduledTaskRepositoriesPickerRouteScreen,
     options: settingsPage("Repositories"),
+  }),
+  SettingsScheduledTaskThread: createNativeStackScreen({
+    screen: ScheduledTaskThreadPickerRouteScreen,
+    options: settingsPage("Destination"),
   }),
   SettingsScheduledTaskModel: createNativeStackScreen({
     screen: ScheduledTaskModelPickerRouteScreen,
