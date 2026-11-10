@@ -204,6 +204,12 @@ const OrchestratorMcpRunningTaskNext = Schema.Literal(ORCHESTRATOR_MCP_RUNNING_T
 export const ORCHESTRATOR_MCP_NEEDS_INPUT_NOTE =
   "The thread stopped to ask and cannot finish until someone answers. Answer with `t3_pending_request` or tell the user. Do not wait again until then.";
 
+// Optional: linked environments on older versions omit it.
+const OrchestratorMcpExecutedModel = Schema.NullOr(Schema.String).annotate({
+  description:
+    "Model the provider reported running, or null when unavailable. Can differ from the requested `model`.",
+});
+
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   taskId: NodeId,
   /** Null for a task that runs in a linked environment; see `remoteChild`. */
@@ -224,6 +230,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   latestTerminalResultContextTransferId: Schema.NullOr(ContextTransferId),
   providerInstanceId: ProviderInstanceId,
   model: Schema.NullOr(Schema.String),
+  executedModel: Schema.optional(OrchestratorMcpExecutedModel),
   options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   summary: Schema.NullOr(Schema.String),
   resultContextTransferId: Schema.NullOr(ContextTransferId),
@@ -465,6 +472,7 @@ export const OrchestratorMcpThreadRun = Schema.Struct({
   status: OrchestrationV2RunStatus,
   providerInstanceId: ProviderInstanceId,
   model: Schema.String,
+  executedModel: Schema.optional(OrchestratorMcpExecutedModel),
   requestedAt: IsoDateTime,
   startedAt: Schema.NullOr(IsoDateTime),
   completedAt: Schema.NullOr(IsoDateTime),

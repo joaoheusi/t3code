@@ -10,7 +10,8 @@ import * as NodeUtil from "node:util";
 import { _electron, type ElectronApplication } from "playwright-core";
 
 // A snapshot from an older build on purpose: the packaged server must migrate it forward, as it
-// does for every upgrading user. It holds one project and two threads, nothing else.
+// does for every upgrading user. It holds one project and two threads, nothing else. The fork's
+// copy carries the fork migration ledger; upstream fixture regenerations need the same rewrite.
 const FIXTURE_DB = NodePath.join(import.meta.dirname, "fixtures/desktop-launch/statev2.sqlite");
 const THREAD_TITLE = "Release launch check";
 const THREAD_MESSAGE = "The release opens and shows this thread.";
@@ -19,12 +20,16 @@ const STEP_TIMEOUT_MS = 60_000;
 const { values } = NodeUtil.parseArgs({
   options: {
     executable: { type: "string" },
+    // An unpackaged app directory for a plain Electron executable, as PR CI runs it.
+    app: { type: "string" },
     "artifacts-dir": { type: "string" },
   },
 });
 const executable = values.executable;
 if (!executable)
-  throw new Error("Usage: smoke-desktop-app.ts --executable <app> [--artifacts-dir <dir>]");
+  throw new Error(
+    "Usage: smoke-desktop-app.ts --executable <app> [--app <dir>] [--artifacts-dir <dir>]",
+  );
 const artifactsDir = NodePath.resolve(values["artifacts-dir"] ?? "desktop-launch-check");
 
 const home = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launch-"));
@@ -38,7 +43,7 @@ try {
   app = await _electron.launch({
     executablePath: executable,
     // Linux CI runners do not allow the Chromium sandbox's user namespaces.
-    args: ["--no-sandbox"],
+    args: [...(values.app ? [NodePath.resolve(values.app)] : []), "--no-sandbox"],
     // HOME stays real: on macOS a fake HOME has no login keychain, and safeStorage blocks the
     // main process on a keychain dialog. macOS keeps its Electron profile in the runner's HOME.
     env: {
@@ -46,6 +51,7 @@ try {
       XDG_CONFIG_HOME: NodePath.join(home, ".config"),
       XDG_DATA_HOME: NodePath.join(home, ".local/share"),
       T3CODE_HOME: t3Home,
+      J4CODE_HOME: t3Home,
       T3CODE_TELEMETRY_ENABLED: "false",
       T3CODE_DISABLE_AUTO_UPDATE: "true",
     },
