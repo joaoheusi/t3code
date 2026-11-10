@@ -10,7 +10,8 @@ import * as NodeUtil from "node:util";
 import { _electron, type ElectronApplication } from "playwright-core";
 
 // A snapshot from an older build on purpose: the packaged server must migrate it forward, as it
-// does for every upgrading user. It holds one project and two threads, nothing else.
+// does for every upgrading user. It holds one project and two threads, nothing else. The fork's
+// copy carries the fork migration ledger; upstream fixture regenerations need the same rewrite.
 const FIXTURE_DB = NodePath.join(import.meta.dirname, "fixtures/desktop-launch/statev2.sqlite");
 const THREAD_TITLE = "Release launch check";
 const THREAD_MESSAGE = "The release opens and shows this thread.";
@@ -50,6 +51,7 @@ try {
       XDG_CONFIG_HOME: NodePath.join(home, ".config"),
       XDG_DATA_HOME: NodePath.join(home, ".local/share"),
       T3CODE_HOME: t3Home,
+      J4CODE_HOME: t3Home,
       T3CODE_TELEMETRY_ENABLED: "false",
       T3CODE_DISABLE_AUTO_UPDATE: "true",
     },
