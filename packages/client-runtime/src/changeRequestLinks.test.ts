@@ -12,6 +12,7 @@ import {
   projectChangeRequestUrl,
   resolveChangeRequestLinkTarget,
   resolvePullRequestPreviewTarget,
+  resolvePullRequestReference,
 } from "./changeRequestLinks.ts";
 
 describe("findProjectForChangeRequest", () => {
@@ -187,6 +188,62 @@ describe("resolvePullRequestPreviewTarget", () => {
       input: { projectId: project.id, host: "github.com", repository: "acme/web", number: 7 },
     });
     expect(target("https://github.com/acme/other/pull/7")).toBeNull();
+  });
+});
+
+describe("resolvePullRequestReference", () => {
+  const projectId = ProjectId.make("project-1");
+  // A fork checkout's identity names its upstream; its own pull requests live on the fork.
+  const forkIdentity = {
+    canonicalKey: "github.com/upstream/app",
+    provider: SourceControlProviderKind.make("github"),
+    displayName: "upstream/app",
+    owner: "upstream",
+    name: "app",
+    locator: {
+      source: "git-remote",
+      remoteName: "upstream",
+      remoteUrl: "https://github.com/upstream/app",
+    },
+    origin: { canonicalKey: "github.com/fork/app", displayName: "fork/app" },
+  } satisfies RepositoryIdentity;
+
+  it("reads the pull request from its own URL, not the project's upstream identity", () => {
+    expect(
+      resolvePullRequestReference({
+        projectId,
+        number: 96,
+        url: "https://github.com/fork/app/pull/96",
+        repositoryIdentity: forkIdentity,
+      }),
+    ).toEqual({ projectId, host: "github.com", repository: "fork/app", number: 96 });
+  });
+
+  it("keeps an explicit link ahead of the URL and the identity", () => {
+    expect(
+      resolvePullRequestReference({
+        projectId,
+        number: 96,
+        linked: { host: "github.com", repository: "linked/app", number: 96 },
+        url: "https://github.com/fork/app/pull/96",
+        repositoryIdentity: forkIdentity,
+      }),
+    ).toEqual({ projectId, host: "github.com", repository: "linked/app", number: 96 });
+  });
+
+  it("falls back to the project identity only when no link or matching URL names the repository", () => {
+    expect(
+      resolvePullRequestReference({ projectId, number: 96, repositoryIdentity: forkIdentity }),
+    ).toEqual({ projectId, repository: "upstream/app", number: 96 });
+    expect(
+      resolvePullRequestReference({
+        projectId,
+        number: 96,
+        url: "https://github.com/fork/app/pull/12",
+        repositoryIdentity: forkIdentity,
+      }),
+    ).toEqual({ projectId, repository: "upstream/app", number: 96 });
+    expect(resolvePullRequestReference({ projectId, number: 96 })).toBeNull();
   });
 });
 
