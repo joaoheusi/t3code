@@ -130,6 +130,36 @@ export function resolvePullRequestPreviewTarget({
   };
 }
 
+/**
+ * The reference a project reads one of its pull requests through. An explicit link names the
+ * repository; else the pull request's own URL does. The project identity is last: a fork
+ * checkout's identity names its upstream, where the same number is a different pull request.
+ */
+export function resolvePullRequestReference(input: {
+  readonly projectId: ProjectId;
+  readonly number: number;
+  readonly linked?: Pick<PullRequestRef, "host" | "repository" | "number"> | null | undefined;
+  readonly url?: string | null | undefined;
+  readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
+}): PullRequestRef | null {
+  if (input.linked) return { ...input.linked, projectId: input.projectId };
+  const parsed = input.url
+    ? sourceControlClients.parseChangeRequestUrl(input.url)?.link
+    : undefined;
+  if (parsed !== undefined && parsed.number === input.number) {
+    return {
+      projectId: input.projectId,
+      host: parsed.authority ?? parsed.host,
+      repository: parsed.repository,
+      number: input.number,
+    };
+  }
+  const repository = sourceControlClients.repositorySelector(input.repositoryIdentity);
+  return repository === null
+    ? null
+    : { projectId: input.projectId, repository, number: input.number };
+}
+
 /** The project host's browser URL for one of its change requests, before its detail loads. */
 export function projectChangeRequestUrl(
   identity: RepositoryIdentity | null | undefined,

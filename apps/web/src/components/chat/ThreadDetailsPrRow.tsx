@@ -1,5 +1,6 @@
 import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { resolvePullRequestDetailChecks } from "@t3tools/client-runtime/pull-request-checks";
+import { resolvePullRequestReference } from "@t3tools/client-runtime/change-request-links";
 import {
   pullRequestDirectMergeBlocker,
   pullRequestMergeBlocker,
@@ -116,14 +117,15 @@ export function ThreadDetailsPrRow({
 }) {
   const serverConfigs = useServerConfigs();
   const supportsPullRequests = serverConfigs.get(environmentId) !== undefined;
-  const repository = sourceControlClients.repositorySelector(project?.repositoryIdentity);
   const reference: PullRequestRef | null =
     supportsPullRequests && project !== null
-      ? linkedReference
-        ? { ...linkedReference, projectId: project.id as ProjectId }
-        : repository !== null
-          ? { projectId: project.id as ProjectId, repository, number }
-          : null
+      ? resolvePullRequestReference({
+          projectId: project.id as ProjectId,
+          number,
+          linked: linkedReference,
+          url: pr?.url,
+          repositoryIdentity: project.repositoryIdentity,
+        })
       : null;
   const detailAtom =
     reference === null
