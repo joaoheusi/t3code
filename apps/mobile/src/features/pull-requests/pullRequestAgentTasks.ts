@@ -108,13 +108,13 @@ export function pullRequestAgentActions(pr: PullRequestDetail, canWatch: boolean
     {
       task: "rebase",
       title: "Rebase with agent",
-      icon: "sparkles",
+      icon: "robot",
       disabled: pr.state !== "open" || pr.baseComparison !== "behind",
     },
     {
       task: "merge-base",
       title: "Merge base with agent",
-      icon: "sparkles",
+      icon: "robot",
       disabled: pr.state !== "open" || pr.baseComparison !== "behind",
     },
     {

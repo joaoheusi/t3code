@@ -1,8 +1,10 @@
-import { ProviderDriverKind } from "@t3tools/contracts";
+import { ProviderDriverKind, type ServerProvider } from "@t3tools/contracts";
 import { MuseSettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as HttpClient from "effect/http/HttpClient";
@@ -24,6 +26,8 @@ import {
 } from "./status.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
+import type { ProviderUsageLimitsReport } from "@t3tools/provider-core/server/snapshot";
+import { makeUsageLimits } from "@t3tools/provider-core/server/usageLimits";
 import { enrichMuseSnapshot, latestMuseVersion, museMaintenance } from "./maintenance.ts";
 import { makeMuseEnvironment } from "./sdk.ts";
 import { museUsageReader } from "./usage.ts";
@@ -108,6 +112,31 @@ export const MuseDriver: ProviderDriver<
       accentColor,
       continuationGroupKey: continuationIdentity.continuationKey,
     });
+    // Only a running CLI reports usage; status probes cannot fetch it.
+    const latestUsage = yield* Ref.make<ProviderUsageLimitsReport | undefined>(undefined);
+    const usagePermit = yield* Semaphore.make(1);
+    const withLatestUsage = (provider: ServerProvider) =>
+      Ref.get(latestUsage).pipe(
+        Effect.map((report): ServerProvider =>
+          report
+            ? {
+                ...provider,
+                ...(report.authLabel
+                  ? { auth: { ...provider.auth, label: report.authLabel } }
+                  : {}),
+                // The fork's `muse usage` probe is fresher; live reports only fill a failed probe.
+                ...(provider.usageLimits?.windows.length
+                  ? {}
+                  : {
+                      usageLimits: makeUsageLimits({
+                        checkedAt: report.checkedAt,
+                        windows: report.windows,
+                      }),
+                    }),
+              }
+            : provider,
+        ),
+      );
     const snapshotSettings = yield* makeProviderSnapshotSettingsSource(effectiveConfig);
     const resolveInstallation = yield* makeCachedProviderMaintenanceResolution(
       resolveProviderMaintenanceCapabilitiesEffect(museMaintenance, {
@@ -147,6 +176,7 @@ export const MuseDriver: ProviderDriver<
       { concurrency: "unbounded" },
     ).pipe(
       Effect.map(({ provider, usageLimits }) => stampIdentity({ ...provider, usageLimits })),
+      Effect.flatMap(withLatestUsage),
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
@@ -202,7 +232,15 @@ export const MuseDriver: ProviderDriver<
       modelCatalog,
       ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
       continuationRequests,
-      onUsageLimits: (update) => snapshot.applyUsageLimits(update),
+      onUsageLimits: (report) =>
+        usagePermit.withPermits(1)(
+          Effect.gen(function* () {
+            const previous = yield* Ref.get(latestUsage);
+            if (previous && Date.parse(report.checkedAt) < Date.parse(previous.checkedAt)) return;
+            yield* Ref.set(latestUsage, report);
+            yield* snapshot.applyUsageLimits({ ...report, complete: true });
+          }),
+        ),
     });
     const textGeneration = yield* makeMuseTextGeneration(effectiveConfig, {
       environment: processEnvironment,
@@ -215,7 +253,7 @@ export const MuseDriver: ProviderDriver<
       displayName,
       accentColor,
       enabled,
-      snapshot: { ...snapshot, resolveMaintenance },
+      snapshot: { ...snapshot, resolveMaintenance, refreshUsage: Effect.void },
       orchestrationAdapter,
       textGeneration,
     } satisfies ProviderInstance;

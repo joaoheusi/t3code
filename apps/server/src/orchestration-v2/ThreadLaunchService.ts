@@ -469,6 +469,7 @@ const make = Effect.gen(function* () {
               attachments: message.attachments,
               ...(message.context ? { context: message.context } : {}),
               modelSelection,
+              projectId: input.projectId,
             })
             .pipe(
               Effect.map((result) => ({
@@ -506,9 +507,9 @@ const make = Effect.gen(function* () {
       }
       const folderProject =
         newWorktree !== null &&
-        !(yield* git
-          .isRepository(project.workspaceRoot)
-          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))));
+        (yield* git
+          .repositoryRoot(project.workspaceRoot)
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))) === null;
       if (newWorktree !== null && folderProject) {
         yield* setupTracker.stageStatus(threadId, "fetch", "skipped");
         yield* setupTracker.stageStatus(threadId, "checkout", "running");

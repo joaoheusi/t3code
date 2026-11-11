@@ -9,7 +9,18 @@ export interface UserMessageIntentBadgePresentation {
 
 export function resolveUserMessageIntentBadge(
   intent: OrchestrationV2UserMessageInputIntent | undefined,
+  unread = false,
 ): UserMessageIntentBadgePresentation | null {
+  if (unread && (intent === "steer" || intent === "promoted_queued_to_steer")) {
+    return {
+      label: "Steer · waiting to be read",
+      accessibilityLabel:
+        "Steer waiting for the agent to read it after the running command finishes",
+      explanation:
+        "This message was intended to steer the agent while its turn was still running. The agent has not read it yet.",
+      tone: "steer",
+    };
+  }
   switch (intent) {
     case "queued_turn":
       return {
