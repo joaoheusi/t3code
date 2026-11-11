@@ -217,7 +217,6 @@ export interface MuseAdapterV2Options {
       request: ProviderContinuationRequests.ProviderContinuationRequest,
     ) => Effect.Effect<void>;
   };
-  readonly onUsageLimits?: ManagedServerProvider["applyUsageLimits"];
 }
 
 interface ActiveTurn {

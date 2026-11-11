@@ -144,7 +144,11 @@ it.layer(layerTest)("MuseDriver usage", (it) => {
         });
         yield* Stream.take(instance.snapshot.streamChanges, 1).pipe(Stream.runDrain);
         expect((yield* instance.snapshot.getSnapshot).status).toBe("ready");
-        expect((yield* instance.snapshot.getSnapshot).usageLimits).toBeUndefined();
+        // The fork probes `muse usage` on check; the fake spawn answers with a version string, so the probe reports no windows yet.
+        expect((yield* instance.snapshot.getSnapshot).usageLimits?.unavailable?.reason).toBe(
+          "probeFailed",
+        );
+        expect((yield* instance.snapshot.getSnapshot).usageLimits?.windows).toEqual([]);
         const policy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: "full-access",
           interactionMode: "default",

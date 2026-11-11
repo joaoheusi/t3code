@@ -28,7 +28,7 @@ export const clientHostEnvironmentAtom = Atom.family((environmentId: Environment
       environmentId,
       get(hostEnvironmentIdAtom),
       get(environmentPresentations.presentationAtom(environmentId))?.entry.target ?? null,
-      window.desktopBridge !== undefined,
+      typeof window !== "undefined" && window.desktopBridge !== undefined,
     );
   }),
 );

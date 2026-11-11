@@ -210,7 +210,7 @@ function makeHarness(options: HarnessOptions = {}) {
       listShells: () => Effect.die("unused"),
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
-      isRepository: () => Effect.succeed(true),
+      repositoryRoot: (cwd) => Effect.succeed(cwd),
       createWorktree,
       renameBranch,
       fetchWorktreeBaseCommit:
@@ -1119,7 +1119,7 @@ function folderHarness(options: {
       },
     },
     git: {
-      isRepository: () => Effect.succeed(false),
+      repositoryRoot: () => Effect.succeed(null),
       resolveWorktreeBaseRemote: (input) =>
         notARepository("GitWorkflowService.resolveWorktreeBaseRemote", input.cwd),
     },
