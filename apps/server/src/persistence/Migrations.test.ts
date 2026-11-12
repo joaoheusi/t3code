@@ -154,12 +154,12 @@ describe("runMigrations", () => {
   it.effect("reapplies peer link migrations whose ledger rows are missing", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 72 });
-      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 70 AND 72`;
+      yield* runMigrations({ toMigrationInclusive: 78 });
+      yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id BETWEEN 76 AND 78`;
 
       assert.deepStrictEqual(
         yield* runMigrations(),
-        migrationManifest.filter(([id]) => id >= 70),
+        migrationManifest.filter(([id]) => id >= 76),
       );
       assert.deepStrictEqual(yield* history, migrationManifest);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),

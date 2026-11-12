@@ -94,8 +94,9 @@ function FixChecksButton() {
       url: "https://github.com/owner/repo/pull/1",
     },
   });
+  // Prompt tasks go to the selected composer on this fork; explicit checkouts show the toast.
   return (
-    <button type="button" onClick={() => void startHandoff("fix", { prompt: "Fix the checks" })}>
+    <button type="button" onClick={() => void startHandoff("checkout:worktree", null)}>
       Fix
     </button>
   );
