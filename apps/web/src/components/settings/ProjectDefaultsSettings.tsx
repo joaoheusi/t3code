@@ -18,13 +18,8 @@ import { useClientSettings } from "../../hooks/useSettings";
 import {
   defaultModelSelectionsAreMixed,
   getCustomModelOptionsByInstance,
-  resolveEffectiveDefaultModelSelection,
 } from "../../modelSelection";
-import {
-  providerInstanceEntriesFor,
-  resolveDefaultProviderModelSelection,
-  resolveProjectDefaultProviderModelSelection,
-} from "../../providerInstances";
+import { providerInstanceEntriesFor } from "../../providerInstances";
 import { useEnvironmentProviders, useEnvironments } from "../../state/environments";
 import { basename, repositoriesSummary } from "../../workspace/workspaceModel";
 import { firstManagedDenial } from "../../state/managedPolicy";
@@ -38,6 +33,7 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
+import { resolveDefaultModelSettingsPresentation } from "./ProjectDefaultsSettings.logic";
 import type { ProjectSettingsCategory } from "./ProjectSettingsPanel";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -75,21 +71,20 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     (representative?.serverConfig
       ? providersByEnvironment.get(representative.environmentId)
       : undefined) ?? EMPTY_SERVER_PROVIDERS;
-  const storedSelection =
-    settings.defaultModelSelection === null
-      ? resolveProjectDefaultProviderModelSelection(providers, settings, target?.projectId ?? null)
-      : resolveDefaultProviderModelSelection(providers, settings.defaultModelSelection);
-  const selection = storedSelection
-    ? resolveEffectiveDefaultModelSelection(settings, providers, storedSelection)
-    : null;
   const entries = providerInstanceEntriesFor(providers, settings, target?.projectId ?? null);
+  const presentation = resolveDefaultModelSettingsPresentation({
+    entries,
+    providers,
+    settings,
+    projectId: target?.projectId ?? null,
+  });
+  const selection = presentation.selection;
   const modelOptions = getCustomModelOptionsByInstance(
     settings,
     providers,
     selection?.instanceId,
     selection?.model,
   );
-  const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   const traitsPickerFor = (value: ModelSelection, onChange: (next: ModelSelection) => void) => {
     const instance = entries.find((entry) => entry.instanceId === value.instanceId);
     return instance ? (
@@ -224,7 +219,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       status={
         mixedModel
           ? `${automaticModel ? "Automatic defaults differ." : "Defaults differ."} Select one environment or choose a shared model to edit effort.`
-          : (effortDisabledReason ??
+          : (presentation.providerNote ??
+            effortDisabledReason ??
             (!unavailable && !mixedChain && modelSource !== "project" && chain.length === 0
               ? "Automatic"
               : undefined))
@@ -235,7 +231,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         ) : null
       }
       control={
-        selection && activeEntry ? (
+        selection ? (
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <ProviderModelPicker
               environmentId={representative?.environmentId ?? null}
@@ -260,7 +256,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 setModel(createModelSelection(instanceId, model))
               }
             />
-            {!mixedModel && !mixedChain && !effortDisabledReason
+            {!mixedModel && !mixedChain && !presentation.providerNote && !effortDisabledReason
               ? traitsPickerFor(selection, setModel)
               : null}
           </div>

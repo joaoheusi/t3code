@@ -1,4 +1,8 @@
-import type { GitRunStackedActionResult, VcsStatusResult } from "@t3tools/contracts";
+import type {
+  GitRunStackedActionResult,
+  ReviewDiffPreviewSource,
+  VcsStatusResult,
+} from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import type { ChangeRequestTerminology } from "@t3tools/client-runtime/source-control-clients";
 import {
@@ -162,6 +166,19 @@ export function buildMenuItems(
   ];
 }
 
+export function hasUsableGitMenuContent(input: {
+  readonly menuItems: readonly GitActionMenuItem[];
+  readonly canWriteSourceControl: boolean;
+  readonly canPublishRepository: boolean;
+  readonly hasNotice: boolean;
+}): boolean {
+  return (
+    input.canPublishRepository ||
+    input.hasNotice ||
+    (input.canWriteSourceControl && input.menuItems.some((item) => !item.disabled))
+  );
+}
+
 export function resolveDefaultBranchActionDialogCopy(input: {
   action: DefaultBranchConfirmableAction;
   branchName: string;
@@ -273,9 +290,21 @@ export type ChangesLineTotals = {
 
 // `branchChanges ?? workingTree` treats `{0,0}` as present, so a zero branch total hid a dirty
 // working tree and the Changes row read +0 while Diff still showed the work.
+// The Diff panel's branch comparison wins when it has file stats, so a remembered base or
+// hidden whitespace reads the same in the row as in the panel.
 export function resolveChangesTotals(
   status: VcsStatusResult | null | undefined,
+  branchPreview?: ReviewDiffPreviewSource | null,
 ): ChangesLineTotals | null {
+  if (branchPreview?.files) {
+    let insertions = 0;
+    let deletions = 0;
+    for (const file of branchPreview.files) {
+      insertions += file.additions;
+      deletions += file.deletions;
+    }
+    return { insertions, deletions, baseRef: branchPreview.baseRef };
+  }
   if (!status) return null;
   const branch = status.branchChanges;
   const tree = { ...status.workingTree, baseRef: null };

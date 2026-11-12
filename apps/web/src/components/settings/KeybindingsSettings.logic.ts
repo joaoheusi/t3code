@@ -385,6 +385,7 @@ export function commandLabel(command: KeybindingCommand): string {
   if (command === "view.reopenClosed") return "Reopen Closed Tab";
   if (command === "quickActions.toggle") return "Quick Actions: Open";
   if (command === "preview.focusUrl") return "Preview: Focus URL";
+  if (command === "preview.find") return "Preview: Find on Page";
   const raw = String(command);
   if (raw.startsWith("quickAction.") && raw.endsWith(".insert"))
     return "Quick Actions: Insert Action";
