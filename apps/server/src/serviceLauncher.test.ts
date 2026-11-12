@@ -150,7 +150,7 @@ const writeFakeRuntime = (
   });
 
 const runLauncher = async (root: string) => {
-  vi.stubEnv("T3CODE_HOME", root);
+  vi.stubEnv("J4CODE_HOME", root);
   try {
     await main();
   } finally {
