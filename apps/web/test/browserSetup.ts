@@ -1,6 +1,8 @@
 import { beforeEach, vi } from "vite-plus/test";
 import { commands } from "vite-plus/test/browser";
 
+import { initializeI18n } from "../src/i18n/initializeI18n";
+
 // Vite adds a large inline source map to the PDF worker on every viewer remount.
 // Use the same worker code without that transform cost, including in attachment tests.
 vi.mock(import("pdfjs-dist/build/pdf.worker.min.mjs?url"), async () => {
@@ -24,3 +26,6 @@ declare module "vite-plus/test/browser" {
 beforeEach(async () => {
   await commands.resetPointer();
 });
+
+// The app initializes GT at startup; components using its hooks need the same here.
+initializeI18n(() => {});

@@ -1,5 +1,5 @@
 import { useTaskDestination } from "../../quickActions/useTaskDestination";
-import type { ComposerThreadTarget } from "../../composerDraftStore";
+import { useComposerDraftStore, type ComposerThreadTarget } from "../../composerDraftStore";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -301,10 +301,17 @@ export function usePullRequestHandoffs({
     }
 
     setHandoff(kind);
+    // Dismissing the loading toast cancels the handoff before it touches a draft.
+    let cancelled = false;
     // Explicit timeouts survive toast updates and would pin the result after loading.
     const toastId = toastManager.add({
       type: "loading",
       title: `Preparing the ${terminology.singular} checkout...`,
+      data: {
+        onClose: () => {
+          cancelled = true;
+        },
+      },
     });
     const projectRef = scopeProjectRef(environmentId, detail.projectId);
     // Checkout setup requires the thread to exist first.
@@ -312,6 +319,10 @@ export function usePullRequestHandoffs({
       (session) => session,
       () => null,
     );
+    if (cancelled) {
+      setHandoff(null);
+      return;
+    }
     if (opened === null) {
       setHandoff(null);
       toastManager.update(toastId, {
@@ -326,6 +337,10 @@ export function usePullRequestHandoffs({
       mode,
       threadId: opened.threadId,
     });
+    if (cancelled) {
+      setHandoff(null);
+      return;
+    }
     if (prepared._tag === "Failure") {
       setHandoff(null);
       toastManager.update(toastId, {
@@ -342,10 +357,14 @@ export function usePullRequestHandoffs({
       worktreePath: prepared.value.worktreePath,
       envMode: prepared.value.worktreePath === null ? "local" : "worktree",
     }).then(
-      (session) => session !== null,
-      () => false,
+      (session) => session,
+      () => null,
     );
-    if (!pointed) {
+    if (cancelled) {
+      setHandoff(null);
+      return;
+    }
+    if (pointed === null) {
       setHandoff(null);
       toastManager.update(toastId, {
         type: "error",
@@ -354,6 +373,13 @@ export function usePullRequestHandoffs({
       });
       return;
     }
+    // The draft carries the pull request until its first send makes it a thread, which links it.
+    useComposerDraftStore.getState().setDraftThreadContext(pointed.draftId, {
+      checkoutPullRequest: {
+        url: prepared.value.pullRequest.url,
+        branch: prepared.value.branch,
+      },
+    });
     setHandoff(null);
     toastManager.update(
       toastId,
