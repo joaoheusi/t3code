@@ -1,6 +1,11 @@
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
+import {
+  DATABASE_MIGRATION_PROGRESS_MESSAGE,
+  DATABASE_MIGRATIONS_FINISHED_MESSAGE,
+  DATABASE_MIGRATIONS_STARTED_MESSAGE,
+} from "@t3tools/shared/databaseMigrationLog";
 import { reconcileV2PreviewMigration } from "./reconcileV2PreviewMigration.ts";
 
 // Import all migrations statically
@@ -92,6 +97,11 @@ import Migration0085 from "./Migrations/085_DelegatedRecoveryIndexes.ts";
 import Migration0086 from "./Migrations/086_ScheduledTaskThreadMode.ts";
 import Migration0087 from "./Migrations/087_ProjectionMessageSearchText.ts";
 import Migration0088 from "./Migrations/088_TurnItemConversationIndex.ts";
+import Migration0089 from "./Migrations/089_CommandReadIndexes.ts";
+import Migration0090 from "./Migrations/090_LastExecutedRunIndex.ts";
+import Migration0091 from "./Migrations/091_TurnItemCounts.ts";
+import Migration0092 from "./Migrations/092_QueuedTurnInputIndex.ts";
+import Migration0093 from "./Migrations/093_ProjectionProjectsCustomTitle.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -197,6 +207,12 @@ export const migrationEntries = [
   // Upstream 81-82, appended after the fork's recorded ids.
   [87, "ProjectionMessageSearchText", Migration0087],
   [88, "TurnItemConversationIndex", Migration0088],
+  // Upstream 83-87, appended after the fork's recorded ids.
+  [89, "CommandReadIndexes", Migration0089],
+  [90, "LastExecutedRunIndex", Migration0090],
+  [91, "TurnItemCounts", Migration0091],
+  [92, "QueuedTurnInputIndex", Migration0092],
+  [93, "ProjectionProjectsCustomTitle", Migration0093],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
@@ -212,6 +228,24 @@ const makeMigrationLoader = (throughId?: number) =>
 
 const FIRST_V2_MIGRATION_ID = 55;
 
+export function skippedV2Migrations(
+  recorded: ReadonlyArray<{ readonly id: number; readonly name: string }>,
+  throughId?: number,
+): string[] {
+  const latestRecordedId = Math.max(0, ...recorded.map((row) => row.id));
+  const recordedNames = new Map(recorded.map((row) => [row.id, row.name]));
+  return migrationManifest.flatMap(([id, name]) => {
+    if (
+      id < FIRST_V2_MIGRATION_ID ||
+      id > latestRecordedId ||
+      (throughId !== undefined && id > throughId)
+    )
+      return [];
+    const recordedName = recordedNames.get(id);
+    return recordedName === name ? [] : [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
+  });
+}
+
 // Migrators skip ids up to the highest recorded; reject collisions that would skip V2 schema.
 const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function* (
   throughId?: number,
@@ -225,19 +259,11 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     readonly migration_id: number;
     readonly name: string;
   }>`SELECT migration_id, name FROM effect_sql_migrations`;
+  const skipped = skippedV2Migrations(
+    recorded.map((row) => ({ id: row.migration_id, name: row.name })),
+    throughId,
+  );
   const latestRecordedId = Math.max(0, ...recorded.map((row) => row.migration_id));
-  const recordedNames = new Map(recorded.map((row) => [row.migration_id, row.name]));
-  const skipped = migrationEntries.flatMap(([id, name]) => {
-    if (
-      id < FIRST_V2_MIGRATION_ID ||
-      id > latestRecordedId ||
-      (throughId !== undefined && id > throughId)
-    )
-      return [];
-    const recordedName = recordedNames.get(id);
-    if (recordedName === name) return [];
-    return [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
-  });
   if (skipped.length === 0) return;
   return yield* new Migrator.MigrationError({
     kind: "BadState",
@@ -273,22 +299,48 @@ export interface RunMigrationsOptions {
 export const runMigrations = Effect.fn("runMigrations")(function* ({
   toMigrationInclusive,
 }: RunMigrationsOptions = {}) {
+  // The desktop waits past its readiness budget until the finished line follows this one.
+  if (yield* hasPendingMigrations()) yield* Effect.log(DATABASE_MIGRATIONS_STARTED_MESSAGE);
   const includesV2 =
     toMigrationInclusive === undefined || toMigrationInclusive >= FIRST_V2_MIGRATION_ID;
   const previewMigrations = includesV2 ? yield* reconcileV2PreviewMigration() : [];
   if (includesV2) {
     yield* assertV2MigrationsCanRun(toMigrationInclusive);
   }
-  const executedMigrations = [
-    ...previewMigrations,
-    ...(yield* run({ loader: makeMigrationLoader(toMigrationInclusive) })),
-  ];
+  const sql = yield* SqlClient.SqlClient;
+  const ledger = yield* sql`
+    SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'
+  `;
+  const [latest] =
+    ledger.length === 0
+      ? []
+      : yield* sql<{
+          readonly id: number | null;
+        }>`SELECT MAX(migration_id) AS id FROM effect_sql_migrations`;
+  const latestRecordedId = latest?.id ?? 0;
+  const pending = migrationEntries.filter(
+    ([id]) =>
+      id > latestRecordedId && (toMigrationInclusive === undefined || id <= toMigrationInclusive),
+  );
+  // One transaction per migration: an index build on a large database can take minutes, and a
+  // restart then resumes after the last finished migration instead of rolling all of them back.
+  const executedMigrations: Array<readonly [id: number, name: string]> = [...previewMigrations];
+  for (const [index, [id, name]] of pending.entries()) {
+    if (latestRecordedId > 0) {
+      yield* Effect.log(DATABASE_MIGRATION_PROGRESS_MESSAGE).pipe(
+        Effect.annotateLogs({
+          migration: `${id}_${name}`,
+          progress: `${index + 1} of ${pending.length}`,
+        }),
+      );
+    }
+    executedMigrations.push(...(yield* run({ loader: makeMigrationLoader(id) })));
+  }
   const migrations = executedMigrations.map(([id, name]) => `${id}_${name}`);
   yield* migrations.length === 0
     ? Effect.logDebug("Database schema is current")
-    : Effect.log("Migrations ran successfully").pipe(Effect.annotateLogs({ migrations }));
+    : Effect.log(DATABASE_MIGRATIONS_FINISHED_MESSAGE).pipe(Effect.annotateLogs({ migrations }));
 
-  const sql = yield* SqlClient.SqlClient;
   const recorded = yield* sql<{
     readonly migration_id: number;
     readonly name: string;

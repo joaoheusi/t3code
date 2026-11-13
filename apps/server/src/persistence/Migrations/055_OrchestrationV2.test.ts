@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 88 }, (_, index) => index + 1),
+        Array.from({ length: 93 }, (_, index) => index + 1),
       );
     }),
   );
@@ -60,6 +60,11 @@ layer("055_OrchestrationV2", (it) => {
         [86, "ScheduledTaskThreadMode"],
         [87, "ProjectionMessageSearchText"],
         [88, "TurnItemConversationIndex"],
+        [89, "CommandReadIndexes"],
+        [90, "LastExecutedRunIndex"],
+        [91, "TurnItemCounts"],
+        [92, "QueuedTurnInputIndex"],
+        [93, "ProjectionProjectsCustomTitle"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -114,6 +119,11 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 86, name: "ScheduledTaskThreadMode" },
         { migration_id: 87, name: "ProjectionMessageSearchText" },
         { migration_id: 88, name: "TurnItemConversationIndex" },
+        { migration_id: 89, name: "CommandReadIndexes" },
+        { migration_id: 90, name: "LastExecutedRunIndex" },
+        { migration_id: 91, name: "TurnItemCounts" },
+        { migration_id: 92, name: "QueuedTurnInputIndex" },
+        { migration_id: 93, name: "ProjectionProjectsCustomTitle" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -218,6 +228,11 @@ layer("055_OrchestrationV2", (it) => {
         [86, "ScheduledTaskThreadMode"],
         [87, "ProjectionMessageSearchText"],
         [88, "TurnItemConversationIndex"],
+        [89, "CommandReadIndexes"],
+        [90, "LastExecutedRunIndex"],
+        [91, "TurnItemCounts"],
+        [92, "QueuedTurnInputIndex"],
+        [93, "ProjectionProjectsCustomTitle"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

@@ -27,6 +27,7 @@ import { Spinner } from "../components/ui/spinner";
 import { toastManager } from "../components/ui/toast";
 import { randomUUID } from "../lib/utils";
 import { getSourceControlPresentation } from "../sourceControlPresentation";
+import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "../state/session";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -253,6 +254,9 @@ export function useQuickActionGit(
   const canOperate = useEnvironmentScope(
     scope?.environmentId ?? null,
     AuthOrchestrationOperateScope,
+  );
+  const serverConfig = useAtomValue(
+    serverEnvironment.configValueAtom(scope?.environmentId ?? null),
   );
   const targets = quickActionGitTargets(scope?.thread?.workspace, cwd);
   const stateAtom = Atom.make((get) =>
@@ -632,6 +636,7 @@ export function useQuickActionGit(
             scope.thread ? { environmentId: scope.environmentId, threadId: scope.thread.id } : null
           }
           gitCwd={publishCwd}
+          offeredProviders={serverConfig?.settings.offeredSourceControlProviders}
         />
       ) : null,
   };
