@@ -27,6 +27,7 @@ import {
 import { AsyncResult } from "effect/reactivity";
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
 
+import type { ComposerThreadTarget } from "~/composerDraftStore";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { usePullRequestChecksRefresh } from "~/hooks/usePullRequestChecksRefresh";
 import { cn } from "~/lib/utils";
@@ -60,6 +61,7 @@ import {
   usePullRequestActionRunner,
   usePullRequestDefaultMergeMethodResolver,
   usePullRequestHandoffs,
+  type PullRequestThreadTask,
 } from "../pullRequest/usePullRequestActions";
 import {
   ChangeRequestStatusIcon,
@@ -76,6 +78,7 @@ import {
   AlertDialogTitle,
 } from "../ui/alert-dialog";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   THREAD_DETAILS_PANEL_ICON_CLASS,
@@ -101,6 +104,7 @@ export function ThreadDetailsPrRow({
   onOpen,
   onActed,
   onStopWatching,
+  composerTarget,
 }: {
   environmentId: EnvironmentId;
   threadRef?: ScopedThreadRef;
@@ -114,6 +118,8 @@ export function ThreadDetailsPrRow({
   onOpen: (event: ReactMouseEvent<HTMLElement>) => void;
   onActed?: () => void;
   onStopWatching?: (() => void) | undefined;
+  /** Fix and Resolve write here instead of checking the pull request out in a new thread. */
+  composerTarget?: ComposerThreadTarget | undefined;
 }) {
   const serverConfigs = useServerConfigs();
   const supportsPullRequests = serverConfigs.get(environmentId) !== undefined;
@@ -180,7 +186,7 @@ export function ThreadDetailsPrRow({
   const { handoff, startHandoff, openNew } = usePullRequestHandoffs({
     environmentId,
     detail,
-    target: threadRef ?? null,
+    target: composerTarget ?? threadRef ?? null,
   });
   const lastSelectedMergeMethod = useUiStateStore((state) => state.pullRequestMergeMethod);
   const resolveProjectDefaultMergeMethod = usePullRequestDefaultMergeMethodResolver(
@@ -249,6 +255,7 @@ export function ThreadDetailsPrRow({
         comments: [],
         checks: detail.checks,
         commentsTruncated: false,
+        inThisThread: composerTarget !== undefined,
       }),
       context: {
         kind: "ci" as const,
@@ -387,7 +394,7 @@ export function ThreadDetailsPrRow({
         : rowAction === "fix"
           ? {
               label: "Fix",
-              pendingLabel: "Preparing...",
+              pendingLabel: "Fix",
               pending: handoff === "findings",
               destructive: true,
               suffix: null,
@@ -491,7 +498,7 @@ export function ThreadDetailsPrRow({
                 checksState={checksRollup}
                 checks={detail.checks}
                 variant="count"
-                render={<ThreadDetailsControl part="meta" />}
+                render={<ThreadDetailsControl part="meta" className="min-w-0 shrink" />}
               />
             ) : null}
             {watchControl("icon")}

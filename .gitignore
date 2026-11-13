@@ -52,3 +52,5 @@ node_modules/
 
 # Isolated fork development state
 .j4code/
+
+/packages/ssh/.ssh-launcher-test-*/
