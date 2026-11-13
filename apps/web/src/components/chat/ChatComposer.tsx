@@ -1,5 +1,4 @@
 import { useEnvironmentOperateAccess } from "../../hooks/useEnvironmentOperateAccess";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { quickActionRequirements, rankQuickActions } from "@t3tools/shared/quickActions";
 import { registerActionEditor } from "~/quickActions/dispatcher";
 import { openCommandPalette } from "../../commandPaletteBus";

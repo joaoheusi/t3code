@@ -421,8 +421,8 @@ describe("tailscale", () => {
       assert.deepEqual(
         calls.filter((args) => args[0] !== "status"),
         [
-        ["serve", "--bg", "--https=443", "http://127.0.0.1:4773"],
-        ["funnel", "--bg", "--https=443", "http://127.0.0.1:4773"],
+          ["serve", "--bg", "--https=443", "http://127.0.0.1:4773"],
+          ["funnel", "--bg", "--https=443", "http://127.0.0.1:4773"],
         ],
       );
     });

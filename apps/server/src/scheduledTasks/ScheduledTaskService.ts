@@ -835,8 +835,6 @@ export const layer = Layer.effect(
         ),
     );
 
-    const serviceScope = yield* Effect.scope;
-
     /** A launch returns before preparation ends, so a failure there is recorded afterwards. */
     const recordPreparationFailure = Effect.fn("ScheduledTaskService.recordPreparationFailure")(
       function* (
