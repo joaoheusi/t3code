@@ -230,6 +230,7 @@ export interface CommandPaletteItem {
   readonly matchHint?: SearchMatchHint;
   readonly icon: ReactNode;
   readonly disabled?: boolean;
+  /** Set on toggle and choice rows; exposed to assistive technology as `aria-checked`. */
   readonly checked?: boolean;
   /** Optional content rendered inline before the title text. */
   readonly titleLeadingContent?: ReactNode;

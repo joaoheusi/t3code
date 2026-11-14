@@ -9,6 +9,7 @@ export const PULL_REQUEST_MERGE_METHOD_LABELS: Record<PullRequestMergeMethod, st
   merge: "Merge",
   squash: "Squash and merge",
   rebase: "Rebase and merge",
+  "fast-forward": "Fast-forward merge",
 };
 
 /** The slice of a detail that decides which actions it offers. */
