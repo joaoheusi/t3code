@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   projects: [] as unknown[],
   pullRequests: [] as unknown[],
   projectMergeMethods: {} as Record<string, "merge" | "squash" | "rebase">,
+  taskRequests: [] as Array<{ target: unknown; prompt: string }>,
 }));
 
 vi.mock(import("~/state/entities"), async (importOriginal) => ({
@@ -87,16 +88,17 @@ vi.mock(import("~/state/query"), async (importOriginal) => ({
 vi.mock(import("../pullRequest/usePullRequestActions"), async (importOriginal) => ({
   ...(await importOriginal()),
   usePullRequestActionRunner: () => ({ actionPending: false, perform: state.perform }),
-  usePullRequestHandoffs: () => ({
-    handoff: null,
-    startAsk: vi.fn(),
-    startHandoff: vi.fn(),
-    openNew: vi.fn(),
-  }),
   usePullRequestDefaultMergeMethodResolver: ((_environmentId: unknown, projectId: unknown) => () =>
     state.projectMergeMethods[String(projectId)]) as never,
 }));
 
+// The fork renders the task through the quick action library over RPC; record the hand-off instead.
+vi.mock(import("~/quickActions/useTaskDestination"), () => ({
+  useTaskDestination: ((_environmentId: unknown, _projectId: unknown, target: unknown) => ({
+    request: (task: { prompt: string }) => state.taskRequests.push({ target, prompt: task.prompt }),
+    openNew: vi.fn(),
+  })) as never,
+}));
 vi.mock(import("~/hooks/useHandleNewThread"), async (original) => ({
   ...(await original()),
   useNewThreadHandler: (() => state.newThread) as never,
@@ -255,6 +257,7 @@ async function setup() {
   state.projects = [];
   state.pullRequests = [];
   state.projectMergeMethods = {};
+  state.taskRequests = [];
   useComposerDraftStore.getState().clearComposerContent(threadRef);
   useUiStateStore.getState().setPullRequestMergeMethod("merge");
   return renderUi(null);
@@ -281,9 +284,9 @@ it("adds the failing checks to a given composer instead of opening a new thread"
   await clickButton(screen.container, "Fix");
   expect(state.newThread).not.toHaveBeenCalled();
   expect(state.prepareThread).not.toHaveBeenCalled();
-  expect(useComposerDraftStore.getState().getComposerDraft(threadRef)?.prompt).toContain(
-    "https://github.com/owner/repo/pull/1",
-  );
+  expect(state.taskRequests).toEqual([
+    { target: threadRef, prompt: expect.stringContaining("https://github.com/owner/repo/pull/1") },
+  ]);
 });
 
 const repositoryClone = {
