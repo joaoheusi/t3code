@@ -63,7 +63,13 @@ export const PullRequestMergeBlock = Schema.Literals([
 ]);
 export type PullRequestMergeBlock = typeof PullRequestMergeBlock.Type;
 
-export const PullRequestMergeMethod = Schema.Literals(["merge", "squash", "rebase"]);
+/** `fast-forward` refuses unless the head contains the base, where `rebase` rewrites the branch onto it. */
+export const PullRequestMergeMethod = Schema.Literals([
+  "merge",
+  "squash",
+  "rebase",
+  "fast-forward",
+]);
 export type PullRequestMergeMethod = typeof PullRequestMergeMethod.Type;
 
 export const PullRequestAction = Schema.Literals([
@@ -344,6 +350,8 @@ export const PullRequestMergeCapabilities = Schema.Struct({
   merge: Schema.Boolean,
   squash: Schema.Boolean,
   rebase: Schema.Boolean,
+  /** Optional so servers that predate it still decode; absent means not allowed. */
+  "fast-forward": Schema.optional(Schema.Boolean),
 });
 export type PullRequestMergeCapabilities = typeof PullRequestMergeCapabilities.Type;
 

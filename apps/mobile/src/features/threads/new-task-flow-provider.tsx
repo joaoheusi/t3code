@@ -29,6 +29,7 @@ import {
   limitedInstanceIdsFromFailures,
   resolveDefaultModelSelectionForNewThread,
 } from "@t3tools/shared/modelSelectionChain";
+import { isTriagePrompt, replaceTriagePlaybookLink } from "@t3tools/shared/triagePrompt";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
@@ -98,7 +99,7 @@ import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
 } from "./new-task-context-presentation";
-import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
+import { isSameRepository, resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
 import { resolveNewThreadRuntimeMode } from "./thread-settings-options";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
@@ -112,6 +113,7 @@ import {
   stampedEnvironmentProjectsLoading,
   updateNewTaskFlowState,
 } from "./new-task-flow-state";
+import { usePrepareTriage } from "../triage/usePrepareTriage";
 import { useEnvironmentShellReadiness } from "../../state/shell";
 import { useConnectionsReady, useWorkspaceEnvironments } from "../../state/workspace";
 
@@ -612,11 +614,14 @@ export function NewTaskFlowProvider(
     replaceComposerDraftAttachments(selectedProjectDraftKey, []);
   };
 
-  const carryDraftContentTo = (project: EnvironmentProject): string => {
+  const carryDraftContentTo = (
+    project: EnvironmentProject,
+    options?: Parameters<typeof retargetNewTaskDraft>[2],
+  ): string => {
     const target = { environmentId: project.environmentId, projectId: project.id };
     const current = readFlow().draftKey;
     if (current !== null && isNewTaskDraftKey(current)) {
-      retargetNewTaskDraft(current, target);
+      retargetNewTaskDraft(current, target, options);
       return current;
     }
     return createNewTaskDraft(target);
@@ -634,7 +639,12 @@ export function NewTaskFlowProvider(
       selectedProject,
     );
     updateFlow({
-      draftKey: match ? carryDraftContentTo(match) : readFlow().draftKey,
+      // A name or title match may be another repository, which must not receive the PR checkout.
+      draftKey: match
+        ? carryDraftContentTo(match, {
+            keepPullRequestWorkspace: isSameRepository(match, selectedProject),
+          })
+        : readFlow().draftKey,
       environmentId,
       projectKey: match ? scopedProjectKey(match.environmentId, match.id) : null,
     });
@@ -642,6 +652,7 @@ export function NewTaskFlowProvider(
   const openScratch = useAtomCommand(projectEnvironment.openScratch, {
     reportFailure: false,
   });
+  const prepareTriage = usePrepareTriage();
   const [switchingToEnvironmentId, setSwitchingToEnvironmentId] = useState<EnvironmentId | null>(
     null,
   );
@@ -660,12 +671,25 @@ export function NewTaskFlowProvider(
     latestSwitchRef.current = request;
     setSwitchingToEnvironmentId(environmentId);
     const performSwitch = async () => {
-      const result = await openScratch({
-        environmentId,
-        input: {},
-      });
+      // A triage draft takes its session along: the playbook and context files
+      // exist only on the machine that prepared them.
+      const { draftKey, projectKey } = readFlow();
+      const triage =
+        draftKey !== null && isTriagePrompt(getComposerDraftSnapshot(draftKey).text)
+          ? await prepareTriage(environmentId)
+          : null;
+      const result =
+        triage?._tag === "Failure" ? triage : await openScratch({ environmentId, input: {} });
       if (latestSwitchRef.current !== request) return false;
+      // A project picked while this waited stands.
+      if (readFlow().projectKey !== projectKey) return false;
       if (result._tag === "Success") {
+        if (triage?._tag === "Success" && draftKey !== null && readFlow().draftKey === draftKey) {
+          // Read now, so text typed while the machine prepared the session is kept.
+          const text = getComposerDraftSnapshot(draftKey).text;
+          const nextText = replaceTriagePlaybookLink(text, triage.value.prompt);
+          if (nextText !== text) setComposerDraftText(draftKey, nextText);
+        }
         setProject(result.value);
         return true;
       }
@@ -675,7 +699,9 @@ export function NewTaskFlowProvider(
           "Could not switch machine",
           error instanceof Error
             ? error.message
-            : "The folder for threads without a project could not be created.",
+            : triage?._tag === "Failure"
+              ? "The server could not prepare triage."
+              : "The folder for threads without a project could not be created.",
         );
       }
       return false;
@@ -994,7 +1020,14 @@ export function NewTaskFlowProvider(
     appendAttachments,
     removeAttachment,
     clearAttachments,
-    setSubmitting: (value: boolean) => updateFlow({ submitting: value }),
+    setSubmitting: (value: boolean) => {
+      // A send takes the draft as it is, so a machine switch still waiting is dropped.
+      if (value) {
+        latestSwitchRef.current = null;
+        setSwitchingToEnvironmentId(null);
+      }
+      updateFlow({ submitting: value });
+    },
     loadBranches,
     setRuntimeMode,
     setSelectedModelOptions,

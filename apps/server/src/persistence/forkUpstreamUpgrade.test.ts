@@ -46,6 +46,10 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [91, "TurnItemCounts"],
       [92, "QueuedTurnInputIndex"],
       [93, "ProjectionProjectsCustomTitle"],
+      [94, "TurnItemTypeStatusIndex"],
+      [95, "ShellThreadReadIndexes"],
+      [96, "AuthConnectDevices"],
+      [97, "AuthConnectDeniedRequests"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(

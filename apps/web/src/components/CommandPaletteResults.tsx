@@ -53,12 +53,7 @@ export function CommandPaletteResults(props: CommandPaletteResultsProps) {
   }
 
   return (
-    <CommandList
-      aria-multiselectable={
-        props.groups.some((group) => group.items.some((item) => item.checked !== undefined)) ||
-        undefined
-      }
-    >
+    <CommandList>
       {props.groups.map((group) => (
         <CommandGroup items={group.items} key={group.value}>
           {group.label ? <CommandGroupLabel>{group.label}</CommandGroupLabel> : null}
@@ -125,11 +120,7 @@ export function CommandPaletteVirtualizedResults(props: CommandPaletteVirtualize
   }
 
   return (
-    <CommandListVirtualized
-      aria-multiselectable={
-        props.rows.some((row) => row.kind === "item" && row.item.checked !== undefined) || undefined
-      }
-    >
+    <CommandListVirtualized>
       <LegendList<CommandPaletteRow>
         ref={scrollRef}
         data={props.rows}
@@ -275,7 +266,7 @@ function CommandPaletteResultRow(props: {
       {...(props.index === undefined ? {} : { index: props.index })}
       value={props.item.value}
       active={props.isActive}
-      aria-selected={props.item.checked}
+      {...(props.item.checked !== undefined ? { "aria-checked": props.item.checked } : {})}
       onPointerDown={(event) => {
         if (props.item.threadRef) {
           startPaletteThreadDrag(
