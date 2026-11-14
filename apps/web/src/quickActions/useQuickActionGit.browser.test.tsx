@@ -25,7 +25,8 @@ const mocks = vi.hoisted(() => ({
   permission: vi.fn(),
   toast: { add: vi.fn(), update: vi.fn(), close: vi.fn() },
 }));
-vi.mock("../state/session", () => ({
+vi.mock("../state/session", async (original) => ({
+  ...(await original<typeof import("../state/session")>()),
   useEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
   readEnvironmentScope: (...args: unknown[]) => mocks.permission(...args),
 }));
