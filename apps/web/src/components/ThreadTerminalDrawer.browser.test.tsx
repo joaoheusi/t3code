@@ -196,21 +196,18 @@ it("hands thread navigation shortcuts from a focused terminal back to the app", 
   await act(async () => {
     fixture.pendingSurfaces.shift()?.();
   });
-  const terminalHandles = (key: string, code: string, shiftKey = true) =>
+  const terminalHandles = (key: string, code: string, modifiers: KeyboardEventInit = {}) =>
     fixture.surfaceOptions
       .at(-1)!
-      .beforeKey(new KeyboardEvent("keydown", { key, code, ctrlKey: true, shiftKey }));
+      .beforeKey(new KeyboardEvent("keydown", { key, code, ctrlKey: true, ...modifiers }));
 
-  expect([terminalHandles("{", "BracketLeft"), terminalHandles("}", "BracketRight")]).toEqual([
-    false,
-    false,
-  ]);
-  expect(terminalHandles("C", "KeyC")).toBe(true);
+  expect([
+    terminalHandles("ArrowUp", "ArrowUp", { altKey: true }),
+    terminalHandles("ArrowDown", "ArrowDown", { altKey: true }),
+  ]).toEqual([false, false]);
+  expect(terminalHandles("C", "KeyC", { shiftKey: true })).toBe(true);
   // Sidebar sees the open preview and the closed drawer and rejects these, so the shell keeps them.
-  expect([terminalHandles("r", "KeyR", false), terminalHandles("g", "KeyG", false)]).toEqual([
-    true,
-    true,
-  ]);
+  expect([terminalHandles("r", "KeyR"), terminalHandles("g", "KeyG")]).toEqual([true, true]);
 });
 
 it("only activates terminal paths confirmed to exist on their environment", async () => {
