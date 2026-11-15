@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 97 }, (_, index) => index + 1),
+        Array.from({ length: 100 }, (_, index) => index + 1),
       );
     }),
   );
@@ -69,6 +69,9 @@ layer("055_OrchestrationV2", (it) => {
         [95, "ShellThreadReadIndexes"],
         [96, "AuthConnectDevices"],
         [97, "AuthConnectDeniedRequests"],
+        [98, "QueuedTurnInputIndexJsonValid"],
+        [99, "ProviderTurnAttemptIndex"],
+        [100, "TurnItemMessageOrdinalIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -132,6 +135,9 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 95, name: "ShellThreadReadIndexes" },
         { migration_id: 96, name: "AuthConnectDevices" },
         { migration_id: 97, name: "AuthConnectDeniedRequests" },
+        { migration_id: 98, name: "QueuedTurnInputIndexJsonValid" },
+        { migration_id: 99, name: "ProviderTurnAttemptIndex" },
+        { migration_id: 100, name: "TurnItemMessageOrdinalIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -245,6 +251,9 @@ layer("055_OrchestrationV2", (it) => {
         [95, "ShellThreadReadIndexes"],
         [96, "AuthConnectDevices"],
         [97, "AuthConnectDeniedRequests"],
+        [98, "QueuedTurnInputIndexJsonValid"],
+        [99, "ProviderTurnAttemptIndex"],
+        [100, "TurnItemMessageOrdinalIndex"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;
