@@ -1482,6 +1482,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         },
       ],
       contextTransfers: [],
+      runtimeRequests: [],
       subagents,
     }) as unknown as OrchestrationV2ThreadProjection;
 
