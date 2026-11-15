@@ -242,13 +242,15 @@ export class ThreadLaunchService extends Context.Service<
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
 const isThreadLaunchError = Schema.is(ThreadLaunchError);
+const isThreadLaunchBaseRefError = Schema.is(ThreadLaunchBaseRefError);
+const isThreadLaunchBranchConflictError = Schema.is(ThreadLaunchBranchConflictError);
 
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
     const cause = error.cause;
     // This module's own errors already carry a user-facing message; their git cause does not.
     const detail =
-      cause instanceof ThreadLaunchBaseRefError || cause instanceof ThreadLaunchBranchConflictError
+      isThreadLaunchBaseRefError(cause) || isThreadLaunchBranchConflictError(cause)
         ? cause.message
         : (userFacingDispatchErrorMessage(cause) ??
           (cause instanceof Error ? cause.message : String(cause)));
