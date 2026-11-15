@@ -2666,6 +2666,10 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(peerLinkRequests.answer(input)),
           ),
+        [WS_METHODS.serverGetSettings]: (_input) =>
+          Effect.map(serverSettings.getSettings, (settings) =>
+            ServerSettings.redactServerSettingsForClient(settings, settingsClient),
+          ),
         [WS_METHODS.serverUpdateSettings]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* ({ patch, providerInstanceMutation }) {
@@ -3189,12 +3193,16 @@ export const layerWsRpc = (
         [WS_METHODS.vcsCreateRef]: (input) =>
           workspaceApi.assertLegacyMutation(input.cwd).pipe(
             Effect.andThen(gitWorkflow.createRef(input)),
-            Effect.tap(() => refreshGitStatus(input.cwd)),
+            Effect.tap(() =>
+              input.switchRef
+                ? vcsStatusBroadcaster.refreshAfterCheckout(input.cwd)
+                : refreshGitStatus(input.cwd),
+            ),
           ),
         [WS_METHODS.vcsSwitchRef]: (input) =>
           workspaceApi.assertLegacyMutation(input.cwd).pipe(
             Effect.andThen(gitWorkflow.switchRef(input)),
-            Effect.tap(() => refreshGitStatus(input.cwd)),
+            Effect.tap(() => vcsStatusBroadcaster.refreshAfterCheckout(input.cwd)),
           ),
         [WS_METHODS.vcsInit]: (input) =>
           vcsProvisioning.initRepository(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),

@@ -106,6 +106,9 @@ import Migration0094 from "./Migrations/094_TurnItemTypeStatusIndex.ts";
 import Migration0095 from "./Migrations/095_ShellThreadReadIndexes.ts";
 import Migration0096 from "./Migrations/096_AuthConnectDevices.ts";
 import Migration0097 from "./Migrations/097_AuthConnectDeniedRequests.ts";
+import Migration0098 from "./Migrations/098_QueuedTurnInputIndexJsonValid.ts";
+import Migration0099 from "./Migrations/099_ProviderTurnAttemptIndex.ts";
+import Migration0100 from "./Migrations/100_TurnItemMessageOrdinalIndex.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -222,6 +225,10 @@ export const migrationEntries = [
   [95, "ShellThreadReadIndexes", Migration0095],
   [96, "AuthConnectDevices", Migration0096],
   [97, "AuthConnectDeniedRequests", Migration0097],
+  // Upstream 92-94, appended after the fork's recorded ids.
+  [98, "QueuedTurnInputIndexJsonValid", Migration0098],
+  [99, "ProviderTurnAttemptIndex", Migration0099],
+  [100, "TurnItemMessageOrdinalIndex", Migration0100],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -58,8 +58,6 @@ interface Seen {
   readonly clones: ReadonlyArray<SourceControlCloneRepositoryInput>;
   /** Commands dispatched and delegated-task stops, as `<type> <threadId>`. */
   readonly stops: ReadonlyArray<string>;
-  /** Set by a test: what B's threads report as open questions. */
-  readonly runtimeRequests?: ReadonlyArray<{ readonly status: string }>;
 }
 const nothingSeen: Seen = {
   sends: [],
@@ -89,11 +87,8 @@ const boxThreads = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) => {
   const shellOf = (threadId: ThreadId): Effect.Effect<OrchestrationV2ThreadShell | null> =>
     threadId === boxThread ? linked : Effect.succeed(threadId === usersThread ? users : null);
   const projectionOf = (threadId: ThreadId) =>
-    Effect.all([shellOf(threadId), Ref.get(seen)]).pipe(
-      Effect.map(
-        ([thread, { runtimeRequests = [] }]) =>
-          ({ thread, runs: [run("running")], runtimeRequests }) as never,
-      ),
+    shellOf(threadId).pipe(
+      Effect.map((thread) => ({ thread, runs: [run("running")], runtimeRequests: [] }) as never),
     );
   return Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: shellOf,
@@ -138,12 +133,8 @@ const boxThreads = (seen: Ref.Ref<Seen>, linkSession: Ref.Ref<string>) => {
         stops: [...current.stops, `delegated-tasks.stop ${input.threadId}`],
       })),
     waitForThread: (input) =>
-      Ref.updateAndGet(seen, (current) => ({ ...current, waits: [...current.waits, input] })).pipe(
-        Effect.map(({ waits }) => ({
-          threadId: input.threadId,
-          run: run(waits.length < 3 ? "running" : "completed"),
-          timedOut: waits.length < 3,
-        })),
+      Ref.update(seen, (current) => ({ ...current, waits: [...current.waits, input] })).pipe(
+        Effect.as({ threadId: input.threadId, run: run("completed"), timedOut: false }),
       ),
   });
 };
@@ -460,34 +451,6 @@ it.effect("an agent here works on a linked environment's threads within its own 
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );
 
-it.effect("ends a forwarded wait at the first piece that reports an open question", () =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const seen = yield* Ref.make<Seen>({
-        ...nothingSeen,
-        runtimeRequests: [{ status: "pending" }],
-      });
-      const linkSession = yield* Ref.make("");
-      const b = yield* serveBox(seen, linkSession);
-      const a = yield* makeLaptop;
-      yield* linkTo(a.links, b, "auto");
-      yield* Ref.set(linkSession, (yield* b.linkedSessions)[0]!.sessionId);
-
-      const waited = yield* a.call("thread:laptop-full", "t3_thread_wait", {
-        environmentId: box.environmentId,
-        threadId: boxThread,
-        timeoutMs: 600_000,
-      });
-
-      expect(waited.structuredContent).toMatchObject({ timedOut: true, needsInput: true });
-      const { waits } = yield* Ref.get(seen);
-      expect(waits).toHaveLength(1);
-      // A linked environment's follower re-waits in a loop, so B must not stop early for it.
-      expect(waits[0]).not.toHaveProperty("stopOnPendingRequest");
-    }),
-  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
-);
-
 it.effect("keeps a forwarded wait short and its retries scoped to the caller", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -509,15 +472,8 @@ it.effect("keeps a forwarded wait short and its retries scoped to the caller", (
         status: "completed",
         timedOut: false,
       });
-      // Three pieces of at most 50 s each, the later ones pinned to the run
-      // the first one found.
-      expect(
-        (yield* Ref.get(seen)).waits.map(({ timeoutMs, runId }) => [timeoutMs, runId]),
-      ).toEqual([
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, undefined],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-        [PeerForwarding.FORWARDED_WAIT_CHUNK_MS, boxRun],
-      ]);
+      // One capped piece, so the caller's MCP request returns before its client times out.
+      expect((yield* Ref.get(seen)).waits.map(({ timeoutMs }) => timeoutMs)).toEqual([45_000]);
 
       const send = (caller: string, clientRequestId: string) =>
         a.call(caller, "t3_thread_send", {

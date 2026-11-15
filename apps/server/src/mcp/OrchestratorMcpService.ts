@@ -109,6 +109,7 @@ import {
   runOutcome,
 } from "../orchestration-v2/RestartBackgroundNote.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import { placeholderThreadTitle } from "../orchestration-v2/placeholderThreadTitle.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
@@ -137,10 +138,11 @@ import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as PeerForwarding from "../peer/PeerForwarding.ts";
 import * as RemoteDelegation from "../peer/RemoteDelegation.ts";
 
-const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
-// Nothing is written while a task wait blocks, and Node fetch drops a silent call at 300 s.
-const DEFAULT_TASK_WAIT_TIMEOUT_MS = 4 * 60 * 1_000;
-const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
+// Return recoverable handles before common MCP client timeouts expire.
+const DEFAULT_WAIT_TIMEOUT_MS = 30_000;
+const MAX_WAIT_TIMEOUT_MS = 45_000;
+const DEFAULT_SECRET_REQUEST_TIMEOUT_MS = 10 * 60 * 1_000;
+const MAX_SECRET_REQUEST_TIMEOUT_MS = 60 * 60 * 1_000;
 const TASK_WAKE_EVENTS = [
   { thread: "parent", eventType: "subagent.updated" },
   { thread: "child", eventType: "run.updated" },
@@ -458,6 +460,8 @@ function taskStatusForRun(
   switch (run === undefined ? undefined : runOutcome(run)) {
     case "queued":
       return "queued";
+    case "starting":
+      return "starting";
     case "waiting":
       return "waiting";
     case "completed":
@@ -470,7 +474,6 @@ function taskStatusForRun(
     case "interrupted":
       return "interrupted";
     case "preparing":
-    case "starting":
     case "running":
     case undefined:
       return "running";
@@ -778,7 +781,7 @@ function threadTitle(input: {
   readonly index: number;
 }): string {
   const detail = input.title?.trim() || input.prompt?.trim();
-  if (!detail) return `${input.parentTitle} thread ${input.index + 1}`;
+  if (!detail) return placeholderThreadTitle(input.parentTitle, input.index);
   if (detail.length <= 80) return detail;
   let end = 77;
   const previous = detail.charCodeAt(end - 1);
@@ -865,11 +868,18 @@ function threadPullRequests(
 }
 
 // Awaited background work keeps a thread live after its turn ends, as auto-settle and the sidebar treat it.
+function threadStatus(
+  activeStatus: OrchestratorMcpThreadListItem["status"] | null | undefined,
+  settledStatus: OrchestratorMcpThreadListItem["status"],
+  pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"],
+) {
+  if (activeStatus != null) return activeStatus;
+  if (settledStatus === "failed") return settledStatus;
+  return backgroundWorkHoldsCompletion(pendingBackgroundTasks ?? []) ? "waiting" : settledStatus;
+}
+
 function listedThreadStatus(shell: OrchestrationV2ThreadShell) {
-  if (shell.activityRunStatus != null) return shell.activityRunStatus;
-  return backgroundWorkHoldsCompletion(shell.pendingBackgroundTasks ?? [])
-    ? "waiting"
-    : shell.status;
+  return threadStatus(shell.activityRunStatus, shell.status, shell.pendingBackgroundTasks);
 }
 
 function listItemFromShell(
@@ -897,6 +907,7 @@ function listItemFromShell(
     ...threadBackgroundWork(shell),
     parentThreadId: shell.lineage.parentThreadId,
     relationshipToParent: shell.lineage.relationshipToParent,
+    ...(shell.delegatedFrom == null ? {} : { delegatedFrom: shell.delegatedFrom }),
     itemCount: shell.visibleItemCount,
     createdAt: DateTime.formatIso(shell.createdAt),
     updatedAt: DateTime.formatIso(shell.updatedAt),
@@ -920,7 +931,7 @@ function threadDetail(
     link: threadLinkFor(scope, projection.thread.id, projection.thread.title),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
-    status: active?.status ?? latest?.status ?? "idle",
+    status: threadStatus(active?.status, latest?.status ?? "idle", shell.pendingBackgroundTasks),
     latestRunId: latest?.id ?? null,
     activeRunId: active?.id ?? null,
     providerInstanceId: projection.thread.modelSelection.instanceId,
@@ -948,6 +959,9 @@ function threadDetail(
     worktreePath: projection.thread.worktreePath,
     parentThreadId: projection.thread.lineage.parentThreadId,
     relationshipToParent: projection.thread.lineage.relationshipToParent,
+    ...(projection.thread.delegatedFrom == null
+      ? {}
+      : { delegatedFrom: projection.thread.delegatedFrom }),
     runCount: projection.runs.length,
     itemCount,
     pendingRequestCount: projection.runtimeRequests.filter(
@@ -1670,6 +1684,7 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError(threadManagementFailure)));
     const workState =
       task.result !== null ? "result_available" : heldForRestart ? "working" : taskWorkState;
+    const runStatus = taskStatusForRun(taskResultRun ?? childRun);
     const status =
       task.result !== null
         ? taskStatusForRun(
@@ -1682,12 +1697,11 @@ const make = Effect.gen(function* () {
           )
         : workState === "result_available"
           ? // A cancelled task's finished turn settles it as interrupted.
-            task.cancelledRunId !== undefined &&
-            taskStatusForRun(taskResultRun ?? childRun) === "completed"
+            task.cancelledRunId !== undefined && runStatus === "completed"
             ? "interrupted"
-            : taskStatusForRun(taskResultRun ?? childRun)
-          : taskStatusForRun(taskResultRun ?? childRun) === "queued"
-            ? "queued"
+            : runStatus
+          : runStatus === "queued" || runStatus === "starting"
+            ? runStatus
             : "running";
     const derivedResult =
       task.result !== null
@@ -1821,7 +1835,7 @@ const make = Effect.gen(function* () {
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
     const timeoutMs = Math.min(
       MAX_WAIT_TIMEOUT_MS,
-      Math.max(1, requestedTimeoutMs ?? DEFAULT_TASK_WAIT_TIMEOUT_MS),
+      Math.max(1, requestedTimeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
     );
     const upgradeWake = threadManagement
       .dispatch({
@@ -1878,7 +1892,9 @@ const make = Effect.gen(function* () {
   ): Effect.fn.Return<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure> {
     const status: OrchestratorMcpDelegateTaskResult["status"] =
       task.result === null
-        ? "running"
+        ? (yield* remoteDelegation.runStatus(scope, task)) === "starting"
+          ? "starting"
+          : "running"
         : task.status === "completed" ||
             task.status === "failed" ||
             task.status === "cancelled" ||
@@ -2073,9 +2089,8 @@ const make = Effect.gen(function* () {
     interactionModeRank(modes.interactionMode) <= interactionModeRank(limits.interactionMode);
 
   /**
-   * Its webhook URL starts runs, so only a caller that may start one sees it: never a client
-   * approved for read-only access, and a thread caller only with a live turn, at modes covering
-   * every mode the task runs at.
+   * Creation returns a webhook URL only to callers allowed to start its runs: never a read-only
+   * client, and a thread caller only with a live turn at modes covering every mode the task runs at.
    */
   const summarizeScheduledTask = Effect.fn("OrchestratorMcpService.summarizeScheduledTask")(
     function* (
@@ -2152,9 +2167,11 @@ const make = Effect.gen(function* () {
       }
       const modelSelection =
         parent?.thread.modelSelection ?? (yield* projectDefaultModelSelection(project));
-      const derivedTitle = input.prompt.split("\n")[0]?.trim() ?? "";
-      const title =
-        input.title ?? (derivedTitle.length > 0 ? derivedTitle.slice(0, 80) : "Scheduled task");
+      // Never end on a lone high surrogate, which renders as a broken character.
+      const derivedTitle = (input.prompt.split("\n")[0]?.trim() ?? "")
+        .slice(0, 80)
+        .replace(/[\uD800-\uDBFF]$/, "");
+      const title = input.title ?? (derivedTitle.length > 0 ? derivedTitle : "Scheduled task");
       const upsertInput: ScheduledTaskUpsertInput = {
         title,
         prompt: input.prompt,
@@ -2196,7 +2213,7 @@ const make = Effect.gen(function* () {
     }),
     listScheduledTasks: Effect.fn("OrchestratorMcpService.listScheduledTasks")(
       function* (scope, input) {
-        const { parent, limits } = yield* loadCaller(scope, ["runs"]);
+        const { parent } = yield* loadCaller(scope, []);
         const projectId = input.projectId ?? parent?.thread.projectId;
         const { tasks } = yield* scheduledTasks
           .list()
@@ -2206,10 +2223,13 @@ const make = Effect.gen(function* () {
             ),
           );
         return {
-          tasks: yield* Effect.forEach(
-            tasks.filter((task) => projectId === undefined || task.projectId === projectId),
-            (task) => summarizeScheduledTask(scope, { parent, limits }, task),
-          ),
+          tasks: tasks
+            .filter(
+              (task) =>
+                (projectId === undefined || task.projectId === projectId) &&
+                (input.scheduledTaskId === undefined || task.id === input.scheduledTaskId),
+            )
+            .map((task) => scheduledTaskSummary(task, false)),
         };
       },
     ),
@@ -2286,7 +2306,7 @@ const make = Effect.gen(function* () {
               failure("orchestration_error", `Could not update scheduled task: ${error.message}`),
             ),
           );
-        return yield* summarizeScheduledTask(scope, { parent, limits }, task);
+        return scheduledTaskSummary(task, false);
       },
     ),
     deleteScheduledTask: Effect.fn("OrchestratorMcpService.deleteScheduledTask")(
@@ -2414,7 +2434,10 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.timeoutOption(
           Duration.millis(
-            Math.min(input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS, MAX_WAIT_TIMEOUT_MS),
+            Math.min(
+              input.timeoutMs ?? DEFAULT_SECRET_REQUEST_TIMEOUT_MS,
+              MAX_SECRET_REQUEST_TIMEOUT_MS,
+            ),
           ),
         ),
         Effect.onExit((exit) => (Exit.isSuccess(exit) ? Effect.void : closeCard)),
@@ -2662,7 +2685,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to create delegated task: ${errorMessage(error)}`,
+                  `Unable to create delegated task: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                 ),
           ),
         );
@@ -2770,7 +2793,7 @@ const make = Effect.gen(function* () {
                 Effect.mapError((error) =>
                   failure(
                     "orchestration_error",
-                    `Unable to dispose delegated task ${input.taskId} completion delivery: ${errorMessage(error)}`,
+                    `Unable to dispose delegated task ${input.taskId} completion delivery: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                   ),
                 ),
               );
@@ -2801,7 +2824,7 @@ const make = Effect.gen(function* () {
             Effect.mapError((error) =>
               failure(
                 "task_not_cancellable",
-                `Unable to stop delegated task ${input.taskId}: ${errorMessage(error)}`,
+                `Unable to stop delegated task ${input.taskId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
               ),
             ),
           );
@@ -2983,7 +3006,20 @@ const make = Effect.gen(function* () {
                 title: request.title,
                 index,
               });
-              yield* threadManagement
+              const initialMessage =
+                request.prompt === undefined
+                  ? undefined
+                  : {
+                      senderThreadId: scope.thread.threadId,
+                      messageId: stableMessageId({
+                        scope,
+                        requestKey: key,
+                        index,
+                      }),
+                      text: request.prompt,
+                      attachments: [],
+                    };
+              const created = yield* threadManagement
                 .dispatch({
                   type: "thread.create",
                   createdBy: "agent",
@@ -3000,12 +3036,13 @@ const make = Effect.gen(function* () {
                   ...(parent.thread.linkOrigin === undefined
                     ? {}
                     : { linkOrigin: parent.thread.linkOrigin }),
+                  ...(initialMessage === undefined ? {} : { initialMessage }),
                 })
                 .pipe(
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to create thread ${index + 1}: ${errorMessage(error)}`,
+                      `Unable to create thread ${index + 1}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -3013,9 +3050,14 @@ const make = Effect.gen(function* () {
               const resolvedModelSelection = (yield* threadManagement
                 .getThreadRecords(threadId, [])
                 .pipe(Effect.mapError(threadManagementFailure))).thread.modelSelection;
-              if (request.prompt !== undefined) {
+              // A replayed creation that carried no prompt has no run yet.
+              if (
+                initialMessage !== undefined &&
+                !created.storedEvents.some(({ event }) => event.type === "run.created")
+              ) {
                 yield* threadManagement
                   .dispatch({
+                    ...initialMessage,
                     type: "message.dispatch",
                     createdBy: "agent",
                     creationSource: "mcp",
@@ -3026,14 +3068,6 @@ const make = Effect.gen(function* () {
                       index,
                     }),
                     threadId,
-                    senderThreadId: scope.thread.threadId,
-                    messageId: stableMessageId({
-                      scope,
-                      requestKey: key,
-                      index,
-                    }),
-                    text: request.prompt,
-                    attachments: [],
                     modelSelection: resolvedModelSelection,
                     dispatchMode: { type: "start_immediately" },
                   })
@@ -3043,7 +3077,7 @@ const make = Effect.gen(function* () {
                         ? threadManagementFailure(error)
                         : failure(
                             "orchestration_error",
-                            `Unable to start thread ${index + 1}: ${errorMessage(error)}`,
+                            `Unable to start thread ${index + 1}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                           ),
                     ),
                   );
@@ -3069,7 +3103,7 @@ const make = Effect.gen(function* () {
                   Effect.mapError((error) =>
                     failure(
                       "orchestration_error",
-                      `Unable to record thread ${index + 1} in the parent timeline: ${errorMessage(error)}`,
+                      `Unable to record thread ${index + 1} in the parent timeline: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                     ),
                   ),
                 );
@@ -3476,7 +3510,7 @@ const make = Effect.gen(function* () {
               ? threadManagementFailure(error)
               : failure(
                   "orchestration_error",
-                  `Unable to interrupt thread ${input.threadId}: ${errorMessage(error)}`,
+                  `Unable to interrupt thread ${input.threadId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                 ),
           ),
         );

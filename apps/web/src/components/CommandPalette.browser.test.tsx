@@ -1,3 +1,4 @@
+import { threadKey } from "@t3tools/client-runtime/state/entities";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -57,14 +58,16 @@ vi.mock(import("../state/environments"), async (original) => {
 const entities = vi.hoisted(() => ({
   projects: [] as ReadonlyArray<Project>,
   threads: [] as ReadonlyArray<Thread>,
+  delegatedUnderParent: new Set<string>() as ReadonlySet<string>,
 }));
 vi.mock("../state/entities", async (original) => ({
   ...(await original<typeof import("../state/entities")>()),
   useProjects: () => entities.projects,
   useVisibleThreadShells: () => entities.threads,
+  useDelegatedUnderParent: () => entities.delegatedUnderParent,
 }));
 
-function setup(seed: { projects?: ReadonlyArray<Project>; threads?: ReadonlyArray<Thread> } = {}) {
+function setup(seed: Partial<typeof entities> = {}) {
   state.environments = false;
   // Earlier browser test files share this origin's localStorage; a remembered project
   // that is not listed here hides the default "New thread in <project>" row.
@@ -72,6 +75,7 @@ function setup(seed: { projects?: ReadonlyArray<Project>; threads?: ReadonlyArra
   useCommandPaletteStore.setState(useCommandPaletteStore.getInitialState(), true);
   entities.projects = seed.projects ?? [];
   entities.threads = seed.threads ?? [];
+  entities.delegatedUnderParent = seed.delegatedUnderParent ?? new Set();
 }
 
 describe("CommandPalette open intents", () => {
@@ -190,11 +194,13 @@ describe("CommandPalette open intents", () => {
       .toBeInTheDocument();
   });
 
-  it("opens a searched project's latest listed thread, not a newer subagent", async () => {
+  it("opens a searched project's latest listed thread, not a newer subagent or delegated task", async () => {
     const environmentId = EnvironmentId.make("local");
     const projectId = ProjectId.make("acme");
     const parentId = ThreadId.make("parent");
+    const delegatedId = ThreadId.make("delegated");
     setup({
+      delegatedUnderParent: new Set([threadKey({ environmentId, threadId: delegatedId })]),
       projects: [
         {
           id: projectId,
@@ -225,6 +231,12 @@ describe("CommandPalette open intents", () => {
             parentThreadId: parentId,
             relationshipToParent: "subagent",
           },
+        }),
+        makeThreadFixture({
+          id: delegatedId,
+          environmentId,
+          projectId,
+          latestUserMessageAt: "2026-03-04T00:00:00.000Z",
         }),
       ],
     });
