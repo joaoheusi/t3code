@@ -53,6 +53,8 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [98, "QueuedTurnInputIndexJsonValid"],
       [99, "ProviderTurnAttemptIndex"],
       [100, "TurnItemMessageOrdinalIndex"],
+      [101, "TurnItemInlineWorkOutput"],
+      [102, "RepairStaleTitleRegeneration"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(
