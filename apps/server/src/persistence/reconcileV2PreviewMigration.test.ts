@@ -80,6 +80,8 @@ describe("V2 preview upgrade", () => {
         [98, "QueuedTurnInputIndexJsonValid"],
         [99, "ProviderTurnAttemptIndex"],
         [100, "TurnItemMessageOrdinalIndex"],
+        [101, "TurnItemInlineWorkOutput"],
+        [102, "RepairStaleTitleRegeneration"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -203,6 +205,8 @@ describe("V2 preview upgrade", () => {
         [98, "QueuedTurnInputIndexJsonValid"],
         [99, "ProviderTurnAttemptIndex"],
         [100, "TurnItemMessageOrdinalIndex"],
+        [101, "TurnItemInlineWorkOutput"],
+        [102, "RepairStaleTitleRegeneration"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
