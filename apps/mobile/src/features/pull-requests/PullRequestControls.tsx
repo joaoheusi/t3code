@@ -1,9 +1,11 @@
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 import Animated from "react-native-reanimated";
 import { PR_ROW_LAYOUT } from "./pullRequestAnimations";
 import { useNavigation } from "@react-navigation/native";
 import type { PullRequestDetail } from "@t3tools/contracts";
 import type { MenuAction } from "@react-native-menu/menu";
+import { useGT } from "gt-react-native";
 import type { ReactNode } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -114,6 +116,7 @@ export function PullRequestActionToolbar(props: {
   readonly onHeightChange?: (height: number) => void;
 }) {
   const navigation = useNavigation();
+  const gt = useGT();
   const { draft } = usePullRequestReviewDraft(props.params);
   const { themeVariables: colors } = useAppearancePreferences();
   const insets = useSafeAreaInsets();
@@ -125,11 +128,19 @@ export function PullRequestActionToolbar(props: {
   const pendingReview = canReview && draft.comments.length > 0;
   const showAgentControls = agent.canAsk || !permissions.connected;
   const canOpenThread = agent.threads.length > 0 || showAgentControls;
-  const { shortLabel } = sourceControlClients.get(
-    (props.pr ?? props.params.initialSummary)?.provider,
-  ).changeRequest;
-  const threadLabel = agent.threads.length ? "Continue thread" : `Work on ${shortLabel}`;
-  const primaryLabel = pendingReview ? `Submit review · ${draft.comments.length}` : threadLabel;
+  const term = changeRequestTermKind(
+    sourceControlClients.get((props.pr ?? props.params.initialSummary)?.provider).changeRequest,
+  );
+  const threadLabel = agent.threads.length
+    ? gt("Continue thread")
+    : gt("Work on {term, select, mr {MR} cr {change request} other {PR}}", { term });
+  const primaryLabel = pendingReview
+    ? gt("Submit review · {count}", { count: draft.comments.length })
+    : threadLabel;
+  const agentActionsLabel = gt(
+    "{term, select, mr {MR} cr {change request} other {PR}} agent actions",
+    { term },
+  );
   const chooseThread = agent.chooseThread;
   // Branch updates live on the Branch row, where the stale base is reported.
   const agentActions = agent.actions.filter(
@@ -165,14 +176,14 @@ export function PullRequestActionToolbar(props: {
           <View className="flex-row items-center gap-2">
             {showAgentControls ? (
               <Menu
-                title="AI helpers"
+                title={gt("AI helpers")}
                 actions={agentActions.map((action) => agent.menuAction(action.task))}
                 onPressAction={({ nativeEvent }) => agent.select(nativeEvent.event)}
               >
                 <View pointerEvents="none">
                   <IconButton
                     icon="ellipsis.bubble"
-                    accessibilityLabel={`${shortLabel} agent actions`}
+                    accessibilityLabel={agentActionsLabel}
                     disabled={agent.disabled}
                   />
                 </View>
@@ -182,7 +193,7 @@ export function PullRequestActionToolbar(props: {
               <View className="min-w-0 shrink">
                 {!pendingReview && chooseThread ? (
                   <Menu
-                    title="Open thread"
+                    title={gt("Open thread")}
                     actions={threadMenuItems}
                     onPressAction={({ nativeEvent }) => agent.select(nativeEvent.event)}
                   >
@@ -193,7 +204,11 @@ export function PullRequestActionToolbar(props: {
                 )}
               </View>
             ) : null}
-            <IconButton icon="file.diff" accessibilityLabel="Changed files" onPress={openFiles} />
+            <IconButton
+              icon="file.diff"
+              accessibilityLabel={gt("Changed files")}
+              onPress={openFiles}
+            />
           </View>
         </Toolbar>
       </View>
@@ -243,8 +258,8 @@ export function PullRequestActionToolbar(props: {
     <Toolbar.Menu
       identifier="pull-request-agent"
       icon="ellipsis.bubble"
-      title="AI helpers"
-      accessibilityLabel={`${shortLabel} agent actions`}
+      title={gt("AI helpers")}
+      accessibilityLabel={agentActionsLabel}
       disabled={agent.disabled}
       separateBackground
     >
@@ -270,7 +285,7 @@ export function PullRequestActionToolbar(props: {
     <Toolbar.Button
       identifier="workspace-trailing-action"
       icon={{ type: "image", source: require("../../../assets/icons/file-diff.png") }}
-      accessibilityLabel="Changed files"
+      accessibilityLabel={gt("Changed files")}
       onPress={openFiles}
       separateBackground
     />

@@ -1,3 +1,4 @@
+import { msg, T, useGT, useMessages } from "gt-react-native";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { LegendList } from "@legendapp/list/react-native";
 import { useNavigation } from "@react-navigation/native";
@@ -33,9 +34,12 @@ import {
 import { moveDraftToThread, unbindDraftFromThread } from "./scheduledTaskDraft";
 
 function MissingTaskDraft() {
+  const gt = useGT();
   return (
-    <SettingsScreen title="Scheduled task">
-      <Text className="p-5 text-base text-foreground-muted">Open a scheduled task form first.</Text>
+    <SettingsScreen title={gt("Scheduled task")}>
+      <Text className="p-5 text-base text-foreground-muted">
+        <T>Open a scheduled task form first.</T>
+      </Text>
     </SettingsScreen>
   );
 }
@@ -126,6 +130,7 @@ export function ScheduledTaskModelPickerRouteScreen() {
 }
 
 export function ScheduledTaskRepositoriesPickerRouteScreen() {
+  const gt = useGT();
   const { editor, setEditor } = useScheduledTaskEditor();
   const projects = useProjects();
   const project =
@@ -138,8 +143,8 @@ export function ScheduledTaskRepositoriesPickerRouteScreen() {
   if (!editor) return <MissingTaskDraft />;
 
   return (
-    <SettingsScreen title="Repositories">
-      <SettingsSection title="Each starts from its default branch">
+    <SettingsScreen title={gt("Repositories")}>
+      <SettingsSection title={gt("Each starts from its default branch")}>
         {choice?.error ? (
           <Pressable
             accessibilityRole="button"
@@ -147,17 +152,18 @@ export function ScheduledTaskRepositoriesPickerRouteScreen() {
             className="min-h-14 justify-center gap-1 px-4 py-3 active:opacity-70"
           >
             <Text textRole="body" className="text-foreground">
-              Couldn't load repositories
+              {gt("Couldn't load repositories")}
             </Text>
             <Text textRole="footnote" className="text-foreground-muted">
-              {choice.error} Tap to retry.
+              {gt("{error} Tap to retry.", { error: choice.error })}
             </Text>
           </Pressable>
         ) : null}
         {choice && !choice.loading && !choice.error && choice.options.length === 0 ? (
           <Text textRole="body" className="px-4 py-3 text-foreground-muted">
-            This folder holds no repositories. Run the task in the project checkout or a specific
-            checkout instead.
+            {gt(
+              "This folder holds no repositories. Run the task in the project checkout or a specific checkout instead.",
+            )}
           </Text>
         ) : null}
         {choice?.options.map(({ path, label }, index) => {
@@ -205,6 +211,7 @@ export function ScheduledTaskRepositoriesPickerRouteScreen() {
 }
 
 export function ScheduledTaskBranchPickerRouteScreen() {
+  const gt = useGT();
   const navigation = useNavigation();
   const { editor, setEditor } = useScheduledTaskEditor();
   const projects = useProjects();
@@ -228,7 +235,7 @@ export function ScheduledTaskBranchPickerRouteScreen() {
 
   return (
     <BranchPickerScreen
-      title="Base branch"
+      title={gt("Base branch")}
       project={project}
       branches={visibleBranches}
       selectedBranchName={editor.draft.baseRef}
@@ -237,7 +244,7 @@ export function ScheduledTaskBranchPickerRouteScreen() {
       loading={
         query.trim() !== debouncedQuery.trim() || (branches.isPending && branches.data === null)
       }
-      error={project ? branches.error : "This project is no longer available."}
+      error={project ? branches.error : gt("This project is no longer available.")}
       refreshing={branches.isFetchingNextPage}
       hasMore={branches.data?.nextCursor != null}
       onRefresh={branches.refresh}
@@ -265,9 +272,11 @@ export function ScheduledTaskBranchPickerRouteScreen() {
   );
 }
 
-const THREAD_SEARCH_PLACEHOLDER = "Search threads, including older ones";
+const THREAD_SEARCH_PLACEHOLDER = msg("Search threads, including older ones");
 
 export function ScheduledTaskThreadPickerRouteScreen() {
+  const gt = useGT();
+  const m = useMessages();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { editor, setEditor } = useScheduledTaskEditor();
@@ -280,9 +289,9 @@ export function ScheduledTaskThreadPickerRouteScreen() {
   const search = {
     value: query,
     onChangeText: setQuery,
-    placeholder: THREAD_SEARCH_PLACEHOLDER,
-    accessibilityLabel: "Search threads",
-    clearAccessibilityLabel: "Clear thread search",
+    placeholder: m(THREAD_SEARCH_PLACEHOLDER),
+    accessibilityLabel: gt("Search threads"),
+    clearAccessibilityLabel: gt("Clear thread search"),
     mode: "inline" as const,
     compactToolbar: true,
   };
@@ -298,7 +307,9 @@ export function ScheduledTaskThreadPickerRouteScreen() {
 
   const needle = query.trim().toLocaleLowerCase();
   const rows = [
-    ...(needle ? [] : [{ key: "new-thread", title: NEW_THREAD_DESTINATION_LABEL, thread: null }]),
+    ...(needle
+      ? []
+      : [{ key: "new-thread", title: m(NEW_THREAD_DESTINATION_LABEL), thread: null }]),
     ...(threadId !== null && currentLabel.toLocaleLowerCase().includes(needle)
       ? [{ key: threadId, title: currentLabel, thread: null }]
       : []),
@@ -315,14 +326,14 @@ export function ScheduledTaskThreadPickerRouteScreen() {
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((thread) => ({
         key: thread.id,
-        title: thread.title.trim() || "Untitled thread",
+        title: thread.title.trim() || gt("Untitled thread"),
         thread,
       })),
   ];
   const selectedKey = threadId ?? (editor.draft.threadMode === "new_thread" ? "new-thread" : null);
 
   return (
-    <SettingsScreen title="Destination" search={search}>
+    <SettingsScreen title={gt("Destination")} search={search}>
       <LegendList
         renderScrollComponent={NativeScrollView}
         data={rows}
@@ -344,7 +355,9 @@ export function ScheduledTaskThreadPickerRouteScreen() {
             : Math.max(insets.bottom, 16) + 16,
         }}
         ListEmptyComponent={
-          <Text className="p-5 text-center text-sm text-foreground-muted">No matching threads</Text>
+          <Text className="p-5 text-center text-sm text-foreground-muted">
+            <T>No matching threads</T>
+          </Text>
         }
         renderItem={({ item, index }) => (
           <SelectionRow

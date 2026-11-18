@@ -347,7 +347,6 @@ export function RepositoryPullRequestRows(props: {
       status={indicator}
       project={project}
       label={`#${number}${pr?.title.trim() ? `: ${pr.title}` : ""}`}
-      openAriaLabel={url}
       onOpen={(event) => openPrLink(event, url)}
       onActed={status.refresh}
     />

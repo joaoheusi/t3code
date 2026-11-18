@@ -49,7 +49,7 @@ import { Spinner } from "../components/ui/spinner";
 import { Toggle, ToggleGroup } from "../components/ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { toastManager } from "../components/ui/toast";
-import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { namedClipboardTarget, writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { useEnvironmentSettings } from "../hooks/useSettings";
 import { shortcutLabelForCommand } from "../keybindings";
 import { primaryServerKeybindingsAtom } from "../state/server";
@@ -857,7 +857,7 @@ export function useRepositoryActions(
         .ensureTerminal(threadRef, terminalId, { open: true, active: true });
     },
     copyPath: async (binding: WorkspaceBinding) => {
-      if (await writeTextToClipboard(binding.checkoutPath, "repository path"))
+      if (await writeTextToClipboard(binding.checkoutPath, namedClipboardTarget("repository path")))
         toastManager.add({
           type: "success",
           title: "Path copied",
