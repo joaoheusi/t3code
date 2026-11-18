@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 102 }, (_, index) => index + 1),
+        Array.from({ length: 104 }, (_, index) => index + 1),
       );
     }),
   );
@@ -74,6 +74,8 @@ layer("055_OrchestrationV2", (it) => {
         [100, "TurnItemMessageOrdinalIndex"],
         [101, "TurnItemInlineWorkOutput"],
         [102, "RepairStaleTitleRegeneration"],
+        [103, "IssueTrackerBindings"],
+        [104, "ActiveShellIndexIndexes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -142,6 +144,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 100, name: "TurnItemMessageOrdinalIndex" },
         { migration_id: 101, name: "TurnItemInlineWorkOutput" },
         { migration_id: 102, name: "RepairStaleTitleRegeneration" },
+        { migration_id: 103, name: "IssueTrackerBindings" },
+        { migration_id: 104, name: "ActiveShellIndexIndexes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -260,6 +264,8 @@ layer("055_OrchestrationV2", (it) => {
         [100, "TurnItemMessageOrdinalIndex"],
         [101, "TurnItemInlineWorkOutput"],
         [102, "RepairStaleTitleRegeneration"],
+        [103, "IssueTrackerBindings"],
+        [104, "ActiveShellIndexIndexes"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

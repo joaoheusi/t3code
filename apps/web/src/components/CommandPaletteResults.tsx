@@ -4,6 +4,7 @@ import { type ResolvedKeybindingsConfig } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ChevronRightIcon, SquareCheckIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, type RefObject, useState } from "react";
+import { T, useGT } from "gt-react";
 import { cn } from "~/lib/utils";
 import { textDirection } from "~/textDirection";
 import { shortcutLabelForCommand } from "../keybindings";
@@ -40,9 +41,11 @@ function CommandPaletteEmptyState(props: { emptyStateMessage?: string; isActions
   return (
     <div className="py-10 text-center text-sm text-muted-foreground">
       {props.emptyStateMessage ??
-        (props.isActionsOnly
-          ? "No matching actions."
-          : "No matching commands, projects, or threads.")}
+        (props.isActionsOnly ? (
+          <T>No matching actions.</T>
+        ) : (
+          <T>No matching commands, projects, or threads.</T>
+        ))}
     </div>
   );
 }
@@ -207,6 +210,7 @@ function ThreadRowContext({
 function DisabledCommandPaletteResultRow(props: {
   item: CommandPaletteActionItem | CommandPaletteSubmenuItem;
 }) {
+  const gt = useGT();
   return (
     <div
       aria-disabled
@@ -214,9 +218,15 @@ function DisabledCommandPaletteResultRow(props: {
     >
       {props.item.checked !== undefined ? (
         props.item.checked ? (
-          <SquareCheckIcon aria-label="Selected" className="size-4 shrink-0 text-primary" />
+          <SquareCheckIcon
+            aria-label={gt("Selected", { $context: "checkbox state" })}
+            className="size-4 shrink-0 text-primary"
+          />
         ) : (
-          <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
+          <SquareIcon
+            aria-label={gt("Not selected", { $context: "checkbox state" })}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
         )
       ) : null}
       <CommandPaletteTitleIcon>
@@ -257,6 +267,7 @@ function CommandPaletteResultRow(props: {
   keybindings: ResolvedKeybindingsConfig;
   onExecuteItem: (item: CommandPaletteActionItem | CommandPaletteSubmenuItem) => void;
 }) {
+  const gt = useGT();
   const shortcutLabel = props.item.shortcutCommand
     ? shortcutLabelForCommand(props.keybindings, props.item.shortcutCommand)
     : null;
@@ -286,9 +297,15 @@ function CommandPaletteResultRow(props: {
     >
       {props.item.checked !== undefined ? (
         props.item.checked ? (
-          <SquareCheckIcon aria-label="Selected" className="size-4 shrink-0 text-primary" />
+          <SquareCheckIcon
+            aria-label={gt("Selected", { $context: "checkbox state" })}
+            className="size-4 shrink-0 text-primary"
+          />
         ) : (
-          <SquareIcon aria-label="Not selected" className="size-4 shrink-0 text-muted-foreground" />
+          <SquareIcon
+            aria-label={gt("Not selected", { $context: "checkbox state" })}
+            className="size-4 shrink-0 text-muted-foreground"
+          />
         )
       ) : null}
       <CommandPaletteTitleIcon>{props.item.icon}</CommandPaletteTitleIcon>

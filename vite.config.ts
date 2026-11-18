@@ -583,6 +583,40 @@ export default defineConfig({
           ],
         },
       },
+      // Registered always so a disable comment for intentional English counts as used.
+      // `vp run i18n:untranslated` counts what it flags.
+      {
+        files: ["apps/web/src/**", "apps/mobile/src/**", "packages/client-runtime/src/**"],
+        excludeFiles: [
+          "**/*.{test,spec,bench}.{ts,tsx}",
+          "**/{test,testkit,testing,fixtures}/**",
+          "**/*.test-fixtures.ts",
+          "**/{test-fixtures,*TestFixtures}.ts",
+          "apps/mobile/src/features/development/**",
+          "packages/client-runtime/src/rpc/**",
+        ],
+        rules: { "t3code/no-untranslated-copy": "error" },
+      },
+      {
+        // Fork-only features (quick actions, multi-repository workspaces) predate upstream's
+        // translation pass. Remove an entry once its strings are wrapped.
+        files: [
+          "apps/web/src/quickActions/**",
+          "apps/web/src/workspace/**",
+          "apps/web/src/components/settings/QuickActionsSettings.tsx",
+          "apps/web/src/components/settings/ScheduledTaskRepositories.tsx",
+          "apps/mobile/src/features/threads/MobileQuickActions.tsx",
+          "apps/mobile/src/features/threads/MobileRepositories.tsx",
+          "apps/mobile/src/features/threads/MobileGitQuickAction.tsx",
+          "apps/mobile/src/features/threads/MobileMergeQuickAction.tsx",
+          "apps/mobile/src/features/threads/useMobileRepositories.ts",
+          "apps/mobile/src/features/connection/ConnectionLogButton.tsx",
+          "packages/client-runtime/src/quickActionGit.ts",
+          "packages/client-runtime/src/quickActionRunner.ts",
+          "packages/client-runtime/src/pullRequestActions.ts",
+        ],
+        rules: { "t3code/no-untranslated-copy": "off" },
+      },
       {
         // React Compiler owns memoization; upstream rules do not ban redundant useMemo/useCallback.
         files: ["apps/web/src/**/*.{ts,tsx}"],
@@ -647,6 +681,7 @@ export default defineConfig({
           "apps/mobile/src/features/review/useNativeReviewDiffBridge.ts",
           "apps/mobile/src/features/settings/SettingsEnvironmentsRouteScreen.tsx",
           "apps/mobile/src/features/threads/ThreadComposer.tsx",
+          "apps/mobile/src/components/ComposerSurface.tsx",
           "apps/mobile/src/features/threads/ThreadFeed.tsx",
           "apps/mobile/src/features/threads/ThreadQueueControl.tsx",
           "apps/mobile/src/features/review/ReviewCommentCard.tsx",

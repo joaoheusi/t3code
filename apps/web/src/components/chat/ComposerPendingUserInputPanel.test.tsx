@@ -2,7 +2,11 @@ import { EnvironmentId, RuntimeRequestId, ThreadId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
+import { GTProvider, initializeGT } from "gt-react";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
+
+// The app initializes GT at startup; components using its hooks need the same here.
+initializeGT({ defaultLocale: "en", locales: ["en"] });
 
 const threadRef = { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("thread") };
 import type { PendingUserInput } from "../../session-logic";
@@ -28,18 +32,20 @@ const prompt: PendingUserInput = {
 
 function renderPanel(pendingUserInput: PendingUserInput = prompt) {
   return renderToStaticMarkup(
-    <ComposerPendingUserInputPanel
-      pendingUserInputs={[pendingUserInput]}
-      cwd="/repo"
-      threadRef={threadRef}
-      respondingRequestIds={[]}
-      answers={{}}
-      questionIndex={0}
-      onToggleOption={() => {}}
-      onAdvance={() => {}}
-      onPrevious={() => {}}
-      onDismiss={() => {}}
-    />,
+    <GTProvider locale="en" translations={{}}>
+      <ComposerPendingUserInputPanel
+        pendingUserInputs={[pendingUserInput]}
+        cwd="/repo"
+        threadRef={threadRef}
+        respondingRequestIds={[]}
+        answers={{}}
+        questionIndex={0}
+        onToggleOption={() => {}}
+        onAdvance={() => {}}
+        onPrevious={() => {}}
+        onDismiss={() => {}}
+      />
+    </GTProvider>,
   );
 }
 
