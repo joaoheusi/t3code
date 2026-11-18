@@ -32,7 +32,7 @@ const prompt: PendingUserInput = {
 
 function renderPanel(pendingUserInput: PendingUserInput = prompt) {
   return renderToStaticMarkup(
-    <GTProvider locale="en">
+    <GTProvider locale="en" translations={{}}>
       <ComposerPendingUserInputPanel
         pendingUserInputs={[pendingUserInput]}
         cwd="/repo"
