@@ -172,7 +172,7 @@ export function ThreadDetailsPrRow({
     checks: detail?.checks ?? [],
   });
 
-  const { actionPending, perform } = usePullRequestActionRunner({
+  const { actionPending, pendingAction, perform } = usePullRequestActionRunner({
     environmentId,
     reference,
     terminology,
@@ -193,7 +193,10 @@ export function ThreadDetailsPrRow({
   );
   const [confirmingMerge, setConfirmingMerge] = useState(false);
 
-  const rowAction = resolveThreadPanelPullRequestAction(detail);
+  const rowAction =
+    pendingAction === "ready" || pendingAction === "merge"
+      ? pendingAction
+      : resolveThreadPanelPullRequestAction(detail);
   if (confirmingMerge && rowAction !== "merge") {
     setConfirmingMerge(false);
   }
