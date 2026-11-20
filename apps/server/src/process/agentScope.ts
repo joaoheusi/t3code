@@ -36,13 +36,14 @@ export function ownedAgentSlice(stateDir: string): string {
 const GiB = 1024 ** 3;
 
 /**
- * Agents leave about 6 GB free before throttling and 4 GB before a kill, so the server, sshd,
- * and tailscaled keep working; small machines still give agents half of RAM, then three quarters.
+ * Agents leave about 6 GB free before throttling and 4 GB before an OOM kill (at
+ * least half and three quarters of RAM go to agents) so the server, sshd, and tailscaled
+ * keep working. Without swap, MemoryHigh stalls every agent and never reaches the kill.
  * Swap is capped too, since MemoryMax counts RAM only and unlimited swap keeps the slice throttled.
  */
-function agentSliceMemoryLimits(totalBytes: number) {
+function agentSliceMemoryLimits(totalBytes: number, hasSwap: boolean) {
   return {
-    high: Math.max(totalBytes - 6 * GiB, Math.floor(totalBytes / 2)),
+    high: hasSwap ? Math.max(totalBytes - 6 * GiB, Math.floor(totalBytes / 2)) : "infinity",
     max: Math.max(totalBytes - 4 * GiB, Math.floor(totalBytes * 0.75)),
     swapMax: 2 * GiB,
   };
@@ -204,13 +205,20 @@ export const make = Effect.gen(function* () {
       });
       // VMs and containers can resize RAM live, so each launch re-checks the total
       // the limits came from. A failed update is retried by the next launch.
+      // An unreadable meminfo keeps the throttle, as before swap was checked.
+      const readHasSwap = fileSystem.readFileString("/proc/meminfo").pipe(
+        Effect.map((text) => /^SwapTotal:\s*0 kB$/m.exec(text) === null),
+        Effect.orElseSucceed(() => true),
+      );
       let appliedTotal: number | undefined;
+      let appliedHasSwap: boolean | undefined;
       const memoryLimitsLock = yield* Semaphore.make(1);
       const applyMemoryLimits = memoryLimitsLock.withPermits(1)(
         Effect.gen(function* () {
           const total = NodeOS.totalmem();
-          if (total === appliedTotal) return;
-          const limits = agentSliceMemoryLimits(total);
+          const hasSwap = yield* readHasSwap;
+          if (total === appliedTotal && hasSwap === appliedHasSwap) return;
+          const limits = agentSliceMemoryLimits(total, hasSwap);
           const applied = yield* setProperties(AGENT_SLICE, [
             `MemoryHigh=${limits.high}`,
             `MemoryMax=${limits.max}`,
@@ -226,13 +234,14 @@ export const make = Effect.gen(function* () {
             });
           }
           appliedTotal = total;
+          appliedHasSwap = hasSwap;
         }),
       );
       yield* applyMemoryLimits;
       yield* setProperties(AGENTS_PARENT_SLICE, AGENTS_PARENT_PROPERTIES);
       yield* Effect.logInfo("Agent scopes are on", {
         slice: AGENT_SLICE,
-        ...agentSliceMemoryLimits(NodeOS.totalmem()),
+        ...agentSliceMemoryLimits(NodeOS.totalmem(), yield* readHasSwap),
         oomPolicy: supportsOomPolicy,
       });
       return {

@@ -57,6 +57,10 @@ it.effect("upgrades the installed fork without replaying its quick action migrat
       [102, "RepairStaleTitleRegeneration"],
       [103, "IssueTrackerBindings"],
       [104, "ActiveShellIndexIndexes"],
+      [105, "BackgroundRecoveryIndexes"],
+      [106, "TurnStartReadIndexes"],
+      [107, "DelegatedTaskReadIndexes"],
+      [108, "ThreadItemCounts"],
     ]);
     assert.deepStrictEqual(yield* sql`SELECT * FROM fork_quick_actions ORDER BY id`, actions);
     assert.deepStrictEqual(

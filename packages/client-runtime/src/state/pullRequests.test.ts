@@ -16,6 +16,7 @@ import {
 import { expect, it } from "@effect/vitest";
 import * as Schema from "effect/Schema";
 import * as Deferred from "effect/Deferred";
+import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
 import * as Effect from "effect/Effect";
@@ -980,18 +981,28 @@ it.effect("keeps concurrent diff file reads on different hosts separate", () =>
       oldPath: "src/app.ts",
       newPath: "src/app.ts",
     } as const;
-    const first = atoms.diffFileContents.run(registry, {
-      environmentId: TARGET.environmentId,
-      input: { ...input, host: "github.com" },
-    });
+    const first = yield* Effect.forkChild(
+      Effect.exit(
+        atoms.diffFileContents.run(registry, {
+          environmentId: TARGET.environmentId,
+          input: { ...input, host: "github.com" },
+        }),
+      ),
+      { startImmediately: true },
+    );
     yield* started.await;
-    const second = atoms.diffFileContents.run(registry, {
-      environmentId: TARGET.environmentId,
-      input: { ...input, host: "github.example.com" },
-    });
+    const second = yield* Effect.forkChild(
+      Effect.exit(
+        atoms.diffFileContents.run(registry, {
+          environmentId: TARGET.environmentId,
+          input: { ...input, host: "github.example.com" },
+        }),
+      ),
+      { startImmediately: true },
+    );
     yield* release.open;
 
-    const results = yield* Effect.promise(() => Promise.all([first, second]));
+    const results = yield* Fiber.joinAll([first, second]);
     expect(results).toMatchObject([
       { _tag: "Success", value: { newContents: "github.com" } },
       { _tag: "Success", value: { newContents: "github.example.com" } },
@@ -1027,22 +1038,32 @@ it.effect.each(["closed", "draft", "permission", "stack", "method"] as const)(
         environmentId: TARGET.environmentId,
         input: { projectId: ProjectId.make("project-1"), repository: "acme/web", number: 1 },
       };
-      const merge = atoms.runAction.run(registry, {
-        ...target,
-        input: {
-          ...target.input,
-          action: "merge",
-          resolveMergeMethod: () => {
-            if (reason === "method") throw new Error("No merge method is available.");
-            return "squash";
-          },
-        },
-      });
-      const close = atoms.runAction.run(registry, {
-        ...target,
-        input: { ...target.input, action: "close" },
-      });
-      const results = yield* Effect.promise(() => Promise.all([merge, close]));
+      const merge = yield* Effect.forkChild(
+        Effect.exit(
+          atoms.runAction.run(registry, {
+            ...target,
+            input: {
+              ...target.input,
+              action: "merge",
+              resolveMergeMethod: () => {
+                if (reason === "method") throw new Error("No merge method is available.");
+                return "squash";
+              },
+            },
+          }),
+        ),
+        { startImmediately: true },
+      );
+      const close = yield* Effect.forkChild(
+        Effect.exit(
+          atoms.runAction.run(registry, {
+            ...target,
+            input: { ...target.input, action: "close" },
+          }),
+        ),
+        { startImmediately: true },
+      );
+      const results = yield* Fiber.joinAll([merge, close]);
       expect(results.map((result) => result._tag)).toEqual(["Failure", "Success"]);
       expect(calls).toEqual(["close"]);
     }),
@@ -1066,7 +1087,7 @@ it.effect.each([
         Effect.sync(() => calls.push(`${input.action}:${input.mergeMethod}`)),
     } as unknown as WsRpcProtocolClient;
     const { atoms, registry } = yield* makeTestRuntime(client);
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         environmentId: TARGET.environmentId,
         input: {
@@ -1104,21 +1125,26 @@ it.effect("keeps a close batch ordered and continues after a refused close", () 
         }),
     } as unknown as WsRpcProtocolClient;
     const { atoms, registry } = yield* makeTestRuntime(client);
-    const batch = [6, 5, 4].map((number) =>
-      atoms.runAction.run(registry, {
-        environmentId: TARGET.environmentId,
-        input: {
-          projectId: ProjectId.make("project-1"),
-          repository: "acme/web",
-          number,
-          action: "close",
-        },
-      }),
+    const batch = yield* Effect.forEach([6, 5, 4], (number) =>
+      Effect.forkChild(
+        Effect.exit(
+          atoms.runAction.run(registry, {
+            environmentId: TARGET.environmentId,
+            input: {
+              projectId: ProjectId.make("project-1"),
+              repository: "acme/web",
+              number,
+              action: "close",
+            },
+          }),
+        ),
+        { startImmediately: true },
+      ),
     );
     yield* Deferred.await(started);
     expect(calls).toEqual([6]);
     yield* Deferred.succeed(release, undefined);
-    const results = yield* Effect.promise(() => Promise.all(batch));
+    const results = yield* Fiber.joinAll(batch);
     expect(results.map((result) => result._tag)).toEqual(["Success", "Failure", "Success"]);
     expect(calls).toEqual([6, 5, 4]);
   }),
@@ -1224,7 +1250,7 @@ it.effect("shows an action's reply in loaded readers and moves list rows without
     }
     reads.length = 0;
 
-    const answer = yield* Effect.promise(() =>
+    const answer = yield* Effect.exit(
       atoms.runAction.run(registry, { ...target, input: { ...target.input, action: "merge" } }),
     );
 
@@ -1290,7 +1316,7 @@ it.effect("keeps an action's reply when a refresh started before the action answ
     registry.refresh(detail);
     yield* Deferred.await(started);
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "merge" },
@@ -1353,7 +1379,7 @@ it.effect("keeps a list read the server's refresh started before the action repl
     });
     yield* Effect.addFinalizer(() => Effect.sync(stop));
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "merge" },
@@ -1425,7 +1451,7 @@ it.effect("restarts a list page read sent while the action was in flight", () =>
       yield* Effect.promise(() => executeAtomQuery(registry, atom));
     }
 
-    const action = yield* Effect.promise(() =>
+    const action = yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "close" },
@@ -1464,7 +1490,7 @@ it.effect("shows a reopen reply at once and re-reads the fields it lacks", () =>
     registry.mount(detail);
     yield* AtomRegistry.getResult(registry, detail, { suspendOnWaiting: true });
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "reopen" },
@@ -1521,7 +1547,7 @@ it.effect("keeps each reader's read time when a reply leaves its checks as they 
       yield* Effect.promise(() => executeAtomQuery(registry, atom));
     }
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "ready" },
@@ -1568,7 +1594,7 @@ it.effect("re-reads an unstamped preview rather than order a reply against it", 
     registry.mount(preview);
     yield* AtomRegistry.getResult(registry, preview, { suspendOnWaiting: true });
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "close" },
@@ -1619,7 +1645,7 @@ it.effect("leaves a loaded list page alone when the reply concerns none of its r
     yield* Effect.addFinalizer(() => Effect.sync(unmount));
     yield* Effect.promise(() => executeAtomQuery(registry, page));
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "ready" },
@@ -1665,7 +1691,7 @@ it.effect("keeps the server's post-commit read when a reopen reply lacks fields"
     });
     yield* Effect.addFinalizer(() => Effect.sync(stop));
 
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, {
         ...target,
         input: { ...actionReference, action: "reopen" },
@@ -1709,7 +1735,7 @@ it.effect.each([
         yield* AtomRegistry.getResult(registry, reader, { suspendOnWaiting: true });
       }
 
-      yield* Effect.promise(() =>
+      yield* Effect.exit(
         atoms.runAction.run(registry, {
           ...target,
           input: { ...actionReference, action: "ready" },
@@ -1765,21 +1791,21 @@ it.effect("keeps hover previews fresh after edits and turns", () =>
     ).toBe(title);
     yield* Effect.promise(() => executeAtomQuery(registry, preview));
     expect(reads).toBe(1);
-    const edited = yield* Effect.promise(() =>
+    const edited = yield* Effect.exit(
       atoms.update.run(registry, { ...target, input: { ...reference, title: "Edited" } }),
     );
-    expect(AsyncResult.isSuccess(edited)).toBe(true);
+    expect(Exit.isSuccess(edited)).toBe(true);
     expect(
       (yield* AtomRegistry.getResult(registry, preview, { suspendOnWaiting: true })).title,
     ).toBe("Edited");
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.runAction.run(registry, { ...target, input: { ...reference, action: "close" } }),
     );
     expect(
       (yield* AtomRegistry.getResult(registry, preview, { suspendOnWaiting: true })).title,
     ).toBe("Closed");
     title = "Refreshed";
-    yield* Effect.promise(() =>
+    yield* Effect.exit(
       atoms.invalidate.run(registry, {
         environmentId: target.environmentId,
         input: { reference },
@@ -1972,13 +1998,13 @@ it.effect("shares close, reopen, and merge with an untouched client's mounted PR
         }),
       ];
       yield* Effect.addFinalizer(() => Effect.sync(() => stops.forEach((stop) => stop())));
-      const result = yield* Effect.promise(() =>
+      const result = yield* Effect.exit(
         writer.atoms.runAction.run(writer.registry, {
           ...target,
           input: { ...target.input, action },
         }),
       );
-      expect(AsyncResult.isSuccess(result)).toBe(true);
+      expect(Exit.isSuccess(result)).toBe(true);
       yield* detailChanged.await;
       yield* summaryChanged.await;
       yield* listChanged.await;
@@ -2149,7 +2175,7 @@ it.effect("updates cached labels after successful edits without rereading the ho
     yield* AtomRegistry.getResult(registry, detail, { suspendOnWaiting: true });
     yield* AtomRegistry.getResult(registry, candidates, { suspendOnWaiting: true });
 
-    const added = yield* Effect.promise(() =>
+    const added = yield* Effect.exit(
       atoms.setLabels.run(registry, {
         ...target,
         input: {
@@ -2162,7 +2188,7 @@ it.effect("updates cached labels after successful edits without rereading the ho
         },
       }),
     );
-    expect(AsyncResult.isSuccess(added)).toBe(true);
+    expect(Exit.isSuccess(added)).toBe(true);
     expect(yield* AtomRegistry.getResult(registry, detail)).toEqual({
       title: "keep this title",
       labels: [existing, addedLabel],
@@ -2177,7 +2203,7 @@ it.effect("updates cached labels after successful edits without rereading the ho
 
     for (const name of ["existing", "new"]) {
       refuse = name === "new";
-      const result = yield* Effect.promise(() =>
+      const result = yield* Effect.exit(
         atoms.setLabels.run(registry, {
           ...target,
           input: { ...target.input, labels: [name], applied: false },
@@ -2318,7 +2344,7 @@ it.effect("publishes the accepted guide run before the follow-up read finishes",
     const query = atoms.reviewGuide(target);
     registry.mount(query);
     yield* AtomRegistry.getResult(registry, query, { suspendOnWaiting: true });
-    const result = yield* Effect.promise(() => atoms.generateReviewGuide.run(registry, target));
+    const result = yield* Effect.exit(atoms.generateReviewGuide.run(registry, target));
     expect(result._tag).toBe("Success");
     yield* refreshStarted.await;
     expect(AsyncResult.getOrElse(registry.get(query), () => null)).toEqual(accepted);
@@ -2397,7 +2423,7 @@ it.effect.each([
       }
       reads = 0;
 
-      const acting = yield* Effect.promise(() =>
+      const acting = yield* Effect.exit(
         atoms.runAction.run(registry, { ...target, input: { ...actionReference, action } }),
       ).pipe(Effect.forkScoped);
       yield* Deferred.await(sent);
@@ -2463,7 +2489,7 @@ it.effect("puts readers back when the host refuses an action, and saves nothing 
         yield* Effect.promise(() => executeAtomQuery(registry, atom));
       }
 
-      const acting = yield* Effect.promise(() =>
+      const acting = yield* Effect.exit(
         atoms.runAction.run(registry, {
           ...target,
           input: { ...actionReference, action: "close" },
@@ -2536,7 +2562,7 @@ it.effect(
         registry.mount(detail);
         yield* Effect.promise(() => executeAtomQuery(registry, detail));
 
-        yield* Effect.promise(() =>
+        yield* Effect.exit(
           atoms.runAction.run(registry, {
             ...target,
             input: { ...actionReference, action: "close" },
@@ -2600,30 +2626,40 @@ it.effect.each([
       registry.mount(list);
       yield* Effect.promise(() => executeAtomQuery(registry, list));
 
-      const closes = [1, 2].map((number) =>
-        atoms.runAction.run(registry, {
-          environmentId: TARGET.environmentId,
-          input: { ...actionReference, number, action: "close" },
-        }),
+      const closes = yield* Effect.forEach([1, 2], (number) =>
+        Effect.forkChild(
+          Effect.exit(
+            atoms.runAction.run(registry, {
+              environmentId: TARGET.environmentId,
+              input: { ...actionReference, number, action: "close" },
+            }),
+          ),
+          { startImmediately: true },
+        ),
       );
       yield* Deferred.await(firstSent);
 
       expect(Option.getOrThrow(AsyncResult.value(registry.get(list))).entries).toEqual([]);
 
-      const reopen = atoms.runAction.run(registry, {
-        environmentId: TARGET.environmentId,
-        input: { ...actionReference, number: 1, action: "reopen" },
-      });
+      const reopen = yield* Effect.forkChild(
+        Effect.exit(
+          atoms.runAction.run(registry, {
+            environmentId: TARGET.environmentId,
+            input: { ...actionReference, number: 1, action: "reopen" },
+          }),
+        ),
+        { startImmediately: true },
+      );
       expect(
         Option.getOrThrow(AsyncResult.value(registry.get(list))).entries.map((row) => row.number),
       ).toEqual([1]);
       yield* Deferred.succeed(release, undefined);
-      yield* Effect.promise(() => Promise.all(closes));
+      yield* Fiber.joinAll(closes);
       expect(
         Option.getOrThrow(AsyncResult.value(registry.get(list))).entries.map((row) => row.number),
       ).toEqual([1]);
       yield* Deferred.succeed(releaseReopen, undefined);
-      expect((yield* Effect.promise(() => reopen))._tag).toBe("Failure");
+      expect((yield* Fiber.join(reopen))._tag).toBe("Failure");
       expect(Option.getOrThrow(AsyncResult.value(registry.get(list))).entries).toEqual([]);
     }),
   ),
@@ -2651,7 +2687,7 @@ it.effect("leaves a merge as it is until the host says what it did", () =>
       registry.mount(detail);
       yield* Effect.promise(() => executeAtomQuery(registry, detail));
 
-      const acting = yield* Effect.promise(() =>
+      const acting = yield* Effect.exit(
         atoms.runAction.run(registry, {
           ...target,
           input: { ...actionReference, action: "merge" },
@@ -2755,7 +2791,7 @@ it.effect.each(["accepted", "refused"] as const)(
           )?.title,
         ];
 
-        const editing = yield* Effect.promise(() =>
+        const editing = yield* Effect.exit(
           atoms.update.run(registry, { ...target, input: { ...actionReference, title: "Edited" } }),
         ).pipe(Effect.forkScoped);
         yield* Deferred.await(sent);
@@ -2833,7 +2869,7 @@ it.effect.each(["accepted", "refused"] as const)(
           yield* Effect.promise(() => executeAtomQuery(registry, atom));
         }
 
-        const labelling = yield* Effect.promise(() =>
+        const labelling = yield* Effect.exit(
           atoms.setLabels.run(registry, {
             ...target,
             input: { ...actionReference, labels: ["new"], applied: true },
@@ -2908,7 +2944,7 @@ it.effect.each(["loaded", "loading"] as const)(
         }
         yield* Deferred.await(readStarted);
 
-        yield* Effect.promise(() =>
+        yield* Effect.exit(
           atoms.setLabels.run(registry, {
             ...target,
             input: { ...actionReference, labels: ["new"], applied: true },
@@ -2955,7 +2991,7 @@ it.effect.each(["accepted", "refused"] as const)(
         yield* Effect.promise(() => executeAtomQuery(registry, checks));
         const state = () => Option.getOrThrow(AsyncResult.value(registry.get(checks)))?.state;
 
-        const acting = yield* Effect.promise(() =>
+        const acting = yield* Effect.exit(
           atoms.runAction.run(registry, {
             ...target,
             input: { ...actionReference, action: "close" },

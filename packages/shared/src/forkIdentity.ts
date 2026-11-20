@@ -4,6 +4,8 @@ export const FORK_IDENTITY = {
   repository: "joaoheusi/t3code",
   upstreamCommit: "0e7346ccd9427c06161e222319e718e6bd70887f",
   version: "0.1.0-j4.15",
+  /** The upstream release this fork tracks; upstream compatibility ranges match against it. */
+  upstreamVersion: "0.1.10",
   /** Desktop OS identity, distinct from upstream so both apps install side by side. */
   desktop: {
     production: {
