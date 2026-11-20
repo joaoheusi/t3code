@@ -45,6 +45,7 @@ vi.mock(import("../state/environments"), async (original) => {
 const entities = vi.hoisted(() => ({
   projects: [] as ReadonlyArray<Project>,
   threads: [] as ReadonlyArray<Thread>,
+  activeThread: undefined as Thread | undefined,
   delegatedUnderParent: new Set<string>() as ReadonlySet<string>,
   handleNewThread: vi.fn(async () => undefined),
 }));
@@ -78,6 +79,7 @@ vi.mock("../hooks/useHandleNewThread", async (original) => {
     ...actual,
     useHandleNewThread: () => ({
       ...actual.useHandleNewThread(),
+      activeThread: entities.activeThread,
       handleNewThread: entities.handleNewThread,
     }),
   };
@@ -97,6 +99,7 @@ function setup(seed: Partial<typeof entities> = {}) {
   useCommandPaletteStore.setState(useCommandPaletteStore.getInitialState(), true);
   entities.projects = seed.projects ?? [];
   entities.threads = seed.threads ?? [];
+  entities.activeThread = seed.activeThread;
   entities.delegatedUnderParent = seed.delegatedUnderParent ?? new Set();
   entities.handleNewThread.mockClear();
 }
@@ -299,6 +302,45 @@ describe("CommandPalette open intents", () => {
     await page.getByRole("option", { name: /Acme/ }).first().click();
 
     await vi.waitFor(() => expect(screen.router?.state.location.pathname).toBe("/local/parent"));
+  });
+
+  it("starts a thread in an open copy when the current project's copy is archived", async () => {
+    const repositoryIdentity = {
+      canonicalKey: "github.com/example/acme",
+      locator: {
+        source: "git-remote" as const,
+        remoteName: "origin",
+        remoteUrl: "https://github.com/example/acme.git",
+      },
+    };
+    const archived = {
+      ...makeProject("acme"),
+      repositoryIdentity,
+      archivedAt: "2026-03-02T00:00:00.000Z",
+    };
+    const open = {
+      ...makeProject("acme"),
+      environmentId: EnvironmentId.make("remote"),
+      repositoryIdentity,
+    };
+    setup({
+      projects: [archived, open],
+      activeThread: makeThreadFixture({
+        environmentId: archived.environmentId,
+        projectId: archived.id,
+      }),
+    });
+    await using _screen = await render(<CommandPalette>{null}</CommandPalette>);
+
+    openCommandPalette({ open: "new-thread-in" });
+    await page.getByRole("option", { name: /acme/i }).click();
+
+    await vi.waitFor(() =>
+      expect(entities.handleNewThread).toHaveBeenCalledWith({
+        environmentId: open.environmentId,
+        projectId: open.id,
+      }),
+    );
   });
 
   it("numbers filtered New thread in... rows from 1 and jumps to them", async () => {
