@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 108 }, (_, index) => index + 1),
+        Array.from({ length: 109 }, (_, index) => index + 1),
       );
     }),
   );
@@ -80,6 +80,7 @@ layer("055_OrchestrationV2", (it) => {
         [106, "TurnStartReadIndexes"],
         [107, "DelegatedTaskReadIndexes"],
         [108, "ThreadItemCounts"],
+        [109, "IssueTrackerAdditionalScopes"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -154,6 +155,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 106, name: "TurnStartReadIndexes" },
         { migration_id: 107, name: "DelegatedTaskReadIndexes" },
         { migration_id: 108, name: "ThreadItemCounts" },
+        { migration_id: 109, name: "IssueTrackerAdditionalScopes" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -278,6 +280,7 @@ layer("055_OrchestrationV2", (it) => {
         [106, "TurnStartReadIndexes"],
         [107, "DelegatedTaskReadIndexes"],
         [108, "ThreadItemCounts"],
+        [109, "IssueTrackerAdditionalScopes"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;
