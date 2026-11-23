@@ -461,6 +461,22 @@ const make = Effect.gen(function* () {
           (markers.has("head") && markers.has("objects") && markers.has("refs"))
         );
       };
+      // A gitfile whose target is missing holds no repository data. An unreadable one counts.
+      // Parsed and joined as Git does: only trailing CR/LF is stripped, and `..` is left to the
+      // kernel so a symlinked parent resolves the same way.
+      const isDanglingGitfile = Effect.fn("storageCleanup.isDanglingGitfile")(
+        function* (directory: string, name: string) {
+          const gitPath = path.join(directory, name);
+          if ((yield* fs.lstat(gitPath)).type !== "File") return false;
+          const contents = (yield* fs.readFileString(gitPath)).replace(/[\r\n]+$/u, "");
+          if (!contents.startsWith("gitdir: ") || contents.length === 8) return false;
+          const gitDir = contents.slice(8);
+          // Statting a network path makes Windows sign in to its host with the user's credentials.
+          if (isNetworkPath(gitDir)) return false;
+          return !(yield* fs.exists(path.isAbsolute(gitDir) ? gitDir : `${directory}/${gitDir}`));
+        },
+        Effect.orElseSucceed(() => false),
+      );
       const pending = [root];
       let entries = 1;
       let bytes = 0;
@@ -504,8 +520,15 @@ const make = Effect.gen(function* () {
         );
         for (const result of inspected) {
           if (result === null) return incomplete;
-          if (inspectRepositories && isNestedRepository(result.target, result.names))
-            return { bytes: null, reason: "contains a nested Git repository" };
+          if (inspectRepositories && isNestedRepository(result.target, result.names)) {
+            const names = yield* Effect.filter(result.names, (name) =>
+              name.toLowerCase() === ".git"
+                ? Effect.map(isDanglingGitfile(result.target, name), (dangling) => !dangling)
+                : Effect.succeed(true),
+            );
+            if (isNestedRepository(result.target, names))
+              return { bytes: null, reason: "contains a nested Git repository" };
+          }
           bytes += result.bytes;
           entries += result.names.length;
           if (entries > 2_000_000) return incomplete;
@@ -1526,8 +1549,6 @@ const make = Effect.gen(function* () {
           if (!deleted) yield* followBranch(worktreePath);
           return keep("repository or branch changed");
         }
-        const changes = yield* localChangesReason(worktreePath, settings);
-        if (changes !== null) return keep(changes);
         const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
         if (!eligible) {
           const repositoryCwd = path.resolve(project.workspaceRoot);
@@ -1622,7 +1643,7 @@ const make = Effect.gen(function* () {
           if (!eligible && remote !== null && settings.worktreeOnMerge && thread.branch !== null) {
             const pullRequest = yield* gitManager.branchPullRequest(
               { cwd: worktreePath, branch: thread.branch },
-              { refresh: true },
+              { refresh: true, includeHeadRepository: true },
             );
             eligible = storageCleanupPullRequestMerged(pullRequest, {
               branch: thread.branch,
@@ -1636,6 +1657,9 @@ const make = Effect.gen(function* () {
             return keep(integrated ? notDueReason : "has commits beyond the project branch");
         }
         if (!eligible) return keep(notDueReason);
+        // A full status walks the whole checkout, so only a removable worktree pays for it.
+        const changes = yield* localChangesReason(worktreePath, settings);
+        if (changes !== null) return keep(changes);
         const blocked = yield* blockedSinceCheck();
         if (blocked !== null) return keep(blocked);
         // Inspect before the lease; provider startup must not wait for directory traversal.

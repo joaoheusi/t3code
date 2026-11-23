@@ -117,6 +117,7 @@ import Migration0105 from "./Migrations/105_BackgroundRecoveryIndexes.ts";
 import Migration0106 from "./Migrations/106_TurnStartReadIndexes.ts";
 import Migration0107 from "./Migrations/107_DelegatedTaskReadIndexes.ts";
 import Migration0108 from "./Migrations/108_ThreadItemCounts.ts";
+import Migration0109 from "./Migrations/109_IssueTrackerAdditionalScopes.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -248,6 +249,8 @@ export const migrationEntries = [
   [106, "TurnStartReadIndexes", Migration0106],
   [107, "DelegatedTaskReadIndexes", Migration0107],
   [108, "ThreadItemCounts", Migration0108],
+  // Upstream 103, appended after the fork's recorded ids.
+  [109, "IssueTrackerAdditionalScopes", Migration0109],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
