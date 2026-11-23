@@ -76,6 +76,33 @@ export class WorkspaceRepositories extends Context.Service<
     readonly validate: (workspace: ThreadWorkspace) => Effect.Effect<void, WorkspaceError>;
   }
 >()("t3/workspace/WorkspaceRepositories") {}
+const operationFolderName = (operationId: string) => Buffer.from(operationId).toString("hex");
+/** A workspace operation's new worktrees live in this folder below the managed worktrees root. */
+export const workspaceOperationDirectory = (
+  path: Pick<Path.Path, "join">,
+  worktreesDir: string,
+  operationId: string,
+) => path.join(worktreesDir, "workspace", operationFolderName(operationId));
+/** Written into the repository before a new worktree is added, so cleanup can verify ownership. */
+export const WorkspaceOwnershipMarker = Schema.Struct({
+  operationId: Schema.String,
+  bindingId: Schema.String,
+  commonDir: Schema.String,
+  path: Schema.String,
+  branch: Schema.String,
+  commit: Schema.String,
+});
+const encodeOwnershipMarker = Schema.encodeEffect(Schema.fromJsonString(WorkspaceOwnershipMarker));
+export const workspaceOwnershipMarkerPath = (
+  path: Pick<Path.Path, "join">,
+  binding: Pick<WorkspaceBinding, "commonDir" | "id">,
+  operationId: string,
+) =>
+  path.join(
+    binding.commonDir,
+    "j4code-workspace-ownership",
+    `${operationFolderName(operationId)}-${binding.id}.json`,
+  );
 export function parseWorkspaceChanges(output: string) {
   const records = output.split("\0");
   const changes: NonNullable<WorkspaceRepository["changes"]>[number][] = [];
@@ -102,7 +129,8 @@ export function parseWorkspaceChanges(output: string) {
 }
 const make = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
-  const { basename, isAbsolute, join, relative, resolve } = yield* Path.Path;
+  const pathService = yield* Path.Path;
+  const { basename, isAbsolute, join, relative, resolve } = pathService;
   const platform = yield* HostProcess.Platform;
   const home = yield* HostProcess.HomeDirectory;
   const permits = yield* Semaphore.make(4);
@@ -312,9 +340,13 @@ const make = Effect.gen(function* () {
       const ids = new Set<string>();
       const identities = new Set<string>();
       const bindings: WorkspaceBinding[] = [];
-      const safeOperation = Buffer.from(operationId).toString("hex");
-      if (safeOperation.length > 256) return yield* fail("The operation ID is too long.");
-      const operationDir = join(config.worktreesDir, "workspace", safeOperation);
+      if (operationFolderName(operationId).length > 256)
+        return yield* fail("The operation ID is too long.");
+      const operationDir = workspaceOperationDirectory(
+        pathService,
+        config.worktreesDir,
+        operationId,
+      );
       const rootPath = input.root ? yield* canonical(input.root.sourcePath) : null;
       // A mirror keeps the folder's name, so paths the agent reads still look like the project.
       const mirrorPath =
@@ -472,14 +504,6 @@ const make = Effect.gen(function* () {
       };
     },
   );
-  const markerSchema = Schema.Struct({
-    operationId: Schema.String,
-    bindingId: Schema.String,
-    commonDir: Schema.String,
-    path: Schema.String,
-    branch: Schema.String,
-    commit: Schema.String,
-  });
   const prepare: WorkspaceRepositories["Service"]["prepare"] = Effect.fn(
     "WorkspaceRepositories.prepare",
   )(function* (binding, operationId) {
@@ -489,11 +513,7 @@ const make = Effect.gen(function* () {
         return yield* fail(
           "The repository moved or its Git identity changed. Reconfigure this binding.",
         );
-      const marker = join(
-        binding.commonDir,
-        "j4code-workspace-ownership",
-        `${Buffer.from(operationId).toString("hex")}-${binding.id}.json`,
-      );
+      const marker = workspaceOwnershipMarkerPath(pathService, binding, operationId);
       const ownership = {
         operationId,
         bindingId: binding.id,
@@ -502,11 +522,11 @@ const make = Effect.gen(function* () {
         branch: binding.branch!,
         commit: binding.baseCommit,
       };
-      const text = yield* Schema.encodeEffect(Schema.fromJsonString(markerSchema))(ownership).pipe(
+      const text = yield* encodeOwnershipMarker(ownership).pipe(
         Effect.mapError(() => fail("Could not encode worktree ownership.")),
       );
       yield* fs
-        .makeDirectory(join(binding.commonDir, "j4code-workspace-ownership"), { recursive: true })
+        .makeDirectory(pathService.dirname(marker), { recursive: true })
         .pipe(Effect.mapError(() => fail("Could not record worktree ownership.")));
       const existing = yield* fs.readFileString(marker).pipe(Effect.orElseSucceed(() => null));
       if (existing !== null && existing !== text)
