@@ -248,6 +248,9 @@ to **Uncommitted changes**, which protects tracked edits and untracked files but
 files such as `.env` and build output. **Any local files** also protects ignored files other than
 `node_modules`. **Edited tracked files** protects only tracked edits and allows untracked and
 ignored files to be deleted. Branches and thread history stay; starting another turn recreates the checkout.
+A folder workspace's repositories are removed together, and only when each one is safe: no local
+changes, and its commit is on a remote or merged. A detached checkout needs its commit on a remote.
+Turns cannot continue in a removed folder workspace or detached checkout.
 Merge cleanup requires a merged pull request whose commits are included in the remote default
 branch. A squash or rebase merge on GitHub also counts when the pull request targeted the default
 branch and the worktree is still at the pull request's last commit.
@@ -259,7 +262,10 @@ Existing prompts for deleting a worktree manually remain available when this pol
 
 Choose **Delete now** to run the enabled rules immediately. The latest results show which
 worktrees were removed or kept and why, plus any failures.
-Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
+Results also list folders in the worktree folder that no thread uses, with their sizes. When
+**Delete worktrees with deleted threads** and an inactive-days limit are both on, cleanup removes
+such a folder if it is a linked worktree past that limit, with no local changes and its commit on
+a remote. It never removes other folders, so remove them manually if you want.
 
 The inactive and settled retention periods also apply to the folders of
 [threads without a project](./thread-sidebar.md#start-without-a-project). Those folders are not

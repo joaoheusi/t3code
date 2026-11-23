@@ -49,6 +49,10 @@ import * as TerminalManager from "./terminal/Manager.ts";
 import { CodexProviderCapabilitiesV2 } from "./orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { ServerActivation } from "./serverActivation.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
+import {
+  workspaceOperationDirectory,
+  workspaceOwnershipMarkerPath,
+} from "./workspace/WorkspaceRepositories.ts";
 import { describe, expect, it } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -433,6 +437,7 @@ const cleanupFixture = (
     let sessionLiveChecks = 0;
     let onLiveCheck: Effect.Effect<void> = Effect.void;
     let outboxStatus: string | null = null;
+    let pullRequest: GitManager.GitBranchPullRequest | null = null;
     let scheduledThreadIds: string[] = [];
     let fullStatusCalls = 0;
     let branchReadStderr: string | null = null;
@@ -553,12 +558,23 @@ const cleanupFixture = (
               const query = strings.join("");
               if (query.includes("retained_checkpoint_threads")) return [];
               if (query.includes("json_extract(payload_json,'$.workspace')"))
-                return yield* Effect.forEach(workspaces, (workspace) =>
-                  encodeCleanupThread({
-                    ...shell({ id: ThreadId.make("workspace-owner") }),
-                    lastVisitedAt: null,
-                    workspace,
-                  }).pipe(Effect.map((payload_json) => ({ payload_json }))),
+                return yield* Effect.forEach(
+                  [
+                    ...[...threads, ...deletedThreads].filter(
+                      (thread) => thread.workspace !== undefined,
+                    ),
+                    ...workspaces.map((workspace) => ({
+                      ...shell({ id: ThreadId.make("workspace-owner") }),
+                      workspace,
+                    })),
+                  ],
+                  (thread) =>
+                    encodeCleanupThread({ ...thread, lastVisitedAt: null }).pipe(
+                      Effect.map((payload_json) => ({
+                        payload_json,
+                        deleted: deletedThreads.includes(thread) ? 1 : 0,
+                      })),
+                    ),
                 );
               return openSessionCwd !== null && query.includes("projection_provider_sessions")
                 ? [
@@ -596,6 +612,7 @@ const cleanupFixture = (
       ),
       Effect.provideService(GitManager.GitManager, {
         invalidateStatus: () => Effect.void,
+        branchPullRequest: () => Effect.sync(() => pullRequest),
       } as unknown as GitManager.GitManager["Service"]),
       Effect.provideService(TerminalManager.TerminalManager, {
         subscribeMetadata: (
@@ -664,6 +681,9 @@ const cleanupFixture = (
       },
       setOutboxStatus: (status: string | null) => {
         outboxStatus = status;
+      },
+      setPullRequest: (next: GitManager.GitBranchPullRequest | null) => {
+        pullRequest = next;
       },
       setScheduledThreadIds: (next: string[]) => {
         scheduledThreadIds = next;
@@ -1589,7 +1609,7 @@ describe("subagent worktree ownership", () => {
             ? "Thread is running or has pending work"
             : shared
               ? "Shared by 2 threads"
-              : scenario === "null-branch" || scenario === "stale-branch"
+              : ["null-branch", "stale-branch", "branchless"].includes(scenario)
                 ? "A subagent thread's branch differs from this worktree's branch"
                 : scenario === "recent-activity"
                   ? "Settled for 2 of 8 days"
@@ -1597,9 +1617,7 @@ describe("subagent worktree ownership", () => {
                     ? "Inactive for 2 of 8 days"
                     : ["recent-grace", "recent-settle", "child-settled-now"].includes(scenario)
                       ? "Settled moments ago"
-                      : scenario === "branchless"
-                        ? "Thread has no branch"
-                        : "Not settled",
+                      : "Not settled",
       });
     }).pipe(Effect.provide(cleanupTestLayer)),
   );
@@ -2249,7 +2267,7 @@ describe("orphan worktree reports", () => {
             {
               kind: "worktree",
               outcome: "kept",
-              reason: "No thread uses this worktree",
+              reason: "No thread uses this worktree; inactive for 0 of 8 days",
               path: orphan,
               projectPath: null,
               threadId: null,
@@ -2469,7 +2487,12 @@ describe("orphan worktree reports", () => {
           report.entries
             .map((entry) => ({ path: entry.path, reason: entry.reason }))
             .sort((left, right) => String(left.path).localeCompare(String(right.path))),
-        ).toEqual(worktrees.map((path) => ({ path, reason: "No thread uses this worktree" })));
+        ).toEqual(
+          worktrees.map((path) => ({
+            path,
+            reason: "No thread uses this worktree; inactive for 0 of 8 days",
+          })),
+        );
       }),
     ),
   );
@@ -4130,3 +4153,347 @@ it.effect("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+type CleanupFixture = Effect.Success<ReturnType<typeof cleanupFixture>>;
+// Pushes main to a new bare remote, so commits on main are on a remote-tracking ref.
+const pushToRemote = Effect.fnUntraced(function* (fixture: CleanupFixture, repository: string) {
+  const remote = yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+  yield* fixture.command(remote, ["init", "--bare", "-b", "main"]);
+  yield* fixture.command(repository, ["remote", "add", "origin", remote]);
+  yield* fixture.command(repository, ["push", "origin", "main"]);
+});
+// Backdates a worktree folder and its reflog past the orphan grace and age rules.
+const ageWorktree = Effect.fnUntraced(function* (fixture: CleanupFixture, worktree: string) {
+  const gitDir = (yield* fixture.command(worktree, [
+    "rev-parse",
+    "--absolute-git-dir",
+  ])).stdout.trim();
+  for (const target of [`${gitDir}/logs/HEAD`, `${gitDir}/HEAD`, worktree])
+    yield* fixture.fs.utimes(target, 1, 1);
+});
+// A mirrored folder workspace with new worktrees of two repositories, as preparation leaves it.
+const folderWorkspaceFixture = Effect.fnUntraced(function* (
+  fixture: CleanupFixture,
+  shape: "mirror" | "repositories" = "mirror",
+) {
+  const operationId = CommandId.make("folder-workspace");
+  const folder = workspaceOperationDirectory(NodePath, fixture.config.worktreesDir, operationId);
+  const mirror = `${folder}/project`;
+  const second = yield* fixture.fs.realPath(
+    yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-repo-web-" }),
+  );
+  yield* fixture.command(second, ["init", "-b", "main"]);
+  yield* fixture.command(second, ["config", "user.email", "cleanup@example.test"]);
+  yield* fixture.command(second, ["config", "user.name", "Cleanup test"]);
+  yield* fixture.fs.writeFileString(`${second}/tracked.txt`, "original\n");
+  yield* fixture.command(second, ["add", "."]);
+  yield* fixture.command(second, ["commit", "-m", "initial"]);
+  const bindings = [];
+  for (const [id, label, source] of [
+    ["api", "API", fixture.repo],
+    ["web", "Web", second],
+  ] as const) {
+    yield* pushToRemote(fixture, source);
+    const checkoutPath = shape === "mirror" ? `${mirror}/${id}` : `${folder}/${id}`;
+    const commonDir = `${source}/.git`;
+    yield* fixture.command(source, ["worktree", "add", "-b", `ws-${id}`, checkoutPath, "main"]);
+    const head = (yield* fixture.command(checkoutPath, ["rev-parse", "HEAD"])).stdout.trim();
+    const binding = {
+      id,
+      label,
+      mode: "new-worktree" as const,
+      sourcePath: source,
+      commonDir,
+      checkoutPath,
+      branch: `ws-${id}`,
+      head,
+      baseCommit: head,
+      state: "ready" as const,
+      owned: true,
+      error: null,
+    };
+    const marker = workspaceOwnershipMarkerPath(NodePath, binding, operationId);
+    yield* fixture.fs.makeDirectory(NodePath.dirname(marker), { recursive: true });
+    yield* fixture.fs.writeFileString(
+      marker,
+      JSON.stringify({
+        operationId,
+        bindingId: id,
+        commonDir,
+        path: checkoutPath,
+        branch: binding.branch,
+        commit: head,
+      }),
+    );
+    bindings.push(binding);
+  }
+  const workspace: ThreadWorkspace = {
+    schemaVersion: 1,
+    revision: 1,
+    operationId,
+    state: "ready",
+    primaryBindingId: "api",
+    bindings,
+    ...(shape === "mirror"
+      ? { root: { sourcePath: fixture.repo, mode: "mirror" as const, checkoutPath: mirror } }
+      : {}),
+  };
+  // A repository set without a root works in its primary checkout, on its branch.
+  fixture.setThreads([
+    shape === "mirror"
+      ? shell({ branch: null, worktreePath: mirror, workspace })
+      : shell({ branch: "ws-api", worktreePath: bindings[0]!.checkoutPath, workspace }),
+  ]);
+  return { folder, mirror, workspace, checkouts: bindings.map((binding) => binding.checkoutPath) };
+});
+
+describe("storage cleanup of checkouts without a thread branch", () => {
+  it.live("removes a folder workspace's worktrees and then its empty folder", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+          {
+            path: folder,
+            outcome: "removed",
+            reason: expect.stringMatching(/^Inactive for \d+ days$/),
+          },
+        ]);
+        expect(yield* fixture.fs.exists(folder)).toBe(false);
+        for (const checkout of checkouts)
+          expect((yield* fixture.command(fixture.repo, ["worktree", "list"])).stdout).not.toContain(
+            checkout,
+          );
+      }),
+    ),
+  );
+
+  it.live("keeps the whole folder workspace when one repository has local changes", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+        yield* fixture.fs.writeFileString(`${checkouts[1]}/tracked.txt`, "dirty\n");
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+          { path: folder, outcome: "kept", reason: "Web: has uncommitted changes (1 file)" },
+        ]);
+        for (const checkout of checkouts) expect(yield* fixture.fs.exists(checkout)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("keeps a folder workspace whose repository has unpushed commits", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+        yield* fixture.command(checkouts[0]!, ["commit", "--allow-empty", "-m", "unpushed"]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+          {
+            path: folder,
+            outcome: "kept",
+            reason: "API: has commits not on a remote-tracking ref",
+          },
+        ]);
+        for (const checkout of checkouts) expect(yield* fixture.fs.exists(checkout)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("does not report a running workspace's other repositories as orphans", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { workspace, checkouts } = yield* folderWorkspaceFixture(fixture, "repositories");
+        fixture.setThreads([
+          shell({ branch: "ws-api", worktreePath: checkouts[0]!, workspace, status: "running" }),
+        ]);
+        // As a project, the second repository lists its worktree for orphan discovery.
+        fixture.setProjectRoots([fixture.repo, workspace.bindings[1]!.sourcePath]);
+        yield* ageWorktree(fixture, checkouts[1]!);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.threadId === null)).toEqual([]);
+        expect(yield* fixture.fs.exists(checkouts[1]!)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live.each(["live subagent", "deleted subagent", "deleted owner and subagent"] as const)(
+    "removes a repository set's worktrees with its %s",
+    (variant) =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          const fixture = yield* cleanupFixture();
+          const { folder, workspace, checkouts } = yield* folderWorkspaceFixture(
+            fixture,
+            "repositories",
+          );
+          const owner = shell({ branch: "ws-api", worktreePath: checkouts[0]!, workspace });
+          // Subagents carry a copy of their parent's repository set.
+          const subagent = shell({
+            ...owner,
+            id: ThreadId.make("subagent"),
+            lineage: {
+              rootThreadId: owner.id,
+              parentThreadId: owner.id,
+              relationshipToParent: "subagent",
+            },
+          });
+          const deleted = (thread: OrchestrationV2ThreadShell) => ({ ...thread, deletedAt: at(0) });
+          fixture.setThreads(
+            variant === "live subagent"
+              ? [owner, subagent]
+              : variant === "deleted subagent"
+                ? [owner]
+                : [],
+          );
+          fixture.setDeletedThreads(
+            variant === "live subagent"
+              ? []
+              : variant === "deleted subagent"
+                ? [deleted(subagent)]
+                : [deleted(owner), deleted(subagent)],
+          );
+          const report = yield* fixture.service.runNow;
+          expect(report.entries.filter((entry) => entry.outcome !== "kept")).toMatchObject([
+            { path: folder, outcome: "removed" },
+          ]);
+          expect(yield* fixture.fs.exists(folder)).toBe(false);
+        }),
+      ),
+  );
+
+  it.live.each(["age", "merge"] as const)(
+    "removes a repository whose squash-merged head is on no remote ref (%s rule)",
+    (rule) =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          // The merge rule also lets an aged repository whose head only a merged pull request holds go.
+          const fixture = yield* cleanupFixture({
+            ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+            worktreeAfterDays: rule === "age" ? 8 : null,
+            worktreeOnMerge: true,
+          });
+          const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+          yield* fixture.command(checkouts[0]!, ["commit", "--allow-empty", "-m", "squashed"]);
+          const head = (yield* fixture.command(checkouts[0]!, ["rev-parse", "HEAD"])).stdout.trim();
+          fixture.setPullRequest({
+            state: "merged",
+            headRef: "ws-api",
+            baseRef: "main",
+            headSha: head,
+          } as GitManager.GitBranchPullRequest);
+          const report = yield* fixture.service.runNow;
+          expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+            {
+              path: folder,
+              outcome: "removed",
+              reason:
+                rule === "age"
+                  ? expect.stringMatching(/^Inactive for \d+ days$/)
+                  : "Pull request was merged",
+            },
+          ]);
+          expect(yield* fixture.fs.exists(folder)).toBe(false);
+        }),
+      ),
+  );
+
+  it.live.each(["live", "deleted"] as const)(
+    "removes an old detached worktree whose commit is pushed (%s thread)",
+    (state) =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          const fixture = yield* cleanupFixture();
+          yield* pushToRemote(fixture, fixture.repo);
+          yield* fixture.command(fixture.worktree, ["checkout", "--detach", "main"]);
+          const thread = shell({ branch: null, worktreePath: fixture.worktree });
+          if (state === "deleted") {
+            fixture.setThreads([]);
+            fixture.setDeletedThreads([{ ...thread, deletedAt: at(0) }]);
+          } else fixture.setThreads([thread]);
+          const report = yield* fixture.service.runNow;
+          expect(report.entries[0]).toMatchObject({
+            outcome: "removed",
+            reason:
+              state === "deleted"
+                ? "Thread was deleted"
+                : expect.stringMatching(/^Inactive for \d+ days$/),
+          });
+          expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+        }),
+      ),
+  );
+
+  it.live("keeps a detached worktree whose commit is only on a local branch", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        yield* pushToRemote(fixture, fixture.repo);
+        yield* fixture.command(fixture.worktree, ["commit", "--allow-empty", "-m", "unpushed"]);
+        yield* fixture.command(fixture.worktree, ["checkout", "--detach"]);
+        fixture.setThreads([shell({ branch: null, worktreePath: fixture.worktree })]);
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Has commits not on a remote-tracking ref",
+        });
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live.each([
+    ["clean", "removed", /^No thread uses this worktree; inactive for \d+ days$/],
+    [
+      "unpushed",
+      "kept",
+      /^No thread uses this worktree; has commits not on a remote-tracking ref$/,
+    ],
+    ["dirty", "kept", /^No thread uses this worktree; has uncommitted changes \(1 file\)$/],
+  ] as const)("handles an old orphan linked worktree that is %s", ([state, outcome, reason]) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setThreads([]);
+        yield* pushToRemote(fixture, fixture.repo);
+        const orphan = `${fixture.config.worktreesDir}/repository/orphan`;
+        yield* fixture.command(fixture.repo, ["worktree", "add", "-b", "orphan", orphan, "main"]);
+        if (state === "unpushed")
+          yield* fixture.command(orphan, ["commit", "--allow-empty", "-m", "unpushed"]);
+        if (state === "dirty")
+          yield* fixture.fs.writeFileString(`${orphan}/tracked.txt`, "dirty\n");
+        yield* ageWorktree(fixture, orphan);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.path === orphan)).toEqual([
+          expect.objectContaining({ outcome, reason: expect.stringMatching(reason) }),
+        ]);
+        expect(yield* fixture.fs.exists(orphan)).toBe(outcome === "kept");
+      }),
+    ),
+  );
+
+  it.live("keeps an old orphan folder that is not a git worktree", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        fixture.setThreads([]);
+        const folder = `${fixture.config.worktreesDir}/bresson/.cargo`;
+        yield* fixture.fs.makeDirectory(folder, { recursive: true });
+        yield* fixture.fs.writeFileString(`${folder}/config.toml`, "[build]\n");
+        yield* fixture.fs.utimes(folder, 1, 1);
+        expect((yield* fixture.service.runNow).entries).toEqual([
+          expect.objectContaining({
+            path: folder,
+            outcome: "kept",
+            reason: "No thread uses this folder, and it isn't a git worktree",
+          }),
+        ]);
+        expect(yield* fixture.fs.readFileString(`${folder}/config.toml`)).toBe("[build]\n");
+      }),
+    ),
+  );
+});
