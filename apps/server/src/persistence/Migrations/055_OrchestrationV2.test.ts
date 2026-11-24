@@ -13,7 +13,7 @@ layer("055_OrchestrationV2", (it) => {
     Effect.sync(() => {
       assert.deepStrictEqual(
         migrationEntries.map(([id]) => id),
-        Array.from({ length: 109 }, (_, index) => index + 1),
+        Array.from({ length: 117 }, (_, index) => index + 1),
       );
     }),
   );
@@ -81,6 +81,14 @@ layer("055_OrchestrationV2", (it) => {
         [107, "DelegatedTaskReadIndexes"],
         [108, "ThreadItemCounts"],
         [109, "IssueTrackerAdditionalScopes"],
+        [110, "ProjectionProjectsTrackedFolders"],
+        [111, "TaskFolders"],
+        [112, "WorktreePathKeyIndex"],
+        [113, "DeferredSlashCommandIndex"],
+        [114, "AgentFeedback"],
+        [115, "IssueTrackerAccounts"],
+        [116, "Workflows"],
+        [117, "SupersededRunAttemptIndex"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -156,6 +164,14 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 107, name: "DelegatedTaskReadIndexes" },
         { migration_id: 108, name: "ThreadItemCounts" },
         { migration_id: 109, name: "IssueTrackerAdditionalScopes" },
+        { migration_id: 110, name: "ProjectionProjectsTrackedFolders" },
+        { migration_id: 111, name: "TaskFolders" },
+        { migration_id: 112, name: "WorktreePathKeyIndex" },
+        { migration_id: 113, name: "DeferredSlashCommandIndex" },
+        { migration_id: 114, name: "AgentFeedback" },
+        { migration_id: 115, name: "IssueTrackerAccounts" },
+        { migration_id: 116, name: "Workflows" },
+        { migration_id: 117, name: "SupersededRunAttemptIndex" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`
@@ -281,6 +297,14 @@ layer("055_OrchestrationV2", (it) => {
         [107, "DelegatedTaskReadIndexes"],
         [108, "ThreadItemCounts"],
         [109, "IssueTrackerAdditionalScopes"],
+        [110, "ProjectionProjectsTrackedFolders"],
+        [111, "TaskFolders"],
+        [112, "WorktreePathKeyIndex"],
+        [113, "DeferredSlashCommandIndex"],
+        [114, "AgentFeedback"],
+        [115, "IssueTrackerAccounts"],
+        [116, "Workflows"],
+        [117, "SupersededRunAttemptIndex"],
       ]);
       yield* sql`INSERT INTO pull_request_review_guides (host, repository, number, guide_json)
         VALUES ('github.com', 'owner/repo', 1, '{}')`;

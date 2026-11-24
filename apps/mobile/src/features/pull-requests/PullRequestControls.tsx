@@ -120,6 +120,8 @@ export function PullRequestActionToolbar(props: {
   readonly pr: PullRequestDetail | null;
   readonly params: PullRequestParams;
   readonly filePath?: string;
+  /** The head of the diff on screen, when the screen shows one. */
+  readonly reviewedHeadSha?: string | undefined;
   /** The screen's actions menu; the vertical bar shows it here with the toolbar's tools. */
   readonly menu: AppBarMenu;
   readonly onOpenFiles?: () => void;
@@ -157,7 +159,11 @@ export function PullRequestActionToolbar(props: {
       action.task !== "ask" && !(BASE_UPDATE_TASKS as readonly string[]).includes(action.task),
   );
   const open = (mode: "review" | "comment") =>
-    navigation.navigate("PullRequestReview", { ...props.params, mode });
+    navigation.navigate("PullRequestReview", {
+      ...props.params,
+      mode,
+      reviewedHeadSha: props.reviewedHeadSha ?? props.pr?.headSha,
+    });
   const primaryPress = () => (pendingReview ? open("review") : agent.start("ask"));
   const threadMenuItems = agent.threadActions("ask");
   const openFiles =

@@ -6,7 +6,7 @@ import { AppBar } from "../../components/ui/AppBar";
 import type { AppBarMenuItem } from "../../components/ui/AppBar.types";
 import type { ReviewSectionItem } from "./reviewModel";
 import { useReviewHeaderPresentation } from "./useReviewHeaderPresentation";
-import { T, useGT } from "gt-react-native";
+import { T, useGT, Var } from "gt-react-native";
 import {
   memo,
   type Ref,
@@ -73,6 +73,8 @@ function ReviewHeader(
     readonly sectionMenu: ReturnType<typeof buildReviewSectionMenu>;
     readonly showSectionToolbar: boolean;
     readonly showChangedFilesToggle: boolean;
+    readonly selectedRepositoryKey: string | null;
+    readonly onSelectRepository: (key: string | null) => void;
     readonly fileFilter: ReturnType<typeof usePullRequestFileFilter>;
     readonly onSelectSection: (sectionId: string) => void;
     readonly onReturnToThread: () => void;
@@ -160,6 +162,29 @@ function ReviewHeader(
                             selected: section.id === props.selectedSection?.id,
                             onPress: () => props.onSelectSection(section.id),
                           })),
+                        },
+                      ]
+                    : []),
+                  ...(props.selectedSection?.repositoryGroups
+                    ? [
+                        {
+                          id: "repositories",
+                          title: gt("Repository"),
+                          items: [
+                            {
+                              id: "repository:all",
+                              title: gt("All repositories"),
+                              selected: props.selectedRepositoryKey === null,
+                              onPress: () => props.onSelectRepository(null),
+                            },
+                            ...props.selectedSection.repositoryGroups.map((group) => ({
+                              id: `repository:${group.key}`,
+                              title: group.name,
+                              subtitle: group.relativePath || undefined,
+                              selected: group.key === props.selectedRepositoryKey,
+                              onPress: () => props.onSelectRepository(group.key),
+                            })),
+                          ],
                         },
                       ]
                     : []),
@@ -420,6 +445,15 @@ export function ReviewSheet(props: ReviewSheetProps) {
     sections: reviewSections,
     selectedSectionId: selectedSection?.id ?? null,
   });
+  const [repositorySelection, setRepositorySelection] = useState<{
+    readonly sectionId: string;
+    readonly key: string;
+  } | null>(null);
+  const repositoryGroups = selectedSection?.repositoryGroups;
+  const selectedRepository =
+    repositorySelection !== null && repositorySelection.sectionId === selectedSection?.id
+      ? (repositoryGroups?.find((group) => group.key === repositorySelection.key) ?? null)
+      : null;
   const {
     headerDiffSummary,
     nativeReviewDiffData,
@@ -427,6 +461,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     allFiles,
     fileFilter,
     pendingReviewCommentCount,
+    sectionFiles,
     loadVisibleFile,
     isPending: areFilePatchesPending,
   } = useReviewDiffData({
@@ -436,6 +471,13 @@ export function ReviewSheet(props: ReviewSheetProps) {
     selectedSection,
     draftMessage,
     draftContext,
+    repositoryFilter:
+      selectedRepository === null || repositoryGroups === undefined
+        ? null
+        : {
+            folder: selectedRepository.relativePath,
+            folders: repositoryGroups.map((group) => group.relativePath).join("\0"),
+          },
   });
   // Expo may return null before registration or in older binaries; use the fallback.
   const NativeReviewDiffView = resolveNativeReviewDiffView();
@@ -467,6 +509,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     threadKey: reviewCache.threadKey,
     sectionId: selectedSection?.id ?? null,
     files: allFiles,
+    sectionFiles,
     cachedExpandedFileIds: selectedSection?.id
       ? reviewCache.expandedFileIdsBySection[selectedSection.id]
       : undefined,
@@ -481,9 +524,12 @@ export function ReviewSheet(props: ReviewSheetProps) {
     selectedSection,
     nativeReviewDiffData,
   });
+  const reviewContentKey = selectedSection
+    ? `${selectedSection.id}:${selectedRepository?.key ?? ""}`
+    : null;
   const nativeBridge = useNativeReviewDiffBridge({
     threadKey: reviewCache.threadKey,
-    sectionId: selectedSection?.id ?? null,
+    sectionId: reviewContentKey,
     diff: selectedSection?.diff,
     data: nativeReviewDiffData,
     collapsedFileIds,
@@ -510,6 +556,13 @@ export function ReviewSheet(props: ReviewSheetProps) {
     },
     [nativeBridge, showcaseReviewKey],
   );
+
+  const handleSelectRepository = (key: string | null) => {
+    commentSelection.clearSelection();
+    setRepositorySelection(
+      key === null || !selectedSection ? null : { sectionId: selectedSection.id, key },
+    );
+  };
 
   const handleSelectFile = useCallback(
     (fileId: string | null) => {
@@ -594,6 +647,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   }, [environmentId, navigation, selectDetail, threadId]);
   const androidHeaderSubtitle = [
     selectedSection?.title,
+    selectedRepository?.name,
     headerDiffSummary.additions,
     headerDiffSummary.deletions,
   ]
@@ -626,6 +680,19 @@ export function ReviewSheet(props: ReviewSheetProps) {
       children.push(<ReviewNotice key="review-notice" notice={parsedDiffNotice} />);
     }
 
+    if (selectedSection?.unlistedRepositories) {
+      children.push(
+        <ContentBand key="review-unlisted-repositories">
+          <Text className="text-xs leading-normal text-foreground-muted">
+            <T>
+              This turn's changes in <Var>{selectedSection.unlistedRepositories.join(", ")}</Var>{" "}
+              cannot be listed.
+            </T>
+          </Text>
+        </ContentBand>,
+      );
+    }
+
     if (allFilesHidden) {
       children.push(
         <EmptyState
@@ -645,8 +712,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
     }
 
     return <>{children}</>;
-  }, [allFilesHidden, error, fileFilter.showAll, gt, parsedDiffNotice]);
+  }, [allFilesHidden, error, fileFilter.showAll, gt, parsedDiffNotice, selectedSection]);
   const headerSubtitle = [
+    selectedRepository?.name,
     headerDiffSummary.additions,
     headerDiffSummary.deletions,
     pendingReviewCommentCount > 0
@@ -678,6 +746,8 @@ export function ReviewSheet(props: ReviewSheetProps) {
         selectedSection={selectedSection}
         showSectionToolbar={showSectionToolbar}
         showChangedFilesToggle={showChangedFilesToggle}
+        selectedRepositoryKey={selectedRepository?.key ?? null}
+        onSelectRepository={handleSelectRepository}
         fileFilter={fileFilter}
         onRefresh={handlePullToRefresh}
         onSelectSection={selectSection}
@@ -732,7 +802,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
                     appearanceScheme={selectedTheme}
                     collapsedFileIdsJson={nativeBridge.collapsedFileIdsJson}
                     collapsedCommentIdsJson={nativeBridge.collapsedCommentIdsJson}
-                    contentResetKey={`${reviewCache.threadKey}:${selectedSection.id}`}
+                    contentResetKey={`${reviewCache.threadKey}:${reviewContentKey}`}
                     contentWidth={NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
                     contentInsetTop={listHeader ? 0 : topContentInset}
                     contentInsetBottom={bottomContentInset}
