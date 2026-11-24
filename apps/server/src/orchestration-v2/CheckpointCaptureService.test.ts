@@ -1512,6 +1512,8 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
               Layer.mock(ThreadManagement.ThreadManagementService)({
                 getCheckpointContext: (id) =>
                   projectionStore.getCheckpointContext(id).pipe(Effect.orDie),
+                // The fork's multi-repository diff guard reads the shell; these threads have none.
+                getThreadShell: () => Effect.succeed(null),
               }),
             ),
           ),
