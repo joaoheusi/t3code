@@ -437,7 +437,11 @@ const cleanupFixture = (
     let sessionLiveChecks = 0;
     let onLiveCheck: Effect.Effect<void> = Effect.void;
     let outboxStatus: string | null = null;
-    let pullRequest: GitManager.GitBranchPullRequest | null = null;
+    let pullRequestFor: (input: {
+      readonly cwd: string;
+      readonly branch: string;
+    }) => GitManager.GitBranchPullRequest | null = () => null;
+    let failRemovalOf: string | null = null;
     let scheduledThreadIds: string[] = [];
     let fullStatusCalls = 0;
     let branchReadStderr: string | null = null;
@@ -462,6 +466,16 @@ const cleanupFixture = (
               (input.args.includes("remove") || input.args.includes("--porcelain"))
             )
               yield* fs.writeFileString(`${worktree}/tracked.txt`, "late edit\n");
+            if (
+              failRemovalOf !== null &&
+              input.args.includes("remove") &&
+              input.args.includes(failRemovalOf)
+            )
+              // Git's own refusal, for a path it does not know.
+              return yield* git.execute({
+                ...input,
+                args: ["worktree", "remove", `${failRemovalOf}-missing`],
+              });
             const result = yield* git.execute(input);
             return branchReadStderr !== null && input.operation === "StorageCleanup.branchChanged"
               ? { ...result, stderr: branchReadStderr }
@@ -612,7 +626,8 @@ const cleanupFixture = (
       ),
       Effect.provideService(GitManager.GitManager, {
         invalidateStatus: () => Effect.void,
-        branchPullRequest: () => Effect.sync(() => pullRequest),
+        branchPullRequest: (input: { readonly cwd: string; readonly branch: string }) =>
+          Effect.sync(() => pullRequestFor(input)),
       } as unknown as GitManager.GitManager["Service"]),
       Effect.provideService(TerminalManager.TerminalManager, {
         subscribeMetadata: (
@@ -682,8 +697,11 @@ const cleanupFixture = (
       setOutboxStatus: (status: string | null) => {
         outboxStatus = status;
       },
-      setPullRequest: (next: GitManager.GitBranchPullRequest | null) => {
-        pullRequest = next;
+      setPullRequests: (next: typeof pullRequestFor) => {
+        pullRequestFor = next;
+      },
+      failRemovalOf: (worktreePath: string) => {
+        failRemovalOf = worktreePath;
       },
       setScheduledThreadIds: (next: string[]) => {
         scheduledThreadIds = next;
@@ -2267,7 +2285,7 @@ describe("orphan worktree reports", () => {
             {
               kind: "worktree",
               outcome: "kept",
-              reason: "No thread uses this worktree; inactive for 0 of 8 days",
+              reason: "No thread uses this worktree",
               path: orphan,
               projectPath: null,
               threadId: null,
@@ -2490,7 +2508,7 @@ describe("orphan worktree reports", () => {
         ).toEqual(
           worktrees.map((path) => ({
             path,
-            reason: "No thread uses this worktree; inactive for 0 of 8 days",
+            reason: "No thread uses this worktree",
           })),
         );
       }),
@@ -4052,9 +4070,9 @@ describe("storage cleanup reports and local file policies", () => {
   it.live("reports git failures without aborting the remaining categories", () =>
     runCleanupTest(
       Effect.gen(function* () {
-        const { service, worktree, command, enableFiles } = yield* cleanupFixture();
+        const { service, worktree, enableFiles, failRemovalOf } = yield* cleanupFixture();
         enableFiles();
-        yield* command(worktree, ["worktree", "lock", worktree]);
+        failRemovalOf(worktree);
         const report = yield* service.runNow;
         expect(report.entries[0]).toMatchObject({ outcome: "failed" });
         expect(report.entries[0]?.reason).toContain("git worktree remove: fatal:");
@@ -4175,6 +4193,7 @@ const ageWorktree = Effect.fnUntraced(function* (fixture: CleanupFixture, worktr
 const folderWorkspaceFixture = Effect.fnUntraced(function* (
   fixture: CleanupFixture,
   shape: "mirror" | "repositories" = "mirror",
+  remotes = true,
 ) {
   const operationId = CommandId.make("folder-workspace");
   const folder = workspaceOperationDirectory(NodePath, fixture.config.worktreesDir, operationId);
@@ -4193,7 +4212,7 @@ const folderWorkspaceFixture = Effect.fnUntraced(function* (
     ["api", "API", fixture.repo],
     ["web", "Web", second],
   ] as const) {
-    yield* pushToRemote(fixture, source);
+    if (remotes) yield* pushToRemote(fixture, source);
     const checkoutPath = shape === "mirror" ? `${mirror}/${id}` : `${folder}/${id}`;
     const commonDir = `${source}/.git`;
     yield* fixture.command(source, ["worktree", "add", "-b", `ws-${id}`, checkoutPath, "main"]);
@@ -4252,7 +4271,7 @@ describe("storage cleanup of checkouts without a thread branch", () => {
     runCleanupTest(
       Effect.gen(function* () {
         const fixture = yield* cleanupFixture();
-        const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+        const { folder, workspace } = yield* folderWorkspaceFixture(fixture);
         const report = yield* fixture.service.runNow;
         expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
           {
@@ -4262,10 +4281,11 @@ describe("storage cleanup of checkouts without a thread branch", () => {
           },
         ]);
         expect(yield* fixture.fs.exists(folder)).toBe(false);
-        for (const checkout of checkouts)
-          expect((yield* fixture.command(fixture.repo, ["worktree", "list"])).stdout).not.toContain(
-            checkout,
-          );
+        // Each repository keeps its own worktree registrations.
+        for (const binding of workspace.bindings)
+          expect(
+            (yield* fixture.command(binding.sourcePath, ["worktree", "list"])).stdout,
+          ).not.toContain(binding.checkoutPath);
       }),
     ),
   );
@@ -4367,8 +4387,8 @@ describe("storage cleanup of checkouts without a thread branch", () => {
       ),
   );
 
-  it.live.each(["age", "merge"] as const)(
-    "removes a repository whose squash-merged head is on no remote ref (%s rule)",
+  it.live.each(["age", "merge", "merge without a pull request for Web"] as const)(
+    "handles a repository whose squash-merged head is on no remote ref (%s rule)",
     (rule) =>
       runCleanupTest(
         Effect.gen(function* () {
@@ -4380,27 +4400,130 @@ describe("storage cleanup of checkouts without a thread branch", () => {
           });
           const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
           yield* fixture.command(checkouts[0]!, ["commit", "--allow-empty", "-m", "squashed"]);
-          const head = (yield* fixture.command(checkouts[0]!, ["rev-parse", "HEAD"])).stdout.trim();
-          fixture.setPullRequest({
-            state: "merged",
-            headRef: "ws-api",
-            baseRef: "main",
-            headSha: head,
-          } as GitManager.GitBranchPullRequest);
+          const heads = new Map<string, string>();
+          for (const checkout of checkouts)
+            heads.set(
+              checkout,
+              (yield* fixture.command(checkout, ["rev-parse", "HEAD"])).stdout.trim(),
+            );
+          // Each repository's pull request names its own branch and head.
+          fixture.setPullRequests(({ cwd, branch }) =>
+            rule === "merge without a pull request for Web" && cwd === checkouts[1]
+              ? null
+              : ({
+                  state: "merged",
+                  headRef: branch,
+                  baseRef: "main",
+                  headSha: heads.get(cwd) ?? null,
+                } as GitManager.GitBranchPullRequest),
+          );
           const report = yield* fixture.service.runNow;
+          const kept = rule === "merge without a pull request for Web";
           expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
             {
               path: folder,
-              outcome: "removed",
-              reason:
-                rule === "age"
+              outcome: kept ? "kept" : "removed",
+              reason: kept
+                ? "Web: not merged"
+                : rule === "age"
                   ? expect.stringMatching(/^Inactive for \d+ days$/)
                   : "Pull request was merged",
             },
           ]);
-          expect(yield* fixture.fs.exists(folder)).toBe(false);
+          expect(yield* fixture.fs.exists(checkouts[0]!)).toBe(kept);
         }),
       ),
+  );
+
+  it.live(
+    "keeps a workspace repository with no remote even when its head is on the local main",
+    () =>
+      runCleanupTest(
+        Effect.gen(function* () {
+          const fixture = yield* cleanupFixture({
+            ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+            worktreeAfterDays: 8,
+            worktreeUnchanged: true,
+          });
+          const { folder, mirror, workspace, checkouts } = yield* folderWorkspaceFixture(
+            fixture,
+            "mirror",
+            false,
+          );
+          fixture.setThreads([
+            shell({ branch: null, worktreePath: mirror, workspace, archivedAt: at(-DAY_MS) }),
+          ]);
+          const report = yield* fixture.service.runNow;
+          expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+            {
+              path: folder,
+              outcome: "kept",
+              reason: "API: has commits not on a remote-tracking ref",
+            },
+          ]);
+          for (const checkout of checkouts) expect(yield* fixture.fs.exists(checkout)).toBe(true);
+        }),
+      ),
+  );
+
+  it.live("keeps a detached checkout with no remote even when its head is on the local main", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture({
+          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+          worktreeUnchanged: true,
+        });
+        yield* fixture.command(fixture.worktree, ["checkout", "--detach", "main"]);
+        fixture.setThreads([
+          shell({ branch: null, worktreePath: fixture.worktree, archivedAt: at(-DAY_MS) }),
+        ]);
+        expect((yield* fixture.service.runNow).entries[0]).toMatchObject({
+          outcome: "kept",
+          reason: "Has commits not on a remote-tracking ref",
+        });
+        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("keeps every workspace checkout when a later one is locked", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { folder, workspace, checkouts } = yield* folderWorkspaceFixture(fixture);
+        yield* fixture.command(workspace.bindings[1]!.sourcePath, [
+          "worktree",
+          "lock",
+          checkouts[1]!,
+        ]);
+        const report = yield* fixture.service.runNow;
+        expect(report.entries.filter((entry) => entry.threadId !== null)).toMatchObject([
+          { path: folder, outcome: "kept", reason: "Web: worktree is locked" },
+        ]);
+        for (const checkout of checkouts) expect(yield* fixture.fs.exists(checkout)).toBe(true);
+      }),
+    ),
+  );
+
+  it.live("reports removed checkouts and their bytes when a later removal fails", () =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* cleanupFixture();
+        const { folder, checkouts } = yield* folderWorkspaceFixture(fixture);
+        fixture.failRemovalOf(checkouts[1]!);
+        const report = yield* fixture.service.runNow;
+        const [entry] = report.entries.filter((candidate) => candidate.threadId !== null);
+        expect(entry).toMatchObject({
+          path: folder,
+          outcome: "failed",
+          reason: expect.stringMatching(/^Web: .+ \(removed API\)$/),
+        });
+        expect(entry?.bytes).toBeGreaterThan(0);
+        expect(report.bytesFreed).toBe(entry?.bytes);
+        expect(yield* fixture.fs.exists(checkouts[0]!)).toBe(false);
+        expect(yield* fixture.fs.exists(checkouts[1]!)).toBe(true);
+      }),
+    ),
   );
 
   it.live.each(["live", "deleted"] as const)(
@@ -4446,15 +4569,8 @@ describe("storage cleanup of checkouts without a thread branch", () => {
     ),
   );
 
-  it.live.each([
-    ["clean", "removed", /^No thread uses this worktree; inactive for \d+ days$/],
-    [
-      "unpushed",
-      "kept",
-      /^No thread uses this worktree; has commits not on a remote-tracking ref$/,
-    ],
-    ["dirty", "kept", /^No thread uses this worktree; has uncommitted changes \(1 file\)$/],
-  ] as const)("handles an old orphan linked worktree that is %s", ([state, outcome, reason]) =>
+  // Another T3 home may share the worktree folder, and nothing here proves this home owns it.
+  it.live("keeps an old, clean, pushed orphan linked worktree for manual review", () =>
     runCleanupTest(
       Effect.gen(function* () {
         const fixture = yield* cleanupFixture();
@@ -4462,16 +4578,12 @@ describe("storage cleanup of checkouts without a thread branch", () => {
         yield* pushToRemote(fixture, fixture.repo);
         const orphan = `${fixture.config.worktreesDir}/repository/orphan`;
         yield* fixture.command(fixture.repo, ["worktree", "add", "-b", "orphan", orphan, "main"]);
-        if (state === "unpushed")
-          yield* fixture.command(orphan, ["commit", "--allow-empty", "-m", "unpushed"]);
-        if (state === "dirty")
-          yield* fixture.fs.writeFileString(`${orphan}/tracked.txt`, "dirty\n");
         yield* ageWorktree(fixture, orphan);
         const report = yield* fixture.service.runNow;
         expect(report.entries.filter((entry) => entry.path === orphan)).toEqual([
-          expect.objectContaining({ outcome, reason: expect.stringMatching(reason) }),
+          expect.objectContaining({ outcome: "kept", reason: "No thread uses this worktree" }),
         ]);
-        expect(yield* fixture.fs.exists(orphan)).toBe(outcome === "kept");
+        expect(yield* fixture.fs.exists(orphan)).toBe(true);
       }),
     ),
   );
