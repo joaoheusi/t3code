@@ -26,6 +26,7 @@ const LISTED_OVERLAY_ROUTES: ReadonlySet<string> = new Set([
   "NewTaskBranch",
   "NewTaskRepositories",
   "NewTaskRepositoryBranch",
+  "NewTaskWorktreeRepositories",
   "SettingsLegal",
   "SettingsAuth",
   "SettingsWaitlist",
@@ -40,6 +41,7 @@ const LISTED_OVERLAY_ROUTES: ReadonlySet<string> = new Set([
   "ThreadDevicePreview",
   "ThreadBrowserPreview",
   "ThreadSettingsSheet",
+  "WorkflowStep",
 ]);
 
 // Every route whose `presentation` is a sheet or modal, read from the root stack's config once.

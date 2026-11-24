@@ -366,6 +366,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       // A session that loaded an over-deep tool schema fails every later model call, even after resume.
       const retiredNativeSessions = new Set<string>();
       let thread: OrchestrationV2ProviderThread | undefined;
+      let hasT3Mcp = false;
       let active: ActiveTurn | undefined;
       let lastProviderTurn: OrchestrationV2ProviderTurn | undefined;
       let latestSubscriptionUsage: MuseSubscriptionUsage | undefined;
@@ -2048,6 +2049,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                 createdAt,
                 updatedAt: createdAt,
               };
+          hasT3Mcp = mcpSession !== undefined;
           session = {
             ...session,
             model: result.session.modelId ?? args.modelSelection.model,
@@ -2219,11 +2221,17 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               turnInput.runtimePolicy.additionalDirectories ?? [],
               resolveWorkspaceRoot,
             );
+            const extraWorkspaceRoots = yield* Effect.forEach(
+              turnInput.runtimePolicy.workspace?.extraRoots ?? [],
+              (root) => museCanonicalPath(root).pipe(Effect.flatMap(museWorkspaceRoot)),
+            );
             const instructions =
               buildRuntimeInstructions({
+                agentFeedback: hasT3Mcp ? (turnInput.agentFeedback ?? "off") : "off",
                 harness: "Muse Code",
                 model: session.model ?? undefined,
                 reasoningEffort: effort,
+                runtimePolicy: turnInput.runtimePolicy,
               }) +
               (turnInput.runtimePolicy.workspaceInstructions === undefined
                 ? ""
@@ -2239,8 +2247,10 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
                   ...parts,
                 ],
                 displayText: turnInput.message.text || "Image attachment",
-                // Resumed sessions retain old roots; pin edits to the current checkout.
-                workspaceRoots: [...new Set([workspaceRoot, ...extraRoots])],
+                // Resumed sessions retain old roots; pin edits to the current checkouts.
+                workspaceRoots: [
+                  ...new Set([workspaceRoot, ...extraRoots, ...extraWorkspaceRoots]),
+                ],
                 ifBusy: "queue",
                 ...(effort ? { reasoningEffort: effort } : {}),
               },
@@ -2281,7 +2291,6 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         const now = yield* DateTime.now;
         return {
           providerThread: current,
-          providerTurns: [],
           messages: items.flatMap((item): OrchestrationV2ConversationMessage[] =>
             item.kind === "agentMessage" || item.kind === "userMessage"
               ? [

@@ -337,7 +337,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
         : true,
     repositories:
       task.workspaceStrategy.type === "worktree"
-        ? (task.workspaceStrategy.repositories ?? null)
+        ? (task.workspaceStrategy.repositories?.map((repository) => repository.path) ?? null)
         : null,
     runtimeMode: task.runtimeMode,
   };

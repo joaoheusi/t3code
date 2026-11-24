@@ -118,6 +118,12 @@ import {
 } from "./new-task-flow-state";
 import { usePrepareTriage } from "../triage/usePrepareTriage";
 import { useEnvironmentShellReadiness } from "../../state/shell";
+import { useWorktreeRepositoryChoices } from "../../state/use-worktree-repository-choices";
+import {
+  resolveWorktreeRepositorySelection,
+  type WorktreeRepositoryChoice,
+  type WorktreeRepositorySelection,
+} from "@t3tools/client-runtime/state/thread-repositories";
 import { useConnectionsReady, useWorkspaceEnvironments } from "../../state/workspace";
 
 type WorkspaceMode = "local" | "worktree";
@@ -155,6 +161,12 @@ type NewTaskFlowContextValue = {
   /** False for threads without a project: their folder has no branch or worktree. */
   readonly isGitRepo: boolean;
   readonly isGitRepoKnown: boolean;
+  /** The project tracks a Git folder, so a worktree is possible without a Git project folder. */
+  readonly tracksGitRepositories: boolean;
+  /** The project's tracked Git folders; null while they load. */
+  readonly worktreeRepositoryChoices: ReadonlyArray<WorktreeRepositoryChoice> | null;
+  readonly worktreeRepositorySelection: WorktreeRepositorySelection;
+  readonly setWorktreeRepositories: (repositoryPaths: ReadonlyArray<string>) => void;
   readonly canChooseWorkspace: boolean;
   readonly repositoryFolder: boolean;
   readonly workspaceSelectionLocked: boolean;
@@ -419,6 +431,8 @@ export function NewTaskFlowProvider(
   });
   const knownIsGitRepo = projectGitStatus.data?.isRepo ?? projectBranches.data?.isRepo ?? null;
   const isGitRepo = knownIsGitRepo ?? true;
+  const { choices: worktreeRepositoryChoices, tracksGitRepositories } =
+    useWorktreeRepositoryChoices(props.active === false ? null : selectedProject);
   const projectSettings = projectDefaults.projectSettings;
   const canChooseWorkspace = !isScratchDraft;
   const defaultWorkspaceMode: WorkspaceMode = projectDefaults.defaultWorkspaceMode;
@@ -441,6 +455,7 @@ export function NewTaskFlowProvider(
       defaultModeSettled: projectDefaults.defaultWorkspaceModeSettled,
       isGitRepo,
       isRepositoryFolder: repositoryFolder,
+      tracksGitRepositories,
       branches: allBranchRefs,
       projectCwd: selectedProject?.workspaceRoot ?? null,
     });
@@ -461,6 +476,11 @@ export function NewTaskFlowProvider(
   // only the explicit flag is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
+  const draftRepositories = workspaceSelection.repositories;
+  const worktreeRepositorySelection = resolveWorktreeRepositorySelection(
+    { choices: worktreeRepositoryChoices, chosen: draftRepositories },
+    messages,
+  );
   const startFromOrigin =
     (isGitRepo || repositoryFolder) &&
     (draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin);
@@ -733,6 +753,7 @@ export function NewTaskFlowProvider(
         branch: mode === "local" ? localSelection.branch : selectedBranchName,
         worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+        ...(draftRepositories !== undefined ? { repositories: draftRepositories } : {}),
         // Refs have not named the current branch yet; the selection follows it.
         ...(mode === "local" && localSelection.awaitsCurrentBranch
           ? { followsCurrentCheckout: true }
@@ -754,11 +775,8 @@ export function NewTaskFlowProvider(
           projectCwd: selectedProject.workspaceRoot,
           branchWorktreePath: branch.worktreePath,
         }),
-        ...(draftStartFromOrigin !== undefined
-          ? {
-              startFromOrigin: draftStartFromOrigin,
-            }
-          : {}),
+        ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+        ...(draftRepositories !== undefined ? { repositories: draftRepositories } : {}),
       },
     });
   };
@@ -772,12 +790,28 @@ export function NewTaskFlowProvider(
         branch: selectedBranchName,
         worktreePath: selectedWorktreePath,
         startFromOrigin: value,
+        ...(draftRepositories !== undefined ? { repositories: draftRepositories } : {}),
         ...(selectedBranchName === null && workspaceSelection.followsCurrentCheckout
           ? { followsCurrentCheckout: true }
           : {}),
       },
     });
   };
+
+  const setWorktreeRepositories = (repositoryPaths: ReadonlyArray<string>) => {
+    if (!selectedProjectDraftKey) {
+      return;
+    }
+    // The stored selection, not the resolved one: a derived base branch stays derived.
+    const stored = canChooseWorkspace ? selectedProjectDraft.workspaceSelection : undefined;
+    updateComposerDraftSettings(selectedProjectDraftKey, {
+      workspaceSelection: {
+        ...(stored ?? { mode: workspaceMode, branch: null, worktreePath: null }),
+        repositories: repositoryPaths,
+      },
+    });
+  };
+
   const refreshBranches = branchState.refresh;
   const loadBranches = () => {
     if (!selectedProject) {
@@ -793,6 +827,20 @@ export function NewTaskFlowProvider(
         runtimeMode: value,
       });
     }
+  };
+
+  const worktreeCreation = (chosen: ReadonlyArray<string> | undefined) => {
+    const repositories = resolveWorktreeRepositorySelection({
+      choices: worktreeRepositoryChoices,
+      chosen,
+    }).strategyRepositories;
+    return {
+      ...(repositories === undefined
+        ? {}
+        : { repositories: repositories.map((repository) => repository.path) }),
+      // A fork repository folder prepares its own repositories.
+      ...(isGitRepo || repositoryFolder ? {} : { startsFromRepositoryDefaults: true }),
+    };
   };
 
   const buildPendingTaskMessage = (
@@ -897,6 +945,7 @@ export function NewTaskFlowProvider(
               startFromOrigin: true,
             }
           : {}),
+        ...(mode === "worktree" ? worktreeCreation(workspaceSelection.repositories) : {}),
       },
       createdAt: metadata.createdAt,
     };
@@ -975,6 +1024,10 @@ export function NewTaskFlowProvider(
       projectDefaults.defaultWorkspaceModeSettled,
     isGitRepo,
     isGitRepoKnown: knownIsGitRepo !== null,
+    tracksGitRepositories,
+    worktreeRepositoryChoices,
+    worktreeRepositorySelection,
+    setWorktreeRepositories,
     canChooseWorkspace,
     repositoryFolder,
     workspaceSelectionLocked,

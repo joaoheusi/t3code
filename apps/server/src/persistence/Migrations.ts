@@ -118,6 +118,14 @@ import Migration0106 from "./Migrations/106_TurnStartReadIndexes.ts";
 import Migration0107 from "./Migrations/107_DelegatedTaskReadIndexes.ts";
 import Migration0108 from "./Migrations/108_ThreadItemCounts.ts";
 import Migration0109 from "./Migrations/109_IssueTrackerAdditionalScopes.ts";
+import Migration0110 from "./Migrations/110_ProjectionProjectsTrackedFolders.ts";
+import Migration0111 from "./Migrations/111_TaskFolders.ts";
+import Migration0112 from "./Migrations/112_WorktreePathKeyIndex.ts";
+import Migration0113 from "./Migrations/113_DeferredSlashCommandIndex.ts";
+import Migration0114 from "./Migrations/114_AgentFeedback.ts";
+import Migration0115 from "./Migrations/115_IssueTrackerAccounts.ts";
+import Migration0116 from "./Migrations/116_Workflows.ts";
+import Migration0117 from "./Migrations/117_SupersededRunAttemptIndex.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -251,6 +259,15 @@ export const migrationEntries = [
   [108, "ThreadItemCounts", Migration0108],
   // Upstream 103, appended after the fork's recorded ids.
   [109, "IssueTrackerAdditionalScopes", Migration0109],
+  // Upstream 104-111, appended after the fork's recorded ids.
+  [110, "ProjectionProjectsTrackedFolders", Migration0110],
+  [111, "TaskFolders", Migration0111],
+  [112, "WorktreePathKeyIndex", Migration0112],
+  [113, "DeferredSlashCommandIndex", Migration0113],
+  [114, "AgentFeedback", Migration0114],
+  [115, "IssueTrackerAccounts", Migration0115],
+  [116, "Workflows", Migration0116],
+  [117, "SupersededRunAttemptIndex", Migration0117],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

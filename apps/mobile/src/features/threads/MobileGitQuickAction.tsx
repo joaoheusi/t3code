@@ -306,25 +306,35 @@ export function MobileGitQuickAction(props: {
             }
           }
           if (!mounted.current) return;
+          // Results are shown on the thread they belong to; without one only the sheet reports.
+          const threadRef = thread
+            ? { environmentId: target.environmentId, threadId: thread.id }
+            : null;
           if (failures.length === 0 && single) {
-            showGitActionResult(
-              list.length === 1
-                ? { type: "success", title: single.title, description: single.description }
-                : {
-                    type: "success",
-                    title: `Synced ${list.length} repositories`,
-                    description: succeeded.join("\n"),
-                  },
-            );
+            if (threadRef) {
+              showGitActionResult({
+                threadRef,
+                ...(list.length === 1
+                  ? { type: "success", title: single.title, description: single.description }
+                  : {
+                      type: "success",
+                      title: `Synced ${list.length} repositories`,
+                      description: succeeded.join("\n"),
+                    }),
+              });
+            }
             props.onClose();
           } else if (list.length === 1) {
             setError(failures[0] ?? "Git action failed.");
           } else {
-            showGitActionResult({
-              type: "error",
-              title: `${succeeded.length} of ${list.length} repositories synced`,
-              description: [...succeeded, ...failures].join("\n"),
-            });
+            if (threadRef) {
+              showGitActionResult({
+                threadRef,
+                type: "error",
+                title: `${succeeded.length} of ${list.length} repositories synced`,
+                description: [...succeeded, ...failures].join("\n"),
+              });
+            }
             // Succeeded repositories are done; keep only the failed ones selected for a retry.
             setSelectedCwds((previous) => previous.filter((cwd) => !succeededCwds.includes(cwd)));
             setError(failures.join("\n"));
